@@ -3,6 +3,7 @@ import Foundation
 
 final class TextDropView: NSView {
     var onTextDrop: ((String) -> Void)?
+    var onFileDrop: ((URL) -> Void)?
     private let titleLabel = NSTextField(labelWithString: "Glisse du texte ici")
     private let hintLabel = NSTextField(labelWithString: "URL sur l'icone Dock: direct. Texte selectionne: glisse dans cette zone.")
 
@@ -58,17 +59,36 @@ final class TextDropView: NSView {
         layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         let pasteboard = sender.draggingPasteboard
 
-        if let text = pasteboard.string(forType: .string), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if let fileText = pasteboard.string(forType: .fileURL),
+           let fileURL = URL(string: fileText) {
+            onFileDrop?(fileURL)
+            return true
+        }
+
+        if let urlText = pasteboard.string(forType: .URL),
+           let url = URL(string: urlText),
+           url.isFileURL {
+            onFileDrop?(url)
+            return true
+        }
+
+        if let text = normalizedDragString(pasteboard.string(forType: .string)) {
             onTextDrop?(text)
             return true
         }
 
-        if let urlText = pasteboard.string(forType: .URL), !urlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if let urlText = normalizedDragString(pasteboard.string(forType: .URL)) {
             onTextDrop?(urlText)
             return true
         }
 
         return false
+    }
+
+    private func normalizedDragString(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty, trimmed != "(null)" else { return nil }
+        return trimmed
     }
 }
 
@@ -119,6 +139,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let dropView = TextDropView(frame: NSRect(x: 0, y: 0, width: 460, height: 220))
         dropView.onTextDrop = { [weak self] text in
             self?.sendTodo(text)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                NSApp.terminate(nil)
+            }
+        }
+        dropView.onFileDrop = { [weak self] url in
+            if let droppedText = self?.extractTodoText(from: url) {
+                self?.sendTodo(droppedText)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    NSApp.terminate(nil)
+                }
+            }
         }
 
         let window = NSWindow(
@@ -158,6 +189,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return normalizedTodoText(value)
         }
 
+        if ext == "rtf",
+           let attributed = try? NSAttributedString(url: fileURL, options: [:], documentAttributes: nil) {
+            return normalizedTodoText(attributed.string)
+        }
+
         if let text = try? String(contentsOf: fileURL, encoding: .utf8) {
             return normalizedTodoText(text)
         }
@@ -185,7 +221,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func sendTodo(_ todoText: String) {
         let trimmed = todoText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty, trimmed != "(null)" else { return }
         let task = "- [ ] \(trimmed) #capture"
         let target = "noteplan://x-callback-url/addText?noteDate=today&text=\(encode(task))&mode=append&openNote=yes"
         if let url = URL(string: target) {
