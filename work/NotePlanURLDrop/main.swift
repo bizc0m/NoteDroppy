@@ -5,8 +5,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var didReceiveOpenEvent = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        log("launch")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
             if !self.didReceiveOpenEvent {
+                self.log("quit:no-open-event")
                 NSApp.terminate(nil)
             }
         }
@@ -14,12 +16,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func application(_ sender: NSApplication, openFiles filenames: [String]) {
         didReceiveOpenEvent = true
+        log("openFiles:\(filenames.joined(separator: " | "))")
         var handled = false
         for filename in filenames {
             let fileURL = URL(fileURLWithPath: filename)
             if let droppedText = extractTodoText(from: fileURL) {
+                log("openFiles:extracted:\(droppedText)")
                 sendTodo(droppedText)
                 handled = true
+            } else {
+                log("openFiles:failed-extract:\(filename)")
             }
         }
         NSApp.reply(toOpenOrPrint: handled ? .success : .failure)
@@ -30,8 +36,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func application(_ application: NSApplication, open urls: [URL]) {
         didReceiveOpenEvent = true
+        log("openURLs:\(urls.map { $0.absoluteString }.joined(separator: " | "))")
         for url in urls {
             if url.isFileURL, let droppedText = extractTodoText(from: url) {
+                log("openURLs:file-extracted:\(droppedText)")
                 sendTodo(droppedText)
             } else {
                 sendTodo(url.absoluteString)
@@ -98,6 +106,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func sendTodo(_ todoText: String) {
         let trimmed = todoText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed != "(null)" else { return }
+        log("sendTodo:\(trimmed)")
         let task = "- [ ] \(trimmed) #capture"
         let target = "noteplan://x-callback-url/addText?noteDate=today&text=\(encode(task))&mode=append&openNote=yes"
         if let url = URL(string: target) {
@@ -126,6 +135,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return String(data: data, encoding: .utf8)
         } catch {
             return nil
+        }
+    }
+
+    private func log(_ message: String) {
+        let line = "\(Date()) \(message)\n"
+        let url = URL(fileURLWithPath: "/tmp/NotePlanURLDrop.log")
+        if let data = line.data(using: .utf8) {
+            if FileManager.default.fileExists(atPath: url.path),
+               let handle = try? FileHandle(forWritingTo: url) {
+                defer { try? handle.close() }
+                _ = try? handle.seekToEnd()
+                try? handle.write(contentsOf: data)
+            } else {
+                try? data.write(to: url)
+            }
         }
     }
 }
