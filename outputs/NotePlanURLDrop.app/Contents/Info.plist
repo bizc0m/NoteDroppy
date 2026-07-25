@@ -53,7 +53,7 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.6</string>
+	<string>1.7</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -69,11 +69,9 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>16</string>
+	<string>17</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
-	<key>NSSupportsOpeningDocumentsInPlace</key>
-	<true/>
 	<key>NSServices</key>
 	<array>
 		<dict>
@@ -94,5 +92,7 @@
 			</array>
 		</dict>
 	</array>
+	<key>NSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 </dict>
 </plist>
