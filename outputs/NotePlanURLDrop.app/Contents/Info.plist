@@ -53,7 +53,7 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.5</string>
+	<string>1.6</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -69,10 +69,30 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>15</string>
+	<string>16</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
 	<key>NSSupportsOpeningDocumentsInPlace</key>
 	<true/>
+	<key>NSServices</key>
+	<array>
+		<dict>
+			<key>NSMenuItem</key>
+			<dict>
+				<key>default</key>
+				<string>NotePlan : ajouter en tâche</string>
+			</dict>
+			<key>NSMessage</key>
+			<string>addSelectionAsTodo</string>
+			<key>NSPortName</key>
+			<string>NotePlanURLDrop</string>
+			<key>NSSendTypes</key>
+			<array>
+				<string>public.utf8-plain-text</string>
+				<string>public.plain-text</string>
+				<string>NSStringPboardType</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

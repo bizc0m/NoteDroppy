@@ -103,6 +103,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return firstWebURL(in: trimmed) ?? trimmed
     }
 
+    @objc func addSelectionAsTodo(_ pasteboard: NSPasteboard, userData: String, error: AutoreleasingUnsafeMutablePointer<NSString>) {
+        didReceiveOpenEvent = true
+        log("service:invoked")
+        guard let text = pasteboard.string(forType: .string) else {
+            log("service:no-text")
+            error.pointee = "Aucun texte sélectionné" as NSString
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                NSApp.terminate(nil)
+            }
+            return
+        }
+        log("service:text:\(text)")
+        sendTodo(text)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            NSApp.terminate(nil)
+        }
+    }
+
     private func sendTodo(_ todoText: String) {
         let trimmed = todoText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed != "(null)" else { return }
@@ -157,4 +175,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 let app = NSApplication.shared
 let delegate = AppDelegate()
 app.delegate = delegate
+app.servicesProvider = delegate
+
+let mainMenu = NSMenu()
+let appMenuItem = NSMenuItem()
+mainMenu.addItem(appMenuItem)
+let appMenu = NSMenu()
+appMenu.addItem(withTitle: "Quitter NotePlanURLDrop", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+appMenuItem.submenu = appMenu
+app.mainMenu = mainMenu
+
 app.run()
