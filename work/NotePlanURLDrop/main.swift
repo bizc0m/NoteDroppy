@@ -133,58 +133,77 @@ fileprivate struct KeyCombo {
     }
 }
 
-final class ShortcutRecorderField: NSTextField {
+final class ShortcutRecorderButton: NSButton {
     fileprivate var onChange: ((KeyCombo) -> Void)?
+    private var localMonitor: Any?
+    private var isRecording = false
 
     init() {
         super.init(frame: .zero)
-        stringValue = Settings.shortcutDisplay
-        placeholderString = "Cliquer puis taper un raccourci"
-        isEditable = false
-        isSelectable = false
-        focusRingType = .default
-        alignment = .center
+        title = "Raccourci : \(Settings.shortcutDisplay)"
+        bezelStyle = .rounded
+        target = self
+        action = #selector(beginRecording)
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
     }
 
-    override var acceptsFirstResponder: Bool { true }
-
-    override func becomeFirstResponder() -> Bool {
-        stringValue = "Tape le raccourci"
-        return true
+    deinit {
+        stopRecording(updateTitle: false)
     }
 
-    override func resignFirstResponder() -> Bool {
-        stringValue = Settings.shortcutDisplay
-        return true
-    }
-
-    override func mouseDown(with event: NSEvent) {
+    @objc private func beginRecording() {
+        guard !isRecording else { return }
+        isRecording = true
+        title = "Tape le nouveau raccourci..."
+        NotificationCenter.default.post(name: .shortcutRecordingBegan, object: nil)
         window?.makeFirstResponder(self)
+        localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            self?.record(event)
+            return nil
+        }
     }
 
     override func keyDown(with event: NSEvent) {
+        record(event)
+    }
+
+    private func record(_ event: NSEvent) {
+        guard isRecording else { return }
         let modifiers = carbonModifiers(from: event.modifierFlags)
         guard modifiers != 0 else {
             NSSound.beep()
-            stringValue = "Ajoute ⌃ ⌥ ⇧ ou ⌘"
+            title = "Ajoute ⌃ ⌥ ⇧ ou ⌘"
             return
         }
         guard event.keyCode != UInt16(kVK_ANSI_C) || modifiers != UInt32(cmdKey) else {
             NSSound.beep()
-            stringValue = "⌘C est réservé"
+            title = "⌘C est réservé"
             return
         }
         let combo = KeyCombo(keyCode: UInt32(event.keyCode), carbonModifiers: modifiers)
         UserDefaults.standard.set(Int(combo.keyCode), forKey: Settings.shortcutKeyCodeKey)
         UserDefaults.standard.set(Int(combo.carbonModifiers), forKey: Settings.shortcutModifiersKey)
         UserDefaults.standard.synchronize()
-        stringValue = combo.display
+        title = "Raccourci : \(combo.display)"
         onChange?(combo)
-        window?.makeFirstResponder(nil)
+        stopRecording(updateTitle: false)
+    }
+
+    private func stopRecording(updateTitle: Bool = true) {
+        if let localMonitor {
+            NSEvent.removeMonitor(localMonitor)
+            self.localMonitor = nil
+        }
+        if isRecording {
+            NotificationCenter.default.post(name: .shortcutRecordingEnded, object: nil)
+        }
+        isRecording = false
+        if updateTitle {
+            title = "Raccourci : \(Settings.shortcutDisplay)"
+        }
     }
 }
 
@@ -207,7 +226,7 @@ final class SettingsWindowController: NSWindowController {
     private let tagField = NSTextField(string: Settings.taskTag)
     private let openNoteCheckbox = NSButton(checkboxWithTitle: "Ouvrir NotePlan après l'ajout", target: nil, action: nil)
     private let shortcutCheckbox = NSButton(checkboxWithTitle: "Raccourci global", target: nil, action: nil)
-    private let shortcutRecorder = ShortcutRecorderField()
+    private let shortcutRecorder = ShortcutRecorderButton()
     private let accessibilityButton = NSButton(title: "Autoriser Accessibilité", target: nil, action: nil)
     private let statusLabel = NSTextField(labelWithString: "")
 
@@ -275,10 +294,12 @@ final class SettingsWindowController: NSWindowController {
         buttons.addArrangedSubview(accessibilityButton)
         buttons.addArrangedSubview(quitButton)
 
-        [serviceNameField, tagField, shortcutRecorder].forEach { field in
+        [serviceNameField, tagField].forEach { field in
             field.translatesAutoresizingMaskIntoConstraints = false
             field.widthAnchor.constraint(equalToConstant: 360).isActive = true
         }
+        shortcutRecorder.translatesAutoresizingMaskIntoConstraints = false
+        shortcutRecorder.widthAnchor.constraint(equalToConstant: 360).isActive = true
 
         stack.addArrangedSubview(title)
         stack.addArrangedSubview(serviceLabel)
@@ -386,6 +407,8 @@ final class SettingsWindowController: NSWindowController {
 
 private extension Notification.Name {
     static let settingsDidChange = Notification.Name("NoteDroppySettingsDidChange")
+    static let shortcutRecordingBegan = Notification.Name("NoteDroppyShortcutRecordingBegan")
+    static let shortcutRecordingEnded = Notification.Name("NoteDroppyShortcutRecordingEnded")
 }
 
 final class ClipboardSnapshot {
@@ -436,6 +459,18 @@ final class GlobalShortcutMonitor {
             name: .settingsDidChange,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(shortcutRecordingBegan),
+            name: .shortcutRecordingBegan,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(shortcutRecordingEnded),
+            name: .shortcutRecordingEnded,
+            object: nil
+        )
     }
 
     deinit {
@@ -444,6 +479,14 @@ final class GlobalShortcutMonitor {
     }
 
     @objc private func settingsDidChange() {
+        update()
+    }
+
+    @objc private func shortcutRecordingBegan() {
+        stop()
+    }
+
+    @objc private func shortcutRecordingEnded() {
         update()
     }
 
