@@ -53,6 +53,8 @@ L'app installée se trouve ensuite ici :
 /Applications/NoteDroppy.app
 ```
 
+Sur cette machine, les scripts signent avec l'identité locale `NoteDroppy Local Code Signing` si elle existe. Cette signature stable évite que macOS invalide l'autorisation Accessibilité à chaque rebuild. Sans cette identité, les scripts retombent en signature ad-hoc.
+
 ## Limite macOS
 
 Le drag direct de texte sélectionné vers l'icone Dock ne marche pas : le Dock ne transmet pas ce texte brut à l'app. Utiliser le Service macOS pour le texte sélectionné.

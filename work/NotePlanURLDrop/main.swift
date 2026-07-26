@@ -4,6 +4,7 @@ import Carbon
 import Foundation
 
 private enum Settings {
+    static let codeSignIdentity = "NoteDroppy Local Code Signing"
     static let taskTagKey = "taskTag"
     static let openNoteKey = "openNote"
     static let serviceNameKey = "serviceName"
@@ -360,7 +361,7 @@ final class SettingsWindowController: NSWindowController {
             return false
         }
 
-        _ = runProcess("/usr/bin/codesign", ["--force", "--deep", "-s", "-", Bundle.main.bundlePath])
+        _ = runProcess("/usr/bin/codesign", ["--force", "--deep", "-s", Settings.codeSignIdentity, Bundle.main.bundlePath])
         _ = runProcess("/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister", ["-f", Bundle.main.bundlePath])
         _ = runProcess("/System/Library/CoreServices/pbs", ["-flush"])
         _ = runProcess("/System/Library/CoreServices/pbs", ["-update"])
