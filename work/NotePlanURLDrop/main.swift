@@ -8,6 +8,8 @@ private enum Settings {
     static let openNoteKey = "openNote"
     static let serviceNameKey = "serviceName"
     static let shortcutEnabledKey = "shortcutEnabled"
+    static let shortcutKeyCodeKey = "shortcutKeyCode"
+    static let shortcutModifiersKey = "shortcutModifiers"
 
     static var taskTag: String {
         let value = UserDefaults.standard.string(forKey: taskTagKey) ?? "#capture"
@@ -34,19 +36,183 @@ private enum Settings {
         }
         return UserDefaults.standard.bool(forKey: shortcutEnabledKey)
     }
+
+    static var shortcutKeyCode: UInt32 {
+        if UserDefaults.standard.object(forKey: shortcutKeyCodeKey) == nil {
+            return UInt32(kVK_ANSI_N)
+        }
+        return UInt32(UserDefaults.standard.integer(forKey: shortcutKeyCodeKey))
+    }
+
+    static var shortcutModifiers: UInt32 {
+        if UserDefaults.standard.object(forKey: shortcutModifiersKey) == nil {
+            return UInt32(controlKey | optionKey | cmdKey)
+        }
+        let raw = UInt32(UserDefaults.standard.integer(forKey: shortcutModifiersKey))
+        let allowedCarbon = UInt32(controlKey | optionKey | shiftKey | cmdKey)
+        if raw != 0, raw & ~allowedCarbon == 0 {
+            return raw
+        }
+
+        let converted = carbonModifiers(fromRawNSEventFlags: UInt(raw))
+        if converted != 0 {
+            UserDefaults.standard.set(Int(converted), forKey: shortcutModifiersKey)
+            return converted
+        }
+        return UInt32(controlKey | optionKey | cmdKey)
+    }
+
+    static var shortcutDisplay: String {
+        KeyCombo(keyCode: shortcutKeyCode, carbonModifiers: shortcutModifiers).display
+    }
+}
+
+fileprivate struct KeyCombo {
+    let keyCode: UInt32
+    let carbonModifiers: UInt32
+
+    var display: String {
+        let parts = modifierDisplay + [keyDisplay]
+        return parts.joined()
+    }
+
+    private var modifierDisplay: [String] {
+        var parts: [String] = []
+        if carbonModifiers & UInt32(controlKey) != 0 { parts.append("⌃") }
+        if carbonModifiers & UInt32(optionKey) != 0 { parts.append("⌥") }
+        if carbonModifiers & UInt32(shiftKey) != 0 { parts.append("⇧") }
+        if carbonModifiers & UInt32(cmdKey) != 0 { parts.append("⌘") }
+        return parts
+    }
+
+    private var keyDisplay: String {
+        switch Int(keyCode) {
+        case kVK_ANSI_A: return "A"
+        case kVK_ANSI_B: return "B"
+        case kVK_ANSI_C: return "C"
+        case kVK_ANSI_D: return "D"
+        case kVK_ANSI_E: return "E"
+        case kVK_ANSI_F: return "F"
+        case kVK_ANSI_G: return "G"
+        case kVK_ANSI_H: return "H"
+        case kVK_ANSI_I: return "I"
+        case kVK_ANSI_J: return "J"
+        case kVK_ANSI_K: return "K"
+        case kVK_ANSI_L: return "L"
+        case kVK_ANSI_M: return "M"
+        case kVK_ANSI_N: return "N"
+        case kVK_ANSI_O: return "O"
+        case kVK_ANSI_P: return "P"
+        case kVK_ANSI_Q: return "Q"
+        case kVK_ANSI_R: return "R"
+        case kVK_ANSI_S: return "S"
+        case kVK_ANSI_T: return "T"
+        case kVK_ANSI_U: return "U"
+        case kVK_ANSI_V: return "V"
+        case kVK_ANSI_W: return "W"
+        case kVK_ANSI_X: return "X"
+        case kVK_ANSI_Y: return "Y"
+        case kVK_ANSI_Z: return "Z"
+        case kVK_ANSI_0: return "0"
+        case kVK_ANSI_1: return "1"
+        case kVK_ANSI_2: return "2"
+        case kVK_ANSI_3: return "3"
+        case kVK_ANSI_4: return "4"
+        case kVK_ANSI_5: return "5"
+        case kVK_ANSI_6: return "6"
+        case kVK_ANSI_7: return "7"
+        case kVK_ANSI_8: return "8"
+        case kVK_ANSI_9: return "9"
+        case kVK_Space: return "Espace"
+        case kVK_Return: return "Retour"
+        case kVK_Tab: return "Tab"
+        case kVK_Escape: return "Esc"
+        default: return "#\(keyCode)"
+        }
+    }
+}
+
+final class ShortcutRecorderField: NSTextField {
+    fileprivate var onChange: ((KeyCombo) -> Void)?
+
+    init() {
+        super.init(frame: .zero)
+        stringValue = Settings.shortcutDisplay
+        placeholderString = "Cliquer puis taper un raccourci"
+        isEditable = false
+        isSelectable = false
+        focusRingType = .default
+        alignment = .center
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+    }
+
+    override var acceptsFirstResponder: Bool { true }
+
+    override func becomeFirstResponder() -> Bool {
+        stringValue = "Tape le raccourci"
+        return true
+    }
+
+    override func resignFirstResponder() -> Bool {
+        stringValue = Settings.shortcutDisplay
+        return true
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        let modifiers = carbonModifiers(from: event.modifierFlags)
+        guard modifiers != 0 else {
+            NSSound.beep()
+            stringValue = "Ajoute ⌃ ⌥ ⇧ ou ⌘"
+            return
+        }
+        guard event.keyCode != UInt16(kVK_ANSI_C) || modifiers != UInt32(cmdKey) else {
+            NSSound.beep()
+            stringValue = "⌘C est réservé"
+            return
+        }
+        let combo = KeyCombo(keyCode: UInt32(event.keyCode), carbonModifiers: modifiers)
+        UserDefaults.standard.set(Int(combo.keyCode), forKey: Settings.shortcutKeyCodeKey)
+        UserDefaults.standard.set(Int(combo.carbonModifiers), forKey: Settings.shortcutModifiersKey)
+        UserDefaults.standard.synchronize()
+        stringValue = combo.display
+        onChange?(combo)
+        window?.makeFirstResponder(nil)
+    }
+}
+
+private func carbonModifiers(from flags: NSEvent.ModifierFlags) -> UInt32 {
+    let normalized = flags.intersection(.deviceIndependentFlagsMask)
+    var result: UInt32 = 0
+    if normalized.contains(.control) { result |= UInt32(controlKey) }
+    if normalized.contains(.option) { result |= UInt32(optionKey) }
+    if normalized.contains(.shift) { result |= UInt32(shiftKey) }
+    if normalized.contains(.command) { result |= UInt32(cmdKey) }
+    return result
+}
+
+private func carbonModifiers(fromRawNSEventFlags raw: UInt) -> UInt32 {
+    carbonModifiers(from: NSEvent.ModifierFlags(rawValue: raw))
 }
 
 final class SettingsWindowController: NSWindowController {
     private let serviceNameField = NSTextField(string: Settings.serviceName)
     private let tagField = NSTextField(string: Settings.taskTag)
     private let openNoteCheckbox = NSButton(checkboxWithTitle: "Ouvrir NotePlan après l'ajout", target: nil, action: nil)
-    private let shortcutCheckbox = NSButton(checkboxWithTitle: "Raccourci global Ctrl+Option+Cmd+N", target: nil, action: nil)
+    private let shortcutCheckbox = NSButton(checkboxWithTitle: "Raccourci global", target: nil, action: nil)
+    private let shortcutRecorder = ShortcutRecorderField()
     private let accessibilityButton = NSButton(title: "Autoriser Accessibilité", target: nil, action: nil)
     private let statusLabel = NSTextField(labelWithString: "")
 
     convenience init() {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 440, height: 290),
+            contentRect: NSRect(x: 0, y: 0, width: 460, height: 340),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -79,6 +245,9 @@ final class SettingsWindowController: NSWindowController {
 
         openNoteCheckbox.state = Settings.openNote ? .on : .off
         shortcutCheckbox.state = Settings.shortcutEnabled ? .on : .off
+        shortcutRecorder.onChange = { _ in
+            NotificationCenter.default.post(name: .settingsDidChange, object: nil)
+        }
 
         statusLabel.textColor = .secondaryLabelColor
         statusLabel.lineBreakMode = .byWordWrapping
@@ -105,7 +274,7 @@ final class SettingsWindowController: NSWindowController {
         buttons.addArrangedSubview(accessibilityButton)
         buttons.addArrangedSubview(quitButton)
 
-        [serviceNameField, tagField].forEach { field in
+        [serviceNameField, tagField, shortcutRecorder].forEach { field in
             field.translatesAutoresizingMaskIntoConstraints = false
             field.widthAnchor.constraint(equalToConstant: 360).isActive = true
         }
@@ -117,6 +286,7 @@ final class SettingsWindowController: NSWindowController {
         stack.addArrangedSubview(tagField)
         stack.addArrangedSubview(openNoteCheckbox)
         stack.addArrangedSubview(shortcutCheckbox)
+        stack.addArrangedSubview(shortcutRecorder)
         stack.addArrangedSubview(buttons)
         stack.addArrangedSubview(statusLabel)
 
@@ -254,6 +424,7 @@ final class GlobalShortcutMonitor {
     private let handler: () -> Void
     private let hotKeySignature = fourCharCode("NDPY")
     private let hotKeyID = UInt32(1)
+    private var registeredCombo = KeyCombo(keyCode: Settings.shortcutKeyCode, carbonModifiers: Settings.shortcutModifiers)
 
     init(handler: @escaping () -> Void) {
         self.handler = handler
@@ -296,11 +467,11 @@ final class GlobalShortcutMonitor {
             return
         }
 
+        registeredCombo = KeyCombo(keyCode: Settings.shortcutKeyCode, carbonModifiers: Settings.shortcutModifiers)
         let carbonHotKeyID = EventHotKeyID(signature: hotKeySignature, id: hotKeyID)
-        let modifiers = UInt32(controlKey | optionKey | cmdKey)
         let registerStatus = RegisterEventHotKey(
-            UInt32(kVK_ANSI_N),
-            modifiers,
+            registeredCombo.keyCode,
+            registeredCombo.carbonModifiers,
             carbonHotKeyID,
             GetApplicationEventTarget(),
             0,
@@ -409,7 +580,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         NSApp.reply(toOpenOrPrint: handled ? .success : .failure)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-            NSApp.terminate(nil)
+            if NSApp.windows.isEmpty {
+                NSApp.terminate(nil)
+            }
         }
     }
 
@@ -425,7 +598,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-            NSApp.terminate(nil)
+            if NSApp.windows.isEmpty {
+                NSApp.terminate(nil)
+            }
         }
     }
 
@@ -504,6 +679,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func captureSelectedTextWithShortcut() {
         log("shortcut:invoked")
+        guard canCaptureFrontmostApplication() else {
+            log("shortcut:ignored-frontmost-app")
+            NSSound.beep()
+            return
+        }
         guard isAccessibilityTrusted(prompt: true) else {
             log("shortcut:accessibility-required")
             showSettingsWindow()
@@ -519,10 +699,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+        waitForCopiedText(pasteboard: pasteboard, previousChangeCount: previousChangeCount, attemptsRemaining: 12) { text in
             defer { snapshot.restore(to: pasteboard) }
-            guard pasteboard.changeCount != previousChangeCount,
-                  let text = pasteboard.string(forType: .string),
+            guard let text,
                   let normalized = self.normalizedTodoText(text) else {
                 self.log("shortcut:no-selected-text")
                 return
@@ -530,6 +709,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.log("shortcut:text:\(normalized)")
             self.sendTodo(normalized)
         }
+    }
+
+    private func waitForCopiedText(
+        pasteboard: NSPasteboard,
+        previousChangeCount: Int,
+        attemptsRemaining: Int,
+        completion: @escaping (String?) -> Void
+    ) {
+        if pasteboard.changeCount != previousChangeCount {
+            completion(pasteboard.string(forType: .string))
+            return
+        }
+        guard attemptsRemaining > 0 else {
+            completion(nil)
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            self.waitForCopiedText(
+                pasteboard: pasteboard,
+                previousChangeCount: previousChangeCount,
+                attemptsRemaining: attemptsRemaining - 1,
+                completion: completion
+            )
+        }
+    }
+
+    private func canCaptureFrontmostApplication() -> Bool {
+        if NSApp.isActive {
+            return false
+        }
+
+        guard let frontmost = NSWorkspace.shared.frontmostApplication,
+              let bundleIdentifier = frontmost.bundleIdentifier else {
+            return true
+        }
+
+        let blockedIdentifiers: Set<String> = [
+            Bundle.main.bundleIdentifier ?? "",
+            "com.apple.systempreferences",
+            "com.apple.systemsettings",
+            "com.apple.SecurityAgent",
+            "com.apple.loginwindow"
+        ]
+        return !blockedIdentifiers.contains(bundleIdentifier)
     }
 
     private func isAccessibilityTrusted(prompt: Bool) -> Bool {
