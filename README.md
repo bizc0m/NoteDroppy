@@ -9,6 +9,7 @@ App macOS AppKit pour ajouter rapidement des tâches dans NotePlan.
 - Fichier texte / `.md` / `.rtf` / `.textclipping` vers l'icone Dock : ajoute le contenu en tâche.
 - Texte sélectionné : clic droit -> Services -> `NotePlan : ajouter en tâche`.
 - Clic sur l'icone Dock sans fichier : ouvre les réglages.
+- Texte sélectionné dans les apps sans menu Services fiable : `Ctrl+Option+Cmd+N`, avec l'autorisation Accessibilité accordée à NoteDroppy.
 
 Format envoyé à NotePlan :
 
@@ -37,6 +38,8 @@ Réglages disponibles :
 - Nom du Service macOS.
 - Tag ajouté à la tâche, par défaut `#capture`.
 - Ouverture de NotePlan après ajout.
+- Raccourci global `Ctrl+Option+Cmd+N`.
+- Bouton d'ouverture du panneau Accessibilité macOS.
 
 ## Installation
 
@@ -53,3 +56,5 @@ L'app installée se trouve ensuite ici :
 ## Limite macOS
 
 Le drag direct de texte sélectionné vers l'icone Dock ne marche pas : le Dock ne transmet pas ce texte brut à l'app. Utiliser le Service macOS pour le texte sélectionné.
+
+Certaines apps n'affichent pas les Services macOS dans leurs menus. Dans ce cas, garder NoteDroppy ouvert et utiliser le raccourci global `Ctrl+Option+Cmd+N`. macOS exige l'autorisation Accessibilité pour que NoteDroppy puisse simuler `Cmd+C` et lire la sélection.
