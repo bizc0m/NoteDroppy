@@ -15,17 +15,15 @@ Format envoyé à NotePlan :
 - [ ] <contenu> #capture
 ```
 
-## Reglage du nom du Service
+## Service macOS
 
-Lancer l'app normalement depuis Finder, Dock ou Spotlight ouvre une fenêtre de réglage.
-
-Le champ permet de changer le nom affiché dans :
+Le nom du Service est fixe :
 
 ```text
-clic droit -> Services
+NotePlan : ajouter en tâche
 ```
 
-Après enregistrement, l'app modifie son `Info.plist`, se re-signe en adhoc, rafraîchit LaunchServices/PBS, et active le Service sous le nouveau nom. Si une app source garde l'ancien menu en cache, la relancer.
+Si le Service n'apparait pas après installation, relancer l'app source ou exécuter le script d'installation, qui rafraichit LaunchServices et PBS.
 
 ## Installation
 

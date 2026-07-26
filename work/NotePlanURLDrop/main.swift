@@ -1,124 +1,15 @@
 import AppKit
 import Foundation
 
-final class SettingsWindowController: NSWindowController {
-    private let nameField = NSTextField()
-    private let statusLabel = NSTextField(labelWithString: "")
-    private let onSave: (String) -> Result<String, Error>
-
-    init(currentName: String, onSave: @escaping (String) -> Result<String, Error>) {
-        self.onSave = onSave
-
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 210),
-            styleMask: [.titled, .closable, .miniaturizable],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = "NotePlanURLDrop"
-        window.center()
-
-        let root = NSView(frame: window.contentView?.bounds ?? .zero)
-        root.translatesAutoresizingMaskIntoConstraints = false
-        window.contentView = root
-
-        let titleLabel = NSTextField(labelWithString: "Nom du Service macOS")
-        titleLabel.font = .boldSystemFont(ofSize: 17)
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        let helpLabel = NSTextField(labelWithString: "Nom affiche dans clic droit -> Services. Apres enregistrement, macOS peut demander de relancer l'app source.")
-        helpLabel.font = .systemFont(ofSize: 12)
-        helpLabel.textColor = .secondaryLabelColor
-        helpLabel.lineBreakMode = .byWordWrapping
-        helpLabel.maximumNumberOfLines = 2
-        helpLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        nameField.stringValue = currentName
-        nameField.translatesAutoresizingMaskIntoConstraints = false
-
-        statusLabel.font = .systemFont(ofSize: 12)
-        statusLabel.textColor = .secondaryLabelColor
-        statusLabel.lineBreakMode = .byWordWrapping
-        statusLabel.maximumNumberOfLines = 2
-        statusLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        let saveButton = NSButton(title: "Enregistrer", target: nil, action: nil)
-        saveButton.bezelStyle = .rounded
-        saveButton.keyEquivalent = "\r"
-        saveButton.translatesAutoresizingMaskIntoConstraints = false
-
-        let quitButton = NSButton(title: "Quitter", target: NSApp, action: #selector(NSApplication.terminate(_:)))
-        quitButton.bezelStyle = .rounded
-        quitButton.keyEquivalent = "q"
-        quitButton.translatesAutoresizingMaskIntoConstraints = false
-
-        root.addSubview(titleLabel)
-        root.addSubview(helpLabel)
-        root.addSubview(nameField)
-        root.addSubview(statusLabel)
-        root.addSubview(saveButton)
-        root.addSubview(quitButton)
-
-        NSLayoutConstraint.activate([
-            titleLabel.topAnchor.constraint(equalTo: root.topAnchor, constant: 22),
-            titleLabel.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
-            titleLabel.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
-
-            helpLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 8),
-            helpLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            helpLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
-
-            nameField.topAnchor.constraint(equalTo: helpLabel.bottomAnchor, constant: 18),
-            nameField.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            nameField.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
-
-            statusLabel.topAnchor.constraint(equalTo: nameField.bottomAnchor, constant: 12),
-            statusLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            statusLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
-
-            saveButton.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
-            saveButton.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -22),
-            quitButton.trailingAnchor.constraint(equalTo: saveButton.leadingAnchor, constant: -10),
-            quitButton.centerYAnchor.constraint(equalTo: saveButton.centerYAnchor)
-        ])
-
-        super.init(window: window)
-
-        saveButton.target = self
-        saveButton.action = #selector(saveServiceName(_:))
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    @objc private func saveServiceName(_ sender: NSButton) {
-        let proposedName = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !proposedName.isEmpty else {
-            statusLabel.stringValue = "Nom vide refuse."
-            return
-        }
-
-        switch onSave(proposedName) {
-        case .success(let message):
-            statusLabel.textColor = .systemGreen
-            statusLabel.stringValue = message
-        case .failure(let error):
-            statusLabel.textColor = .systemRed
-            statusLabel.stringValue = error.localizedDescription
-        }
-    }
-}
-
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var didReceiveOpenEvent = false
-    private var settingsWindowController: SettingsWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         log("launch")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
             if !self.didReceiveOpenEvent {
-                self.showSettingsWindow()
+                self.log("quit:no-open-event")
+                NSApp.terminate(nil)
             }
         }
     }
@@ -230,126 +121,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func showSettingsWindow() {
-        NSApp.setActivationPolicy(.regular)
-        let controller = SettingsWindowController(currentName: currentServiceName()) { [weak self] name in
-            guard let self else {
-                return .failure(NSError(domain: "NotePlanURLDrop", code: 1, userInfo: [NSLocalizedDescriptionKey: "App indisponible."]))
-            }
-            return self.updateServiceName(name)
-        }
-        settingsWindowController = controller
-        controller.showWindow(nil)
-        NSApp.activate(ignoringOtherApps: true)
-    }
-
-    private func currentServiceName() -> String {
-        guard let plist = mutableInfoPlist(),
-              let services = plist["NSServices"] as? [[String: Any]],
-              let first = services.first,
-              let menu = first["NSMenuItem"] as? [String: Any],
-              let name = menu["default"] as? String else {
-            return "NotePlan : ajouter en tâche"
-        }
-        return name
-    }
-
-    private func updateServiceName(_ serviceName: String) -> Result<String, Error> {
-        let previousName = currentServiceName()
-
-        do {
-            var plist = try loadInfoPlist()
-            guard var services = plist["NSServices"] as? [[String: Any]], !services.isEmpty else {
-                throw appError("NSServices introuvable dans Info.plist.")
-            }
-            var firstService = services[0]
-            var menuItem = (firstService["NSMenuItem"] as? [String: Any]) ?? [:]
-            menuItem["default"] = serviceName
-            firstService["NSMenuItem"] = menuItem
-            services[0] = firstService
-            plist["NSServices"] = services
-            try writeInfoPlist(plist)
-
-            _ = shell(["/usr/bin/codesign", "--force", "--deep", "-s", "-", Bundle.main.bundleURL.path])
-            _ = shell(["/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister", "-f", Bundle.main.bundleURL.path])
-            _ = shell(["/System/Library/CoreServices/pbs", "-flush"])
-            _ = shell(["/System/Library/CoreServices/pbs", "-update"])
-            enableServicePreference(named: serviceName)
-            disableServicePreference(named: previousName)
-            log("settings:service-name:\(serviceName)")
-            return .success("Service mis a jour. Relance l'app source si le menu ne change pas tout de suite.")
-        } catch {
-            log("settings:error:\(error.localizedDescription)")
-            return .failure(error)
-        }
-    }
-
-    private func mutableInfoPlist() -> [String: Any]? {
-        try? loadInfoPlist()
-    }
-
-    private func loadInfoPlist() throws -> [String: Any] {
-        let url = Bundle.main.bundleURL.appendingPathComponent("Contents/Info.plist")
-        let data = try Data(contentsOf: url)
-        guard let plist = try PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any] else {
-            throw appError("Info.plist invalide.")
-        }
-        return plist
-    }
-
-    private func writeInfoPlist(_ plist: [String: Any]) throws {
-        let url = Bundle.main.bundleURL.appendingPathComponent("Contents/Info.plist")
-        let data = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
-        try data.write(to: url, options: .atomic)
-    }
-
-    private func enableServicePreference(named serviceName: String) {
-        updateServicePreference(named: serviceName, enabled: true)
-    }
-
-    private func disableServicePreference(named serviceName: String) {
-        updateServicePreference(named: serviceName, enabled: false)
-    }
-
-    private func updateServicePreference(named serviceName: String, enabled: Bool) {
-        let prefsURL = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Preferences/pbs.plist")
-        let key = "local.codex.noteplanurldrop - \(serviceName) - addSelectionAsTodo"
-        var prefs: [String: Any] = [:]
-        if let data = try? Data(contentsOf: prefsURL),
-           let existing = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any] {
-            prefs = existing
-        }
-        var status = prefs["NSServicesStatus"] as? [String: Any] ?? [:]
-        status[key] = [
-            "enabled_context_menu": enabled ? 1 : 0,
-            "enabled_services_menu": enabled ? 1 : 0,
-            "presentation_modes": [
-                "ContextMenu": enabled ? 1 : 0,
-                "ServicesMenu": enabled ? 1 : 0
-            ]
-        ]
-        prefs["NSServicesStatus"] = status
-        if let data = try? PropertyListSerialization.data(fromPropertyList: prefs, format: .binary, options: 0) {
-            try? data.write(to: prefsURL, options: .atomic)
-        }
-    }
-
-    private func appError(_ message: String) -> Error {
-        NSError(domain: "NotePlanURLDrop", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
-    }
-
     private func sendTodo(_ todoText: String) {
         let trimmed = todoText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed != "(null)" else { return }
         log("sendTodo:\(trimmed)")
         let task = "- [ ] \(trimmed) #capture"
         let target = "noteplan://x-callback-url/addText?noteDate=today&text=\(encode(task))&mode=append&openNote=yes"
-        _ = shell(["/usr/bin/open", target])
+        if let url = URL(string: target) {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     private func encode(_ value: String) -> String {
-        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&+=?#")
         return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
     }
 
