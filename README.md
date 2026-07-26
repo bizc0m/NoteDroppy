@@ -8,6 +8,7 @@ App macOS AppKit pour ajouter rapidement des tâches dans NotePlan.
 - Fichier `.webloc` / `.url` vers l'icone Dock : extrait l'URL et l'ajoute en tâche.
 - Fichier texte / `.md` / `.rtf` / `.textclipping` vers l'icone Dock : ajoute le contenu en tâche.
 - Texte sélectionné : clic droit -> Services -> `NotePlan : ajouter en tâche`.
+- Clic sur l'icone Dock sans fichier : ouvre les réglages.
 
 Format envoyé à NotePlan :
 
@@ -17,13 +18,25 @@ Format envoyé à NotePlan :
 
 ## Service macOS
 
-Le nom du Service est fixe :
+Le nom du Service par défaut est :
 
 ```text
 NotePlan : ajouter en tâche
 ```
 
+Il peut être changé dans les réglages de l'app. NoteDroppy réécrit alors son `Info.plist`, ressigne l'app en ad-hoc et rafraîchit LaunchServices/PBS.
+
 Si le Service n'apparait pas après installation, relancer l'app source ou exécuter le script d'installation, qui rafraichit LaunchServices et PBS.
+
+## Réglages
+
+Ouvrir `NoteDroppy` depuis le Dock ou Finder sans déposer de fichier.
+
+Réglages disponibles :
+
+- Nom du Service macOS.
+- Tag ajouté à la tâche, par défaut `#capture`.
+- Ouverture de NotePlan après ajout.
 
 ## Installation
 
