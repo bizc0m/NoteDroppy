@@ -1,10 +1,10 @@
-# NotePlanURLDrop
+# NoteDroppy
 
 App macOS AppKit pour ajouter rapidement des tâches dans NotePlan.
 
 ## Utilisation
 
-- URL vers l'icone Dock `NotePlanURLDrop` : ajoute l'URL en tâche.
+- URL vers l'icone Dock `NoteDroppy` : ajoute l'URL en tâche.
 - Fichier `.webloc` / `.url` vers l'icone Dock : extrait l'URL et l'ajoute en tâche.
 - Fichier texte / `.md` / `.rtf` / `.textclipping` vers l'icone Dock : ajoute le contenu en tâche.
 - Texte sélectionné : clic droit -> Services -> `NotePlan : ajouter en tâche`.
@@ -28,13 +28,13 @@ Si le Service n'apparait pas après installation, relancer l'app source ou exéc
 ## Installation
 
 ```zsh
-scripts/install-noteplan-url-drop.sh
+scripts/install-notedroppy.sh
 ```
 
 L'app installée se trouve ensuite ici :
 
 ```text
-/Applications/NotePlanURLDrop.app
+/Applications/NoteDroppy.app
 ```
 
 ## Limite macOS

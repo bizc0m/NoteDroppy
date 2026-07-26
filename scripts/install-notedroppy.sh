@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-APP_SRC="$ROOT_DIR/outputs/NotePlanURLDrop.app"
-APP_DST="/Applications/NotePlanURLDrop.app"
+APP_SRC="$ROOT_DIR/outputs/NoteDroppy.app"
+APP_DST="/Applications/NoteDroppy.app"
 
 if [[ ! -d "$APP_SRC" ]]; then
   echo "App source introuvable: $APP_SRC" >&2
@@ -11,7 +11,7 @@ if [[ ! -d "$APP_SRC" ]]; then
 fi
 
 if [[ -d "$APP_DST" ]]; then
-  mv "$APP_DST" "/Applications/NotePlanURLDrop.app.previous-$(date +%Y%m%d-%H%M%S)"
+  mv "$APP_DST" "/Applications/NoteDroppy.app.previous-$(date +%Y%m%d-%H%M%S)"
 fi
 
 cp -R "$APP_SRC" "$APP_DST"
