@@ -47,7 +47,7 @@
 	<key>CFBundleIconFile</key>
 	<string>NotePlanURLDrop</string>
 	<key>CFBundleIdentifier</key>
-	<string>local.codex.noteplanurldrop</string>
+	<string>local.codex.notedroppy</string>
 	<key>CFBundleName</key>
 	<string>NoteDroppy</string>
 	<key>CFBundlePackageType</key>
