@@ -125,6 +125,17 @@ fileprivate struct KeyCombo {
         case kVK_ANSI_7: return "7"
         case kVK_ANSI_8: return "8"
         case kVK_ANSI_9: return "9"
+        case kVK_ANSI_Slash: return "/"
+        case kVK_ANSI_Comma: return ","
+        case kVK_ANSI_Period: return "."
+        case kVK_ANSI_Minus: return "-"
+        case kVK_ANSI_Equal: return "="
+        case kVK_ANSI_Semicolon: return ";"
+        case kVK_ANSI_Quote: return "'"
+        case kVK_ANSI_Backslash: return "\\"
+        case kVK_ANSI_LeftBracket: return "["
+        case kVK_ANSI_RightBracket: return "]"
+        case kVK_ANSI_Grave: return "`"
         case kVK_Space: return "Espace"
         case kVK_Return: return "Retour"
         case kVK_Tab: return "Tab"
@@ -906,9 +917,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSSound.beep()
             return
         }
-        guard isAccessibilityTrusted(prompt: true) else {
-            log("shortcut:accessibility-required")
-            showSettingsWindow()
+        guard isAccessibilityTrusted(prompt: false) else {
+            log("shortcut:accessibility-required:fallback-clipboard")
+            sendClipboardTodoIfAvailable()
             return
         }
 
@@ -931,6 +942,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.log("shortcut:text:\(normalized)")
             self.sendTodo(normalized)
         }
+    }
+
+    private func sendClipboardTodoIfAvailable() {
+        guard let text = NSPasteboard.general.string(forType: .string),
+              let normalized = normalizedTodoText(text) else {
+            log("shortcut:clipboard-empty")
+            NSSound.beep()
+            return
+        }
+        log("shortcut:clipboard-text:\(normalized)")
+        sendTodo(normalized)
     }
 
     private func waitForCopiedText(
