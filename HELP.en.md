@@ -52,7 +52,7 @@ The shortcut is configurable in settings.
 
 macOS requires Accessibility permission for this method because NoteDroppy must simulate `Cmd+C` to read the selection.
 
-If Accessibility is not granted, the shortcut uses the current clipboard content. In this fallback mode: copy the text first with `Cmd+C`, then press the NoteDroppy shortcut.
+If Accessibility is not granted, the shortcut cannot read another app's selection and sends nothing.
 
 ## Settings
 

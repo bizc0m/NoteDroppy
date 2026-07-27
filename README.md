@@ -68,6 +68,6 @@ Le drag direct de texte sélectionné vers l'icone Dock ne marche pas : le Dock 
 
 Certaines apps n'affichent pas les Services macOS dans leurs menus. Dans ce cas, garder NoteDroppy ouvert et utiliser le raccourci global. macOS exige l'autorisation Accessibilité pour que NoteDroppy puisse simuler `Cmd+C` et lire la sélection.
 
-Si Accessibilité n'est pas accordée, le raccourci envoie le contenu actuel du presse-papiers. Copier d'abord le texte avec `Cmd+C`, puis utiliser le raccourci NoteDroppy.
+Si Accessibilité n'est pas accordée, le raccourci ne peut pas lire la sélection d'une autre app et n'envoie rien.
 
 Le raccourci global est volontairement ignoré quand NoteDroppy, Réglages Système ou une alerte système est au premier plan, pour éviter d'envoyer le texte des réglages au lieu de la sélection cible.

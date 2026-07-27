@@ -918,8 +918,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         guard isAccessibilityTrusted(prompt: false) else {
-            log("shortcut:accessibility-required:fallback-clipboard")
-            sendClipboardTodoIfAvailable()
+            log("shortcut:accessibility-required:no-selection-capture")
+            NSSound.beep()
+            showSettingsWindow()
+            return
+        }
+
+        if let selectedText = selectedTextFromAccessibility(),
+           let normalized = normalizedTodoText(selectedText) {
+            log("shortcut:ax-selected-text:\(normalized)")
+            sendTodo(normalized)
             return
         }
 
@@ -944,15 +952,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func sendClipboardTodoIfAvailable() {
-        guard let text = NSPasteboard.general.string(forType: .string),
-              let normalized = normalizedTodoText(text) else {
-            log("shortcut:clipboard-empty")
-            NSSound.beep()
-            return
+    private func selectedTextFromAccessibility() -> String? {
+        guard let frontmost = NSWorkspace.shared.frontmostApplication else {
+            log("shortcut:ax:no-frontmost-app")
+            return nil
         }
-        log("shortcut:clipboard-text:\(normalized)")
-        sendTodo(normalized)
+
+        let appElement = AXUIElementCreateApplication(frontmost.processIdentifier)
+        var focusedValue: CFTypeRef?
+        let focusedStatus = AXUIElementCopyAttributeValue(
+            appElement,
+            kAXFocusedUIElementAttribute as CFString,
+            &focusedValue
+        )
+        guard focusedStatus == .success, let focusedValue else {
+            log("shortcut:ax:no-focused-element:\(focusedStatus.rawValue)")
+            return nil
+        }
+
+        let focusedElement = focusedValue as! AXUIElement
+        var selectedValue: CFTypeRef?
+        let selectedStatus = AXUIElementCopyAttributeValue(
+            focusedElement,
+            kAXSelectedTextAttribute as CFString,
+            &selectedValue
+        )
+        guard selectedStatus == .success, let selectedText = selectedValue as? String else {
+            log("shortcut:ax:no-selected-text:\(selectedStatus.rawValue)")
+            return nil
+        }
+
+        return selectedText
     }
 
     private func waitForCopiedText(

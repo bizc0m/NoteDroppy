@@ -64,6 +64,6 @@ Dragging selected raw text directly onto the Dock icon does not work reliably: t
 
 Some apps do not show macOS Services in their menus. In that case, keep NoteDroppy open and use the global shortcut. macOS requires Accessibility permission so NoteDroppy can simulate `Cmd+C` and read the selection.
 
-If Accessibility is not granted, the shortcut sends the current clipboard content. Copy the text first with `Cmd+C`, then press the NoteDroppy shortcut.
+If Accessibility is not granted, the shortcut cannot read another app's selection and sends nothing.
 
 The global shortcut is intentionally ignored while NoteDroppy, System Settings, or a system alert is frontmost, to avoid sending settings text instead of the intended selection.

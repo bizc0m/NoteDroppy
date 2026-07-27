@@ -52,7 +52,7 @@ Le raccourci est configurable dans les réglages.
 
 macOS exige l'autorisation Accessibilité pour cette méthode, car NoteDroppy doit simuler `Cmd+C` pour lire la sélection.
 
-Si Accessibilité n'est pas accordée, le raccourci utilise le contenu actuel du presse-papiers. Dans ce mode fallback : copier d'abord le texte avec `Cmd+C`, puis utiliser le raccourci NoteDroppy.
+Si Accessibilité n'est pas accordée, le raccourci ne peut pas lire la sélection d'une autre app et n'envoie rien.
 
 ## Réglages
 
