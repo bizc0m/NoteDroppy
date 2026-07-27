@@ -2,6 +2,12 @@
 
 NoteDroppy ajoute rapidement une tâche dans la note du jour NotePlan.
 
+Repository GitHub :
+
+```text
+https://github.com/bizc0m/NoteDroppy
+```
+
 ## Format envoyé
 
 ```text

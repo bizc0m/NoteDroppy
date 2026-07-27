@@ -6,6 +6,8 @@ English version: [README.en.md](README.en.md)
 
 Help: [HELP.md](HELP.md) / [HELP.en.md](HELP.en.md)
 
+Repository: [https://github.com/bizc0m/NoteDroppy](https://github.com/bizc0m/NoteDroppy)
+
 ## Utilisation
 
 - URL vers l'icone Dock `NoteDroppy` : ajoute l'URL en tâche.

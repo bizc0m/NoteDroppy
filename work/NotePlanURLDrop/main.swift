@@ -5,6 +5,7 @@ import Foundation
 
 private enum Settings {
     static let codeSignIdentity = "NoteDroppy Local Code Signing"
+    static let repositoryURL = "https://github.com/bizc0m/NoteDroppy"
     static let taskTagKey = "taskTag"
     static let openNoteKey = "openNote"
     static let serviceNameKey = "serviceName"
@@ -227,6 +228,7 @@ final class SettingsWindowController: NSWindowController {
     private let openNoteCheckbox = NSButton(checkboxWithTitle: "Ouvrir NotePlan après l'ajout", target: nil, action: nil)
     private let shortcutCheckbox = NSButton(checkboxWithTitle: "Raccourci global", target: nil, action: nil)
     private let shortcutRecorder = ShortcutRecorderButton()
+    private let helpButton = NSButton(title: "Aide", target: nil, action: nil)
     private let accessibilityButton = NSButton(title: "Autoriser Accessibilité", target: nil, action: nil)
     private let statusLabel = NSTextField(labelWithString: "")
 
@@ -290,7 +292,12 @@ final class SettingsWindowController: NSWindowController {
         accessibilityButton.action = #selector(openAccessibilitySettings)
         accessibilityButton.bezelStyle = .rounded
 
+        helpButton.target = self
+        helpButton.action = #selector(openHelp)
+        helpButton.bezelStyle = .rounded
+
         buttons.addArrangedSubview(saveButton)
+        buttons.addArrangedSubview(helpButton)
         buttons.addArrangedSubview(accessibilityButton)
         buttons.addArrangedSubview(quitButton)
 
@@ -345,6 +352,10 @@ final class SettingsWindowController: NSWindowController {
             NSWorkspace.shared.open(url)
         }
         refreshAccessibilityStatus()
+    }
+
+    @objc private func openHelp() {
+        openBundledDocument(named: "HELP", extension: "md")
     }
 
     private func refreshAccessibilityStatus(append: Bool = false) {
@@ -402,6 +413,18 @@ final class SettingsWindowController: NSWindowController {
         } catch {
             return false
         }
+    }
+}
+
+private func openBundledDocument(named name: String, extension ext: String) {
+    if let url = Bundle.main.url(forResource: name, withExtension: ext) {
+        NSWorkspace.shared.open(url)
+    }
+}
+
+private func openRepository() {
+    if let url = URL(string: Settings.repositoryURL) {
+        NSWorkspace.shared.open(url)
     }
 }
 
@@ -606,6 +629,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func showSettingsWindowFromMenu(_ sender: Any?) {
         showSettingsWindow()
+    }
+
+    @objc func showAbout(_ sender: Any?) {
+        let alert = NSAlert()
+        alert.messageText = "NoteDroppy"
+        alert.informativeText = """
+        Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")
+
+        Ajoute rapidement des tâches dans NotePlan depuis le Dock, le Service macOS ou le raccourci global.
+
+        Repository:
+        \(Settings.repositoryURL)
+        """
+        alert.addButton(withTitle: "GitHub")
+        alert.addButton(withTitle: "Aide")
+        alert.addButton(withTitle: "OK")
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            openRepository()
+        } else if response == .alertSecondButtonReturn {
+            openBundledDocument(named: "HELP", extension: "md")
+        }
+    }
+
+    @objc func openHelp(_ sender: Any?) {
+        openBundledDocument(named: "HELP", extension: "md")
+    }
+
+    @objc func openEnglishHelp(_ sender: Any?) {
+        openBundledDocument(named: "HELP.en", extension: "md")
+    }
+
+    @objc func openGitHubRepository(_ sender: Any?) {
+        openRepository()
     }
 
     func application(_ sender: NSApplication, openFiles filenames: [String]) {
@@ -886,10 +943,21 @@ let mainMenu = NSMenu()
 let appMenuItem = NSMenuItem()
 mainMenu.addItem(appMenuItem)
 let appMenu = NSMenu()
+appMenu.addItem(withTitle: "À propos de NoteDroppy", action: #selector(AppDelegate.showAbout(_:)), keyEquivalent: "")
+appMenu.addItem(NSMenuItem.separator())
 appMenu.addItem(withTitle: "Réglages...", action: #selector(AppDelegate.showSettingsWindowFromMenu(_:)), keyEquivalent: ",")
 appMenu.addItem(NSMenuItem.separator())
 appMenu.addItem(withTitle: "Quitter NoteDroppy", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
 appMenuItem.submenu = appMenu
 app.mainMenu = mainMenu
+
+let helpMenuItem = NSMenuItem()
+mainMenu.addItem(helpMenuItem)
+let helpMenu = NSMenu(title: "Aide")
+helpMenu.addItem(withTitle: "Aide NoteDroppy", action: #selector(AppDelegate.openHelp(_:)), keyEquivalent: "?")
+helpMenu.addItem(withTitle: "Help NoteDroppy English", action: #selector(AppDelegate.openEnglishHelp(_:)), keyEquivalent: "")
+helpMenu.addItem(NSMenuItem.separator())
+helpMenu.addItem(withTitle: "GitHub Repository", action: #selector(AppDelegate.openGitHubRepository(_:)), keyEquivalent: "")
+helpMenuItem.submenu = helpMenu
 
 app.run()

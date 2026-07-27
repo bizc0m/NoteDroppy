@@ -2,6 +2,8 @@
 
 Native macOS AppKit app for quickly adding tasks to NotePlan.
 
+Repository: [https://github.com/bizc0m/NoteDroppy](https://github.com/bizc0m/NoteDroppy)
+
 ## Usage
 
 - Drop a URL onto the `NoteDroppy` Dock icon: adds the URL as a task.
