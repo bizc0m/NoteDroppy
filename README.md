@@ -4,74 +4,105 @@
   <img src="assets/notedroppy-logo.png" alt="Logo NoteDroppy" width="128">
 </p>
 
-App macOS AppKit pour ajouter rapidement des tâches dans NotePlan.
+NoteDroppy est une petite app macOS AppKit qui ajoute rapidement une tâche dans la note du jour NotePlan depuis le Dock, un Service macOS ou un raccourci global.
 
 English version: [README.en.md](README.en.md)
 
-Help: [HELP.md](HELP.md) / [HELP.en.md](HELP.en.md)
+Aide: [HELP.md](HELP.md) / [HELP.en.md](HELP.en.md)
 
-Repository: [https://github.com/bizc0m/NoteDroppy](https://github.com/bizc0m/NoteDroppy)
+Repo: [https://github.com/bizc0m/NoteDroppy](https://github.com/bizc0m/NoteDroppy)
 
-## Utilisation
+## Ce que ça fait
 
-- URL vers l'icone Dock `NoteDroppy` : ajoute l'URL en tâche.
-- Fichier `.webloc` / `.url` vers l'icone Dock : extrait l'URL et l'ajoute en tâche.
-- Fichier texte / `.md` / `.rtf` / `.textclipping` vers l'icone Dock : ajoute le contenu en tâche.
-- Texte sélectionné : clic droit -> Services -> `NotePlan : ajouter en tâche`.
-- Clic sur l'icone Dock sans fichier : ouvre les réglages.
-- Texte sélectionné dans les apps sans menu Services fiable : raccourci global configurable, par défaut `Ctrl+Option+Cmd+N`, avec l'autorisation Accessibilité accordée à NoteDroppy.
-
-Format envoyé à NotePlan :
+NoteDroppy envoie ce format dans NotePlan:
 
 ```text
 - [ ] <contenu> #capture
 ```
 
+Commande NotePlan utilisée:
+
+```text
+noteplan://x-callback-url/addText?noteDate=today&text=<texte_encode>&mode=append&openNote=yes
+```
+
+## Utilisation
+
+Glisser-déposer sur l'icone Dock `NoteDroppy`:
+
+- URL web: ajoute l'URL en tâche.
+- Fichier `.webloc` ou `.url`: extrait l'URL et l'ajoute en tâche.
+- Fichier texte, `.md`, `.rtf` ou `.textclipping`: ajoute le contenu en tâche.
+
+Texte sélectionné:
+
+- Clic droit -> Services -> `NotePlan : ajouter en tâche`.
+- Si le menu Services n'apparait pas dans une app, garder NoteDroppy ouvert et utiliser le raccourci global.
+
+Réglages:
+
+- Cliquer l'icone Dock sans déposer de fichier.
+- Au premier lancement, la fenêtre de réglages s'ouvre automatiquement.
+- Ensuite, les lancements normaux restent silencieux pour laisser l'app prête en arrière-plan.
+
+## Raccourci global
+
+Le raccourci global est configurable dans les réglages.
+
+Par défaut:
+
+```text
+Ctrl+Option+Cmd+N
+```
+
+Le raccourci a besoin de l'autorisation macOS Accessibilité, car NoteDroppy doit lire la sélection active ou simuler `Cmd+C` pour récupérer le texte.
+
+Si Accessibilité n'est pas accordée, le raccourci est reçu par l'app mais aucune tâche n'est envoyée.
+
 ## Service macOS
 
-Le nom du Service par défaut est :
+Nom par défaut du Service:
 
 ```text
 NotePlan : ajouter en tâche
 ```
 
-Il peut être changé dans les réglages de l'app. NoteDroppy réécrit alors son `Info.plist`, ressigne l'app et rafraîchit LaunchServices/PBS.
+Ce nom peut être changé dans les réglages. NoteDroppy met alors à jour son `Info.plist`, ressigne l'app et rafraichit LaunchServices/PBS.
 
-Si le Service n'apparait pas après installation, relancer l'app source ou exécuter le script d'installation, qui rafraichit LaunchServices et PBS.
-
-## Réglages
-
-Ouvrir `NoteDroppy` depuis le Dock ou Finder sans déposer de fichier.
-
-Réglages disponibles :
-
-- Nom du Service macOS.
-- Tag ajouté à la tâche, par défaut `#capture`.
-- Ouverture de NotePlan après ajout.
-- Raccourci global configurable.
-- Bouton d'ouverture du panneau Accessibilité macOS.
-- Aide intégrée dans l'app, avec lien `GitHub Repository`.
+Si le Service n'apparait pas après installation, relancer l'app ou exécuter le script d'installation.
 
 ## Installation
+
+Depuis le repo:
 
 ```zsh
 scripts/install-notedroppy.sh
 ```
 
-L'app installée se trouve ensuite ici :
+App installée:
 
 ```text
 /Applications/NoteDroppy.app
 ```
 
-Sur cette machine, les scripts signent avec l'identité locale `NoteDroppy Local Code Signing` si elle existe. Cette signature stable évite que macOS invalide l'autorisation Accessibilité à chaque rebuild. Sans cette identité, les scripts retombent en signature ad-hoc.
+Sur cette machine, le script signe avec l'identité locale `NoteDroppy Local Code Signing` si elle existe. Cette signature stable évite que macOS perde l'autorisation Accessibilité à chaque rebuild. Sans cette identité, le script retombe en signature ad-hoc.
 
-## Limite macOS
+## Réglages disponibles
 
-Le drag direct de texte sélectionné vers l'icone Dock ne marche pas : le Dock ne transmet pas ce texte brut à l'app. Utiliser le Service macOS pour le texte sélectionné.
+- Nom du Service macOS.
+- Tag ajouté à la tâche, par défaut `#capture`.
+- Ouverture de NotePlan après ajout.
+- Raccourci global configurable.
+- Bouton vers le panneau Accessibilité macOS.
+- Aide intégrée avec lien vers le repo GitHub.
 
-Certaines apps n'affichent pas les Services macOS dans leurs menus. Dans ce cas, garder NoteDroppy ouvert et utiliser le raccourci global. macOS exige l'autorisation Accessibilité pour que NoteDroppy puisse simuler `Cmd+C` et lire la sélection.
+## Limites macOS
 
-Si Accessibilité n'est pas accordée, le raccourci ne peut pas lire la sélection d'une autre app et n'envoie rien.
+Le glisser-déposer direct de texte sélectionné vers l'icone Dock n'est pas fiable sur macOS: le Dock ne transmet pas toujours le texte brut sélectionné aux apps.
 
-Le raccourci global est volontairement ignoré quand NoteDroppy, Réglages Système ou une alerte système est au premier plan, pour éviter d'envoyer le texte des réglages au lieu de la sélection cible.
+Pour le texte sélectionné, utiliser:
+
+- le Service macOS quand l'app source l'affiche;
+- le raccourci global quand le Service n'est pas disponible.
+
+Le raccourci global est volontairement ignoré quand NoteDroppy, Réglages Système ou une alerte système est au premier plan, afin d'éviter d'envoyer le texte des réglages au lieu de la sélection cible.
