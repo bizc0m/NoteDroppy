@@ -1,5 +1,9 @@
 # NoteDroppy
 
+<p align="center">
+  <img src="assets/notedroppy-logo.png" alt="Logo NoteDroppy" width="128">
+</p>
+
 App macOS AppKit pour ajouter rapidement des tâches dans NotePlan.
 
 English version: [README.en.md](README.en.md)

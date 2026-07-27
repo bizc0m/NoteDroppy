@@ -1,5 +1,9 @@
 # NoteDroppy
 
+<p align="center">
+  <img src="assets/notedroppy-logo.png" alt="NoteDroppy logo" width="128">
+</p>
+
 Native macOS AppKit app for quickly adding tasks to NotePlan.
 
 Repository: [https://github.com/bizc0m/NoteDroppy](https://github.com/bizc0m/NoteDroppy)
