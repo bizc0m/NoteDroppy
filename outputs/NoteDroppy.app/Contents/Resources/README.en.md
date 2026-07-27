@@ -42,6 +42,7 @@ Available settings:
 - Open NotePlan after adding.
 - Configurable global shortcut.
 - Button to open macOS Accessibility settings.
+- In-app Help window with `GitHub Repository` link.
 
 ## Installation
 

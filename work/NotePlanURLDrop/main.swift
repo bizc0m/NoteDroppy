@@ -355,7 +355,7 @@ final class SettingsWindowController: NSWindowController {
     }
 
     @objc private func openHelp() {
-        openBundledDocument(named: "HELP", extension: "md")
+        showHelpDocument(named: "HELP", title: "Aide NoteDroppy")
     }
 
     private func refreshAccessibilityStatus(append: Bool = false) {
@@ -416,10 +416,109 @@ final class SettingsWindowController: NSWindowController {
     }
 }
 
-private func openBundledDocument(named name: String, extension ext: String) {
-    if let url = Bundle.main.url(forResource: name, withExtension: ext) {
-        NSWorkspace.shared.open(url)
+final class HelpWindowController: NSWindowController {
+    private static var retainedControllers: [HelpWindowController] = []
+
+    convenience init(title: String, content: String) {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 680, height: 620),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = title
+        window.center()
+        self.init(window: window)
+        buildContent(content)
+        window.delegate = self
     }
+
+    static func show(title: String, content: String) {
+        let controller = HelpWindowController(title: title, content: content)
+        retainedControllers.append(controller)
+        controller.showWindow(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func buildContent(_ content: String) {
+        guard let contentView = window?.contentView else { return }
+
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.spacing = 12
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(stack)
+
+        let scrollView = NSScrollView()
+        scrollView.hasVerticalScroller = true
+        scrollView.borderType = .bezelBorder
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+
+        let textView = NSTextView()
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.drawsBackground = true
+        textView.backgroundColor = .textBackgroundColor
+        textView.textColor = .textColor
+        textView.font = .systemFont(ofSize: 14)
+        textView.textContainerInset = NSSize(width: 14, height: 14)
+        textView.string = content
+        scrollView.documentView = textView
+
+        let buttonRow = NSStackView()
+        buttonRow.orientation = .horizontal
+        buttonRow.spacing = 8
+        buttonRow.alignment = .centerY
+
+        let githubButton = NSButton(title: "GitHub Repository", target: self, action: #selector(openGitHub))
+        githubButton.bezelStyle = .rounded
+        let closeButton = NSButton(title: "Close", target: self, action: #selector(closeWindow))
+        closeButton.bezelStyle = .rounded
+
+        buttonRow.addArrangedSubview(githubButton)
+        buttonRow.addArrangedSubview(closeButton)
+
+        stack.addArrangedSubview(scrollView)
+        stack.addArrangedSubview(buttonRow)
+
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
+            stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16),
+            scrollView.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            scrollView.heightAnchor.constraint(greaterThanOrEqualToConstant: 480)
+        ])
+    }
+
+    @objc private func openGitHub() {
+        openRepository()
+    }
+
+    @objc private func closeWindow() {
+        close()
+    }
+
+    fileprivate static func release(_ controller: HelpWindowController) {
+        retainedControllers.removeAll { $0 === controller }
+    }
+}
+
+extension HelpWindowController: NSWindowDelegate {
+    func windowWillClose(_ notification: Notification) {
+        HelpWindowController.release(self)
+    }
+}
+
+private func showHelpDocument(named name: String, title: String) {
+    let content: String
+    if let url = Bundle.main.url(forResource: name, withExtension: "md"),
+       let loaded = try? String(contentsOf: url, encoding: .utf8) {
+        content = loaded
+    } else {
+        content = "Help content is missing from the app bundle."
+    }
+    HelpWindowController.show(title: title, content: content)
 }
 
 private func openRepository() {
@@ -649,16 +748,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if response == .alertFirstButtonReturn {
             openRepository()
         } else if response == .alertSecondButtonReturn {
-            openBundledDocument(named: "HELP", extension: "md")
+            showHelpDocument(named: "HELP", title: "Aide NoteDroppy")
         }
     }
 
     @objc func openHelp(_ sender: Any?) {
-        openBundledDocument(named: "HELP", extension: "md")
+        showHelpDocument(named: "HELP", title: "Aide NoteDroppy")
     }
 
     @objc func openEnglishHelp(_ sender: Any?) {
-        openBundledDocument(named: "HELP.en", extension: "md")
+        showHelpDocument(named: "HELP.en", title: "NoteDroppy Help")
     }
 
     @objc func openGitHubRepository(_ sender: Any?) {

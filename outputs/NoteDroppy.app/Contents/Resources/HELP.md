@@ -2,7 +2,7 @@
 
 NoteDroppy ajoute rapidement une tâche dans la note du jour NotePlan.
 
-Repository GitHub :
+GitHub Repository:
 
 ```text
 https://github.com/bizc0m/NoteDroppy
@@ -63,6 +63,7 @@ Réglages disponibles :
 - Ouverture de NotePlan après ajout.
 - Raccourci global.
 - Accès direct au panneau Accessibilité macOS.
+- Aide intégrée dans l'app avec bouton `GitHub Repository`.
 
 ## Autorisation Accessibilité
 

@@ -46,6 +46,7 @@ Réglages disponibles :
 - Ouverture de NotePlan après ajout.
 - Raccourci global configurable.
 - Bouton d'ouverture du panneau Accessibilité macOS.
+- Aide intégrée dans l'app, avec lien `GitHub Repository`.
 
 ## Installation
 
