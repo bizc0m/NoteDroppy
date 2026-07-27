@@ -12,6 +12,7 @@ private enum Settings {
     static let shortcutEnabledKey = "shortcutEnabled"
     static let shortcutKeyCodeKey = "shortcutKeyCode"
     static let shortcutModifiersKey = "shortcutModifiers"
+    static let didShowFirstLaunchSettingsKey = "didShowFirstLaunchSettings"
 
     static var taskTag: String {
         let value = UserDefaults.standard.string(forKey: taskTagKey) ?? "#capture"
@@ -748,8 +749,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
             if !self.didReceiveOpenEvent {
-                self.log("show-settings:no-open-event")
-                self.showSettingsWindow()
+                if !UserDefaults.standard.bool(forKey: Settings.didShowFirstLaunchSettingsKey) {
+                    UserDefaults.standard.set(true, forKey: Settings.didShowFirstLaunchSettingsKey)
+                    UserDefaults.standard.synchronize()
+                    self.log("show-settings:first-launch")
+                    self.showSettingsWindow()
+                } else {
+                    self.log("hide-settings:normal-launch")
+                }
             }
         }
     }
