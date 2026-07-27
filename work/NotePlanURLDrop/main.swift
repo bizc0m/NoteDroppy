@@ -184,6 +184,11 @@ final class ShortcutRecorderButton: NSButton {
             title = "⌘C est réservé"
             return
         }
+        guard !isReservedMenuShortcut(keyCode: UInt32(event.keyCode), modifiers: modifiers) else {
+            NSSound.beep()
+            title = "Raccourci réservé par l'app"
+            return
+        }
         let combo = KeyCombo(keyCode: UInt32(event.keyCode), carbonModifiers: modifiers)
         UserDefaults.standard.set(Int(combo.keyCode), forKey: Settings.shortcutKeyCodeKey)
         UserDefaults.standard.set(Int(combo.carbonModifiers), forKey: Settings.shortcutModifiersKey)
@@ -220,6 +225,23 @@ private func carbonModifiers(from flags: NSEvent.ModifierFlags) -> UInt32 {
 
 private func carbonModifiers(fromRawNSEventFlags raw: UInt) -> UInt32 {
     carbonModifiers(from: NSEvent.ModifierFlags(rawValue: raw))
+}
+
+private func isReservedMenuShortcut(keyCode: UInt32, modifiers: UInt32) -> Bool {
+    let commandOnly = UInt32(cmdKey)
+    let commandShift = UInt32(cmdKey | shiftKey)
+    let commandOption = UInt32(cmdKey | optionKey)
+
+    if keyCode == UInt32(kVK_ANSI_Q), modifiers & UInt32(cmdKey) != 0 {
+        return true
+    }
+    if keyCode == UInt32(kVK_ANSI_Comma), modifiers & UInt32(cmdKey) != 0 {
+        return true
+    }
+    if keyCode == UInt32(kVK_ANSI_Slash), modifiers == commandOnly || modifiers == commandShift || modifiers == commandOption {
+        return true
+    }
+    return false
 }
 
 final class SettingsWindowController: NSWindowController {
@@ -1053,7 +1075,7 @@ app.mainMenu = mainMenu
 let helpMenuItem = NSMenuItem()
 mainMenu.addItem(helpMenuItem)
 let helpMenu = NSMenu(title: "Aide")
-helpMenu.addItem(withTitle: "Aide NoteDroppy", action: #selector(AppDelegate.openHelp(_:)), keyEquivalent: "?")
+helpMenu.addItem(withTitle: "Aide NoteDroppy", action: #selector(AppDelegate.openHelp(_:)), keyEquivalent: "")
 helpMenu.addItem(withTitle: "Help NoteDroppy English", action: #selector(AppDelegate.openEnglishHelp(_:)), keyEquivalent: "")
 helpMenu.addItem(NSMenuItem.separator())
 helpMenu.addItem(withTitle: "GitHub Repository", action: #selector(AppDelegate.openGitHubRepository(_:)), keyEquivalent: "")
