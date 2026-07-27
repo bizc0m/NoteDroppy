@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 APP_SRC="$ROOT_DIR/outputs/NoteDroppy.app"
 APP_DST="/Applications/NoteDroppy.app"
+BACKUP_DIR="$ROOT_DIR/backups/installed-apps"
 SIGN_IDENTITY="${NOTEDROPPY_CODESIGN_IDENTITY:-NoteDroppy Local Code Signing}"
 
 if ! security find-identity -v -p codesigning | grep -Fq "\"$SIGN_IDENTITY\""; then
@@ -16,7 +17,8 @@ if [[ ! -d "$APP_SRC" ]]; then
 fi
 
 if [[ -d "$APP_DST" ]]; then
-  mv "$APP_DST" "/Applications/NoteDroppy.app.previous-$(date +%Y%m%d-%H%M%S)"
+  mkdir -p "$BACKUP_DIR"
+  mv "$APP_DST" "$BACKUP_DIR/NoteDroppy.app.previous-$(date +%Y%m%d-%H%M%S).bundle-backup"
 fi
 
 cp -R "$APP_SRC" "$APP_DST"
