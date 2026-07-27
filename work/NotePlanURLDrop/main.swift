@@ -1018,15 +1018,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func sendTodo(_ todoText: String) {
-        let trimmed = todoText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, trimmed != "(null)" else { return }
-        log("sendTodo:\(trimmed)")
-        let task = "- [ ] \(trimmed) \(Settings.taskTag)"
+        guard let content = normalizedTaskContent(todoText) else { return }
+        log("sendTodo:\(content)")
+        let task = "- [ ] \(content) \(Settings.taskTag)"
         let openNoteValue = Settings.openNote ? "yes" : "no"
         let target = "noteplan://x-callback-url/addText?noteDate=today&text=\(encode(task))&mode=append&openNote=\(openNoteValue)"
         if let url = URL(string: target) {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    private func normalizedTaskContent(_ value: String) -> String? {
+        var content = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !content.isEmpty, content != "(null)" else { return nil }
+
+        let taskPrefixPattern = #"^[-*]\s+\[[ xX]\]\s+"#
+        while let range = content.range(of: taskPrefixPattern, options: .regularExpression) {
+            content.removeSubrange(range)
+            content = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        let tag = Settings.taskTag.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !tag.isEmpty, content == tag {
+            return nil
+        }
+        if !tag.isEmpty, content.hasSuffix(" \(tag)") {
+            content.removeLast(tag.count + 1)
+            content = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        guard !content.isEmpty, content != "(null)" else { return nil }
+        return content
     }
 
     private func encode(_ value: String) -> String {
