@@ -4,18 +4,51 @@
 <dict>
 	<key>files</key>
 	<dict>
+		<key>Resources/HELP.en.md</key>
+		<data>
+		aXIJ9wWJgl4aCMPsAUeKOJ+W/i4=
+		</data>
+		<key>Resources/HELP.md</key>
+		<data>
+		LA9hvt9FfcUgzq57HguUZ0X4YMo=
+		</data>
 		<key>Resources/NotePlanURLDrop.icns</key>
 		<data>
 		ou6IRkm4b3cs04KCl+NXC4tsyvs=
 		</data>
+		<key>Resources/README.en.md</key>
+		<data>
+		ZhbdDRwMX6F+HpWO24Z3liVvtc8=
+		</data>
 	</dict>
 	<key>files2</key>
 	<dict>
+		<key>Resources/HELP.en.md</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			ylfmXH4yIvRxfDYNe+NXTipSUeya29vQCOBhFNg3594=
+			</data>
+		</dict>
+		<key>Resources/HELP.md</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			yT8z6RKOu4qZhV+aFeyVWN0Rmwzv0rgwh+14zj55Ahg=
+			</data>
+		</dict>
 		<key>Resources/NotePlanURLDrop.icns</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			ieegCeC6v0ujL0uv19QtqVjJqO7RE7tz8hP09fP5JFs=
+			</data>
+		</dict>
+		<key>Resources/README.en.md</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			phWzBvmk+b/9QCyoaz80p+Bej+W6N+kcyJN85dmk1JU=
 			</data>
 		</dict>
 	</dict>

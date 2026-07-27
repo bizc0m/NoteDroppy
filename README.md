@@ -2,6 +2,10 @@
 
 App macOS AppKit pour ajouter rapidement des tâches dans NotePlan.
 
+English version: [README.en.md](README.en.md)
+
+Help: [HELP.md](HELP.md) / [HELP.en.md](HELP.en.md)
+
 ## Utilisation
 
 - URL vers l'icone Dock `NoteDroppy` : ajoute l'URL en tâche.
@@ -25,7 +29,7 @@ Le nom du Service par défaut est :
 NotePlan : ajouter en tâche
 ```
 
-Il peut être changé dans les réglages de l'app. NoteDroppy réécrit alors son `Info.plist`, ressigne l'app en ad-hoc et rafraîchit LaunchServices/PBS.
+Il peut être changé dans les réglages de l'app. NoteDroppy réécrit alors son `Info.plist`, ressigne l'app et rafraîchit LaunchServices/PBS.
 
 Si le Service n'apparait pas après installation, relancer l'app source ou exécuter le script d'installation, qui rafraichit LaunchServices et PBS.
 
