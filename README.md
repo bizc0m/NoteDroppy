@@ -87,6 +87,24 @@ App installée:
 
 Sur cette machine, le script signe avec l'identité locale `NoteDroppy Local Code Signing` si elle existe. Cette signature stable évite que macOS perde l'autorisation Accessibilité à chaque rebuild. Sans cette identité, le script retombe en signature ad-hoc.
 
+## Paquet diffusable sans Apple Developer
+
+Créer un ZIP installable:
+
+```zsh
+scripts/package-notedroppy.sh
+```
+
+Le paquet est créé dans `releases/` avec:
+
+- `NoteDroppy.app`
+- `install-notedroppy.sh`
+- `INSTALL.md`
+- `INSTALL.fr.md`
+- un checksum `.sha256`
+
+Ce paquet n'est pas notarise par Apple. Sur un autre Mac, macOS peut demander une validation Gatekeeper au premier lancement. L'app reste installable proprement par copie dans `/Applications` ou par script.
+
 ## Réglages disponibles
 
 - Nom du Service macOS.
