@@ -1076,7 +1076,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let continuation = lines.dropFirst().map { line in
-            line.isEmpty ? "" : "    \(line)"
+            line.isEmpty ? ">" : "> \(line)"
         }
         let suffix = tag.isEmpty ? "" : " \(tag)"
         return (["- [ ] \(firstLine)\(suffix)"] + continuation).joined(separator: "\n")
