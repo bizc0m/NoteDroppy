@@ -22,6 +22,7 @@ if [[ -d "$APP_DST" ]]; then
 fi
 
 cp -R "$APP_SRC" "$APP_DST"
+xattr -cr "$APP_DST" 2>/dev/null || true
 codesign --force --deep -s "$SIGN_IDENTITY" "$APP_DST"
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$APP_DST"
 /System/Library/CoreServices/pbs -flush 2>/dev/null || true
