@@ -1057,12 +1057,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func sendTodo(_ todoText: String) {
         guard let content = normalizedTaskContent(todoText) else { return }
         log("sendTodo:\(content)")
-        let task = "- [ ] \(content) \(Settings.taskTag)"
+        let task = formattedTask(from: content)
         let openNoteValue = Settings.openNote ? "yes" : "no"
         let target = "noteplan://x-callback-url/addText?noteDate=today&text=\(encode(task))&mode=append&openNote=\(openNoteValue)"
         if let url = URL(string: target) {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    private func formattedTask(from content: String) -> String {
+        let tag = Settings.taskTag.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lines = content
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+        guard let firstLine = lines.first(where: { !$0.isEmpty }) else {
+            return "- [ ] \(tag)"
+        }
+
+        let continuation = lines.dropFirst().map { line in
+            line.isEmpty ? "" : "    \(line)"
+        }
+        let suffix = tag.isEmpty ? "" : " \(tag)"
+        return (["- [ ] \(firstLine)\(suffix)"] + continuation).joined(separator: "\n")
     }
 
     private func normalizedTaskContent(_ value: String) -> String? {
@@ -1083,12 +1100,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             content.removeLast(tag.count + 1)
             content = content.trimmingCharacters(in: .whitespacesAndNewlines)
         }
-
-        content = content
-            .components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
 
         guard !content.isEmpty, content != "(null)" else { return nil }
         return content
