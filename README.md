@@ -12,6 +12,9 @@ Aide: [HELP.md](HELP.md) / [HELP.en.md](HELP.en.md)
 
 Repo: [https://github.com/bizc0m/NoteDroppy](https://github.com/bizc0m/NoteDroppy)
 
+Docs multilingues:
+[FR](docs/README.fr.md) · [EN](docs/README.en.md) · [ES](docs/README.es.md) · [DE](docs/README.de.md) · [IT](docs/README.it.md) · [PT](docs/README.pt.md)
+
 ## Ce que ça fait
 
 NoteDroppy envoie ce format dans NotePlan:

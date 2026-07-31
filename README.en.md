@@ -12,6 +12,9 @@ Help: [HELP.md](HELP.md) / [HELP.en.md](HELP.en.md)
 
 Repository: [https://github.com/bizc0m/NoteDroppy](https://github.com/bizc0m/NoteDroppy)
 
+Multilingual docs:
+[FR](docs/README.fr.md) · [EN](docs/README.en.md) · [ES](docs/README.es.md) · [DE](docs/README.de.md) · [IT](docs/README.it.md) · [PT](docs/README.pt.md)
+
 ## What It Does
 
 NoteDroppy sends this task format to NotePlan:
