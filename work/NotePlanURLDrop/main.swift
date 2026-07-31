@@ -1084,6 +1084,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             content = content.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
+        content = content
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+
         guard !content.isEmpty, content != "(null)" else { return nil }
         return content
     }
