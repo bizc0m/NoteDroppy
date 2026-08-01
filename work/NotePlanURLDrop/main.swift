@@ -784,25 +784,80 @@ private let shortcutDropPasteboardTypes: [NSPasteboard.PasteboardType] = [
 ]
 
 private func shortcutTarget(from pasteboard: NSPasteboard) -> ShortcutTarget? {
+    let strings = pasteboardStrings(from: pasteboard)
+    writeDebugLog("shortcut-target:types:\((pasteboard.types ?? []).map { $0.rawValue }.joined(separator: ","))")
+
     if let value = pasteboard.string(forType: .fileURL), let url = URL(string: value) {
         return ShortcutTarget(url: url)
     }
-    if let value = pasteboard.string(forType: .URL), let url = URL(string: value) {
-        return ShortcutTarget(url: url)
+
+    if let notePlanText = strings.first(where: { $0.range(of: "noteplan://", options: .caseInsensitive) != nil }) {
+        return ShortcutTarget(rawText: notePlanText)
     }
-    if let objects = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL], let url = objects.first {
-        return ShortcutTarget(url: url)
-    }
-    for type in pasteboard.types ?? [] {
-        if type == .fileURL || type == .URL { continue }
-        if let value = pasteboard.string(forType: type)?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
-            if let url = URL(string: value), url.scheme != nil {
-                return ShortcutTarget(url: url)
-            }
-            return ShortcutTarget(rawText: value)
+
+    if let value = pasteboard.string(forType: .URL)?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
+        if let url = URL(string: value), url.scheme?.lowercased() == "file" || url.scheme?.lowercased() == "noteplan" {
+            return ShortcutTarget(url: url)
         }
     }
+
+    if let objects = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL] {
+        if let url = objects.first(where: { $0.isFileURL || $0.scheme?.lowercased() == "noteplan" }) {
+            return ShortcutTarget(url: url)
+        }
+    }
+
+    if let pathLike = strings.first(where: { value in
+        let lower = value.lowercased()
+        return lower.hasPrefix("file://") || lower.hasSuffix(".md") || lower.contains(".md)") || lower.contains("/")
+    }) {
+        if let url = URL(string: pathLike), url.scheme?.lowercased() == "file" {
+            return ShortcutTarget(url: url)
+        }
+        return ShortcutTarget(rawText: pathLike)
+    }
+
+    if let title = strings.first(where: { !$0.isEmpty }) {
+        return ShortcutTarget(rawText: title)
+    }
+
     return nil
+}
+
+private func pasteboardStrings(from pasteboard: NSPasteboard) -> [String] {
+    var values: [String] = []
+    for type in pasteboard.types ?? [] {
+        if let value = pasteboard.string(forType: type)?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
+            values.append(value)
+        }
+    }
+    if let objects = pasteboard.readObjects(forClasses: [NSString.self], options: nil) as? [String] {
+        values.append(contentsOf: objects.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty })
+    }
+
+    var seen = Set<String>()
+    return values.filter { value in
+        if seen.contains(value) {
+            return false
+        } else {
+            seen.insert(value)
+            return true
+        }
+    }
+}
+
+private func pasteboardPreview(from pasteboard: NSPasteboard) -> String {
+    pasteboardStrings(from: pasteboard)
+        .prefix(6)
+        .map { value in
+            let collapsed = value.replacingOccurrences(of: "\n", with: "\\n")
+            if collapsed.count > 120 {
+                let end = collapsed.index(collapsed.startIndex, offsetBy: 120)
+                return String(collapsed[..<end]) + "..."
+            }
+            return collapsed
+        }
+        .joined(separator: " | ")
 }
 
 struct ShortcutTarget {
@@ -1512,6 +1567,7 @@ final class SettingsWindowController: NSWindowController {
     }
 
     private func pasteTarget(for row: ShortcutSlotRow) {
+        writeDebugLog("shortcut-paste:slot:\(row.index):\(pasteboardPreview(from: NSPasteboard.general))")
         guard let target = shortcutTarget(from: NSPasteboard.general) else {
             statusLabel.stringValue = "Copie un lien NotePlan, un titre, ou un chemin .md puis clique Coller cible."
             NSSound.beep()
