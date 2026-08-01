@@ -1437,11 +1437,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return normalizedTodoText(attributed.string)
         }
 
-        if let text = try? String(contentsOf: fileURL, encoding: .utf8) {
+        if isPlainTextFile(fileURL),
+           let text = try? String(contentsOf: fileURL, encoding: .utf8) {
             return normalizedTodoText(text)
         }
 
-        return nil
+        return fileURL.path
+    }
+
+    private func isPlainTextFile(_ fileURL: URL) -> Bool {
+        let textExtensions: Set<String> = ["txt", "md", "markdown", "text", "csv", "json", "xml", "yaml", "yml", "log"]
+        if textExtensions.contains(fileURL.pathExtension.lowercased()) {
+            return true
+        }
+        guard let data = try? Data(contentsOf: fileURL, options: [.mappedIfSafe]) else {
+            return false
+        }
+        return !data.prefix(4096).contains(0)
     }
 
     private func firstWebURL(in text: String) -> String? {
