@@ -298,7 +298,7 @@ private func loadNoteSearchResults() -> [NoteSearchResult] {
     for root in notePlanNotesRoots() {
         guard let enumerator = fileManager.enumerator(
             at: root,
-            includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
+            includingPropertiesForKeys: nil,
             options: [.skipsHiddenFiles]
         ) else { continue }
 
