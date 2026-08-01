@@ -262,18 +262,19 @@ final class SettingsWindowController: NSWindowController {
     private let openNoteCheckbox = NSButton(checkboxWithTitle: "Ouvrir NotePlan après l'ajout", target: nil, action: nil)
     private let shortcutCheckbox = NSButton(checkboxWithTitle: "Raccourci global", target: nil, action: nil)
     private let shortcutRecorder = ShortcutRecorderButton()
+    private let shortcutHelpLabel = NSTextField(labelWithString: "Clique le bouton puis tape le raccourci à utiliser pour capturer la sélection.")
     private let helpButton = NSButton(title: "Aide", target: nil, action: nil)
     private let accessibilityButton = NSButton(title: "Autoriser Accessibilité", target: nil, action: nil)
     private let statusLabel = NSTextField(labelWithString: "")
 
     convenience init() {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 460, height: 340),
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 420),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
         )
-        window.title = "Réglages NoteDroppy"
+        window.title = "Préférences NoteDroppy"
         window.center()
         self.init(window: window)
         buildContent()
@@ -292,6 +293,9 @@ final class SettingsWindowController: NSWindowController {
         let title = NSTextField(labelWithString: "NoteDroppy")
         title.font = .boldSystemFont(ofSize: 18)
 
+        let generalTitle = NSTextField(labelWithString: "Général")
+        generalTitle.font = .boldSystemFont(ofSize: 13)
+
         let serviceLabel = NSTextField(labelWithString: "Nom du Service")
         serviceNameField.placeholderString = "NotePlan : ajouter en tâche"
         serviceNameField.lineBreakMode = .byTruncatingTail
@@ -299,11 +303,17 @@ final class SettingsWindowController: NSWindowController {
         let tagLabel = NSTextField(labelWithString: "Tag ajouté à la tâche")
         tagField.placeholderString = "#capture"
 
+        let shortcutTitle = NSTextField(labelWithString: "Raccourcis")
+        shortcutTitle.font = .boldSystemFont(ofSize: 13)
+
         openNoteCheckbox.state = Settings.openNote ? .on : .off
         shortcutCheckbox.state = Settings.shortcutEnabled ? .on : .off
         shortcutRecorder.onChange = { _ in
             NotificationCenter.default.post(name: .settingsDidChange, object: nil)
         }
+        shortcutHelpLabel.textColor = .secondaryLabelColor
+        shortcutHelpLabel.lineBreakMode = .byWordWrapping
+        shortcutHelpLabel.maximumNumberOfLines = 2
 
         statusLabel.textColor = .secondaryLabelColor
         statusLabel.lineBreakMode = .byWordWrapping
@@ -343,13 +353,16 @@ final class SettingsWindowController: NSWindowController {
         shortcutRecorder.widthAnchor.constraint(equalToConstant: 360).isActive = true
 
         stack.addArrangedSubview(title)
+        stack.addArrangedSubview(generalTitle)
         stack.addArrangedSubview(serviceLabel)
         stack.addArrangedSubview(serviceNameField)
         stack.addArrangedSubview(tagLabel)
         stack.addArrangedSubview(tagField)
         stack.addArrangedSubview(openNoteCheckbox)
+        stack.addArrangedSubview(shortcutTitle)
         stack.addArrangedSubview(shortcutCheckbox)
         stack.addArrangedSubview(shortcutRecorder)
+        stack.addArrangedSubview(shortcutHelpLabel)
         stack.addArrangedSubview(buttons)
         stack.addArrangedSubview(statusLabel)
 
@@ -1164,7 +1177,7 @@ mainMenu.addItem(appMenuItem)
 let appMenu = NSMenu()
 appMenu.addItem(withTitle: "À propos de NoteDroppy", action: #selector(AppDelegate.showAbout(_:)), keyEquivalent: "")
 appMenu.addItem(NSMenuItem.separator())
-appMenu.addItem(withTitle: "Réglages...", action: #selector(AppDelegate.showSettingsWindowFromMenu(_:)), keyEquivalent: ",")
+appMenu.addItem(withTitle: "Préférences...", action: #selector(AppDelegate.showSettingsWindowFromMenu(_:)), keyEquivalent: ",")
 appMenu.addItem(NSMenuItem.separator())
 appMenu.addItem(withTitle: "Quitter NoteDroppy", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
 appMenuItem.submenu = appMenu
