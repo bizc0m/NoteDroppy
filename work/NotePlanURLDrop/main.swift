@@ -1702,13 +1702,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        if let selectedText = selectedTextFromAccessibility(),
-           let normalized = normalizedTodoText(selectedText) {
-            log("shortcut:ax-selected-text:\(normalized)")
-            sendTodo(normalized, shortcutSlot: slot)
-            return
-        }
-
         let pasteboard = NSPasteboard.general
         let snapshot = ClipboardSnapshot(pasteboard: pasteboard)
         let previousChangeCount = pasteboard.changeCount
@@ -1720,13 +1713,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         waitForCopiedText(pasteboard: pasteboard, previousChangeCount: previousChangeCount, attemptsRemaining: 12) { text in
             defer { snapshot.restore(to: pasteboard) }
-            guard let text,
-                  let normalized = self.normalizedTodoText(text) else {
-                self.log("shortcut:no-selected-text")
+            if let text,
+               let normalized = self.normalizedTodoText(text) {
+                self.log("shortcut:text:\(normalized)")
+                self.sendTodo(normalized, shortcutSlot: slot)
                 return
             }
-            self.log("shortcut:text:\(normalized)")
-            self.sendTodo(normalized, shortcutSlot: slot)
+
+            if let selectedText = self.selectedTextFromAccessibility(),
+               let normalized = self.normalizedTodoText(selectedText) {
+                self.log("shortcut:ax-selected-text:\(normalized)")
+                self.sendTodo(normalized, shortcutSlot: slot)
+                return
+            }
+
+            self.log("shortcut:no-selected-text")
         }
     }
 
