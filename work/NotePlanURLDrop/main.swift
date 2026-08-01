@@ -1442,7 +1442,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return normalizedTodoText(text)
         }
 
-        return fileURL.path
+        return markdownFileLink(for: fileURL)
+    }
+
+    private func markdownFileLink(for fileURL: URL) -> String {
+        let label = fileURL.lastPathComponent
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "[", with: "\\[")
+            .replacingOccurrences(of: "]", with: "\\]")
+        return "[\(label)](<\(fileURL.absoluteString)>)"
     }
 
     private func isPlainTextFile(_ fileURL: URL) -> Bool {
