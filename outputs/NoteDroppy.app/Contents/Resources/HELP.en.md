@@ -63,7 +63,11 @@ Available settings:
 - macOS Service name.
 - Task tag.
 - Open NotePlan after adding.
-- Global shortcut.
+- 10 configurable global shortcuts.
+- For each shortcut: Enabled, Shortcut, Destination, Note/Path, Tags.
+- Destinations: Today, Named note, Note path.
+- The `Rechercher` button lists NotePlan notes, filters by title, path, `#tag`, or `#context`, then validates the path into `Note/Path`.
+- Comma-separated tags, automatically normalized as NotePlan tags.
 - Direct button to macOS Accessibility settings.
 - In-app Help window with `GitHub Repository` button.
 
