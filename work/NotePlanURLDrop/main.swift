@@ -255,7 +255,7 @@ private func noteSearchSummary(from url: URL) -> (title: String?, tags: [String]
 }
 
 private func noteTags(in content: String) -> [String] {
-    let pattern = #"(?<![\p{L}\p{N}_])#[\p{L}\p{N}_][\p{L}\p{N}_/-]*"#
+    let pattern = #"(?<![\p{L}\p{N}_])[#@][\p{L}\p{N}_][\p{L}\p{N}_/-]*"#
     guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
     let range = NSRange(content.startIndex..<content.endIndex, in: content)
     var seen = Set<String>()
@@ -654,7 +654,7 @@ final class NoteSearchWindowController: NSWindowController, NSTableViewDataSourc
         stack.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(stack)
 
-        searchField.placeholderString = "Titre, chemin, #tag ou #contexte"
+        searchField.placeholderString = "Titre, chemin, #tag ou @contexte"
         searchField.stringValue = initialQuery
         searchField.delegate = self
         searchField.target = self
@@ -742,7 +742,7 @@ final class NoteSearchWindowController: NSWindowController, NSTableViewDataSourc
         if !filteredResults.isEmpty {
             tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
         }
-        statusLabel.stringValue = "\(filteredResults.count) resultat(s) affiche(s) sur \(allResults.count) notes. Chercher par titre, chemin, #tag ou #contexte."
+        statusLabel.stringValue = "\(filteredResults.count) resultat(s) affiche(s) sur \(allResults.count) notes. Chercher par titre, chemin, #tag ou @contexte."
     }
 
     func numberOfRows(in tableView: NSTableView) -> Int {
