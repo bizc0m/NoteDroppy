@@ -715,7 +715,7 @@ final class NoteSearchWindowController: NSWindowController, NSTableViewDataSourc
     private let searchField = NSSearchField()
     private let tableView = NSTableView()
     private let statusLabel = NSTextField(labelWithString: "")
-    private let allResults: [NoteSearchResult]
+    private var allResults: [NoteSearchResult] = []
     private var filteredResults: [NoteSearchResult] = []
     private let onSelect: (NoteSearchResult) -> Void
 
@@ -725,11 +725,23 @@ final class NoteSearchWindowController: NSWindowController, NSTableViewDataSourc
     }
 
     init(window: NSWindow, initialQuery: String, onSelect: @escaping (NoteSearchResult) -> Void) {
-        self.allResults = loadNoteSearchResults()
         self.onSelect = onSelect
         super.init(window: window)
         buildContent(initialQuery: initialQuery)
         window.delegate = self
+        loadResultsAsync()
+    }
+
+    private func loadResultsAsync() {
+        statusLabel.stringValue = "Indexation des notes en cours..."
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let results = loadNoteSearchResults()
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.allResults = results
+                self.applyFilter()
+            }
+        }
     }
 
     required init?(coder: NSCoder) {
