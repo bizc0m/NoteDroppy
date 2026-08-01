@@ -613,16 +613,37 @@ final class ShortcutSlotRow {
         searchButton.bezelStyle = .rounded
         tagsField.placeholderString = "capture, $year, #projet"
 
-        [recorder, destinationPopup, folderField, noteField, searchButton, tagsField].forEach {
+        [enabledCheckbox, recorder, destinationPopup, folderField, noteField, searchButton, tagsField].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
         }
-        recorder.widthAnchor.constraint(equalToConstant: 92).isActive = true
-        destinationPopup.widthAnchor.constraint(equalToConstant: 128).isActive = true
-        folderField.widthAnchor.constraint(equalToConstant: 150).isActive = true
-        noteField.widthAnchor.constraint(equalToConstant: 190).isActive = true
-        searchButton.widthAnchor.constraint(equalToConstant: 94).isActive = true
-        tagsField.widthAnchor.constraint(equalToConstant: 170).isActive = true
+        enabledCheckbox.widthAnchor.constraint(equalToConstant: Self.columnWidths[0]).isActive = true
+        recorder.widthAnchor.constraint(equalToConstant: Self.columnWidths[1]).isActive = true
+        destinationPopup.widthAnchor.constraint(equalToConstant: Self.columnWidths[2]).isActive = true
+        folderField.widthAnchor.constraint(equalToConstant: Self.columnWidths[3]).isActive = true
+        noteField.widthAnchor.constraint(equalToConstant: Self.columnWidths[4]).isActive = true
+        searchButton.widthAnchor.constraint(equalToConstant: Self.columnWidths[5]).isActive = true
+        tagsField.widthAnchor.constraint(equalToConstant: Self.columnWidths[6]).isActive = true
         refreshNoteFieldState()
+    }
+
+    static let columnSpacing: CGFloat = 12
+    static let columnTitles = ["Actif", "Raccourci", "Destination", "Dossier", "Note/Path", "Recherche", "Tags"]
+    static let columnWidths: [CGFloat] = [34, 92, 128, 150, 190, 94, 170]
+
+    static func headerView() -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.spacing = columnSpacing
+        row.alignment = .centerY
+        for (title, width) in zip(columnTitles, columnWidths) {
+            let label = NSTextField(labelWithString: title)
+            label.font = .boldSystemFont(ofSize: 12)
+            label.textColor = .secondaryLabelColor
+            label.translatesAutoresizingMaskIntoConstraints = false
+            label.widthAnchor.constraint(equalToConstant: width).isActive = true
+            row.addArrangedSubview(label)
+        }
+        return row
     }
 
     var slot: ShortcutSlot {
@@ -646,7 +667,7 @@ final class ShortcutSlotRow {
     func view() -> NSView {
         let row = NSStackView()
         row.orientation = .horizontal
-        row.spacing = 8
+        row.spacing = Self.columnSpacing
         row.alignment = .centerY
         row.addArrangedSubview(enabledCheckbox)
         row.addArrangedSubview(recorder)
@@ -1013,12 +1034,10 @@ final class SettingsWindowController: NSWindowController {
 
         let slotsStack = NSStackView()
         slotsStack.orientation = .vertical
-        slotsStack.spacing = 6
+        slotsStack.spacing = 8
         slotsStack.alignment = .leading
 
-        let header = NSTextField(labelWithString: "Actif   Raccourci    Destination      Dossier            Note/Path             Recherche      Tags")
-        header.textColor = .secondaryLabelColor
-        slotsStack.addArrangedSubview(header)
+        slotsStack.addArrangedSubview(ShortcutSlotRow.headerView())
 
         shortcutRows = Settings.allShortcutSlots().map { slot in
             let row = ShortcutSlotRow(slot: slot)
