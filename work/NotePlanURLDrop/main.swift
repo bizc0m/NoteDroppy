@@ -716,7 +716,7 @@ final class ShortcutTargetField: NSTextField {
         isEditable = false
         isSelectable = true
         lineBreakMode = .byTruncatingMiddle
-        registerForDraggedTypes([.fileURL, .URL, .string])
+        registerForDraggedTypes(shortcutDropPasteboardTypes)
     }
 
     required init?(coder: NSCoder) {
@@ -724,46 +724,85 @@ final class ShortcutTargetField: NSTextField {
         isEditable = false
         isSelectable = true
         lineBreakMode = .byTruncatingMiddle
-        registerForDraggedTypes([.fileURL, .URL, .string])
+        registerForDraggedTypes(shortcutDropPasteboardTypes)
     }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        acceptsDrop && target(from: sender.draggingPasteboard) != nil ? .copy : []
+        writeDebugLog("shortcut-drop:field:entered:\((sender.draggingPasteboard.types ?? []).map { $0.rawValue }.joined(separator: ","))")
+        return acceptsDrop && shortcutTarget(from: sender.draggingPasteboard) != nil ? NSDragOperation.copy : NSDragOperation()
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        guard acceptsDrop, let target = target(from: sender.draggingPasteboard) else {
+        writeDebugLog("shortcut-drop:field:perform:\((sender.draggingPasteboard.types ?? []).map { $0.rawValue }.joined(separator: ","))")
+        guard acceptsDrop, let target = shortcutTarget(from: sender.draggingPasteboard) else {
             NSSound.beep()
             return false
         }
         return onDropTarget?(target) ?? false
     }
+}
 
-    private func target(from pasteboard: NSPasteboard) -> ShortcutTarget? {
-        if let url = droppedURL(from: pasteboard) {
-            return ShortcutTarget(url: url)
+final class ShortcutSlotDropStack: NSStackView {
+    var acceptsDrop = true
+    var onDropTarget: ((ShortcutTarget) -> Bool)?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        registerForDraggedTypes(shortcutDropPasteboardTypes)
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        registerForDraggedTypes(shortcutDropPasteboardTypes)
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        writeDebugLog("shortcut-drop:row:entered:\((sender.draggingPasteboard.types ?? []).map { $0.rawValue }.joined(separator: ","))")
+        return acceptsDrop && shortcutTarget(from: sender.draggingPasteboard) != nil ? NSDragOperation.copy : NSDragOperation()
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        writeDebugLog("shortcut-drop:row:perform:\((sender.draggingPasteboard.types ?? []).map { $0.rawValue }.joined(separator: ","))")
+        guard acceptsDrop, let target = shortcutTarget(from: sender.draggingPasteboard) else {
+            NSSound.beep()
+            return false
         }
-        if let text = pasteboard.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty {
-            if let url = Foundation.URL(string: text), url.scheme != nil {
+        return onDropTarget?(target) ?? false
+    }
+}
+
+private let shortcutDropPasteboardTypes: [NSPasteboard.PasteboardType] = [
+    .fileURL,
+    .URL,
+    .string,
+    NSPasteboard.PasteboardType("public.utf8-plain-text"),
+    NSPasteboard.PasteboardType("public.text"),
+    NSPasteboard.PasteboardType("public.url"),
+    NSPasteboard.PasteboardType("public.url-name"),
+    NSPasteboard.PasteboardType("net.daringfireball.markdown"),
+    NSPasteboard.PasteboardType("com.apple.traditional-mac-plain-text")
+]
+
+private func shortcutTarget(from pasteboard: NSPasteboard) -> ShortcutTarget? {
+    if let value = pasteboard.string(forType: .fileURL), let url = URL(string: value) {
+        return ShortcutTarget(url: url)
+    }
+    if let value = pasteboard.string(forType: .URL), let url = URL(string: value) {
+        return ShortcutTarget(url: url)
+    }
+    if let objects = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL], let url = objects.first {
+        return ShortcutTarget(url: url)
+    }
+    for type in pasteboard.types ?? [] {
+        if type == .fileURL || type == .URL { continue }
+        if let value = pasteboard.string(forType: type)?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
+            if let url = URL(string: value), url.scheme != nil {
                 return ShortcutTarget(url: url)
             }
-            return ShortcutTarget(rawText: text)
+            return ShortcutTarget(rawText: value)
         }
-        return nil
     }
-
-    private func droppedURL(from pasteboard: NSPasteboard) -> URL? {
-        if let value = pasteboard.string(forType: .fileURL), let url = Foundation.URL(string: value) {
-            return url
-        }
-        if let value = pasteboard.string(forType: .URL), let url = Foundation.URL(string: value) {
-            return url
-        }
-        if let objects = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL] {
-            return objects.first
-        }
-        return nil
-    }
+    return nil
 }
 
 struct ShortcutTarget {
@@ -781,7 +820,7 @@ struct ShortcutTarget {
     }
 }
 
-final class ShortcutSlotRow {
+final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
     let index: Int
     let enabledCheckbox: NSButton
     let recorder: ShortcutRecorderButton
@@ -790,9 +829,12 @@ final class ShortcutSlotRow {
     let noteField: NSTextField
     let searchButton = NSButton(title: "Rechercher", target: nil, action: nil)
     let targetField = ShortcutTargetField()
+    let pasteButton = NSButton(title: "Coller cible", target: nil, action: nil)
     let tagsField: NSTextField
     var onSearch: ((ShortcutSlotRow) -> Void)?
     var onTargetDrop: ((ShortcutSlotRow, ShortcutTarget) -> Bool)?
+    var onPasteTarget: ((ShortcutSlotRow) -> Void)?
+    var onChange: ((ShortcutSlotRow) -> Void)?
     private var storedCombo: KeyCombo
     private var isTodaySlot: Bool { index == 1 }
     private var displayIndex: String { index == 10 ? "0" : "\(index)" }
@@ -806,7 +848,11 @@ final class ShortcutSlotRow {
         self.noteField = NSTextField(string: slot.index == 1 ? "" : slot.noteReference)
         self.tagsField = NSTextField(string: slot.tags)
 
+        super.init()
+
         enabledCheckbox.state = slot.enabled ? .on : .off
+        enabledCheckbox.target = self
+        enabledCheckbox.action = #selector(rowChanged)
         ShortcutDestination.allCases.forEach { destinationPopup.addItem(withTitle: $0.title) }
         destinationPopup.selectItem(withTitle: (slot.index == 1 ? ShortcutDestination.today : slot.destination).title)
         destinationPopup.target = self
@@ -823,21 +869,29 @@ final class ShortcutSlotRow {
         searchButton.target = self
         searchButton.action = #selector(searchNote)
         searchButton.bezelStyle = .rounded
+        pasteButton.target = self
+        pasteButton.action = #selector(pasteTarget)
+        pasteButton.bezelStyle = .rounded
+        pasteButton.isEnabled = slot.index != 1
         tagsField.placeholderString = "capture, $year, #projet"
+        tagsField.delegate = self
+        tagsField.target = self
+        tagsField.action = #selector(rowChanged)
 
-        [enabledCheckbox, recorder, destinationPopup, folderField, noteField, searchButton, targetField, tagsField].forEach {
+        [enabledCheckbox, recorder, destinationPopup, folderField, noteField, searchButton, targetField, pasteButton, tagsField].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
         }
         enabledCheckbox.widthAnchor.constraint(equalToConstant: Self.columnWidths[0]).isActive = true
         recorder.widthAnchor.constraint(equalToConstant: Self.columnWidths[1]).isActive = true
         targetField.widthAnchor.constraint(equalToConstant: Self.columnWidths[2]).isActive = true
-        tagsField.widthAnchor.constraint(equalToConstant: Self.columnWidths[3]).isActive = true
+        pasteButton.widthAnchor.constraint(equalToConstant: Self.columnWidths[3]).isActive = true
+        tagsField.widthAnchor.constraint(equalToConstant: Self.columnWidths[4]).isActive = true
         refreshNoteFieldState()
     }
 
     static let columnSpacing: CGFloat = 12
-    static let columnTitles = ["Actif", "Raccourci", "Cible", "Tags"]
-    static let columnWidths: [CGFloat] = [44, 92, 470, 240]
+    static let columnTitles = ["Actif", "Raccourci", "Cible", "", "Tags"]
+    static let columnWidths: [CGFloat] = [44, 92, 410, 96, 240]
 
     static func headerView() -> NSView {
         let row = NSStackView()
@@ -874,13 +928,19 @@ final class ShortcutSlotRow {
     }
 
     func view() -> NSView {
-        let row = NSStackView()
+        let row = ShortcutSlotDropStack()
         row.orientation = .horizontal
         row.spacing = Self.columnSpacing
         row.alignment = .centerY
+        row.acceptsDrop = !isTodaySlot
+        row.onDropTarget = { [weak self] target in
+            guard let self else { return false }
+            return self.onTargetDrop?(self, target) ?? false
+        }
         row.addArrangedSubview(enabledCheckbox)
         row.addArrangedSubview(recorder)
         row.addArrangedSubview(targetField)
+        row.addArrangedSubview(pasteButton)
         row.addArrangedSubview(tagsField)
         return row
     }
@@ -914,11 +974,25 @@ final class ShortcutSlotRow {
     @objc private func destinationChanged() {
         noteField.placeholderString = placeholder(for: selectedDestination())
         refreshNoteFieldState()
+        rowChanged()
     }
 
     @objc private func searchNote() {
         guard !isTodaySlot else { return }
         onSearch?(self)
+    }
+
+    @objc private func pasteTarget() {
+        guard !isTodaySlot else { return }
+        onPasteTarget?(self)
+    }
+
+    @objc private func rowChanged() {
+        onChange?(self)
+    }
+
+    func controlTextDidEndEditing(_ obj: Notification) {
+        onChange?(self)
     }
 
     private func selectedDestination() -> ShortcutDestination {
@@ -935,6 +1009,7 @@ final class ShortcutSlotRow {
         noteField.isEnabled = destination != .today
         targetField.acceptsDrop = !isTodaySlot
         searchButton.isEnabled = !isTodaySlot
+        pasteButton.isEnabled = !isTodaySlot
         if destination == .today {
             folderField.stringValue = ""
             noteField.stringValue = ""
@@ -1203,7 +1278,7 @@ final class SettingsWindowController: NSWindowController {
     private let chooseNotesRootButton = NSButton(title: "Choisir dossier Notes", target: nil, action: nil)
     private let openNoteCheckbox = NSButton(checkboxWithTitle: "Ouvrir NotePlan après l'ajout", target: nil, action: nil)
     private var shortcutRows: [ShortcutSlotRow] = []
-    private let shortcutHelpLabel = NSTextField(labelWithString: "Actif | Raccourci | Cible | Tags. Dépose une note .md sur les slots 2-10. Variables: $date, $day, $time, $datetime, $month, $year")
+    private let shortcutHelpLabel = NSTextField(labelWithString: "Actif | Raccourci | Cible | Tags. Dépose une note .md ou utilise Coller cible sur les slots 2-10. Variables: $date, $day, $time, $datetime, $month, $year")
     private let helpButton = NSButton(title: "Aide", target: nil, action: nil)
     private let accessibilityButton = NSButton(title: "Autoriser Accessibilité", target: nil, action: nil)
     private let exportButton = NSButton(title: "Exporter JSON", target: nil, action: nil)
@@ -1326,15 +1401,22 @@ final class SettingsWindowController: NSWindowController {
 
         shortcutRows = Settings.allShortcutSlots().map { slot in
             let row = ShortcutSlotRow(slot: slot)
-            row.recorder.onChange = { combo in
+            row.recorder.onChange = { [weak self, weak row] combo in
+                guard let row else { return }
                 row.setCombo(combo)
-                NotificationCenter.default.post(name: .settingsDidChange, object: nil)
+                self?.autosaveSettings(message: "Raccourci enregistré.")
             }
             row.onSearch = { [weak self] row in
                 self?.showNoteSearch(for: row)
             }
             row.onTargetDrop = { [weak self] row, target in
                 self?.applyDroppedTarget(target, to: row) ?? false
+            }
+            row.onPasteTarget = { [weak self] row in
+                self?.pasteTarget(for: row)
+            }
+            row.onChange = { [weak self] _ in
+                self?.autosaveSettings(message: "Réglages enregistrés.")
             }
             slotsStack.addArrangedSubview(row.view())
             return row
@@ -1384,8 +1466,13 @@ final class SettingsWindowController: NSWindowController {
         }
 
         if let url = target.url {
+            if url.scheme?.lowercased() == "noteplan",
+               let path = notePathFromDroppedText(url.absoluteString, root: root) {
+                return commitDroppedPath(relativePath: path, isDirectory: false, row: row)
+            }
+
             guard url.isFileURL else {
-                statusLabel.stringValue = "Dépose une note .md ou un dossier depuis Finder."
+                statusLabel.stringValue = "Dépose une note .md, un dossier, ou colle un lien NotePlan."
                 NSSound.beep()
                 return false
             }
@@ -1412,15 +1499,11 @@ final class SettingsWindowController: NSWindowController {
                 return false
             }
 
-            row.applyDroppedPath(relativePath: relativePath, isDirectory: isDirectory.boolValue)
-            statusLabel.stringValue = "Cible définie : \(relativePath.isEmpty ? rootURL.lastPathComponent : relativePath)"
-            return true
+            return commitDroppedPath(relativePath: relativePath, isDirectory: isDirectory.boolValue, row: row)
         }
 
-        if let text = target.rawText, let path = notePathFromDroppedText(text) {
-            row.applyDroppedPath(relativePath: path, isDirectory: false)
-            statusLabel.stringValue = "Cible définie : \(path)"
-            return true
+        if let text = target.rawText, let path = notePathFromDroppedText(text, root: root) {
+            return commitDroppedPath(relativePath: path, isDirectory: false, row: row)
         }
 
         statusLabel.stringValue = "Dépose une note .md depuis Finder."
@@ -1428,7 +1511,61 @@ final class SettingsWindowController: NSWindowController {
         return false
     }
 
-    private func notePathFromDroppedText(_ text: String) -> String? {
+    private func pasteTarget(for row: ShortcutSlotRow) {
+        guard let target = shortcutTarget(from: NSPasteboard.general) else {
+            statusLabel.stringValue = "Copie un lien NotePlan, un titre, ou un chemin .md puis clique Coller cible."
+            NSSound.beep()
+            return
+        }
+        _ = applyDroppedTarget(target, to: row)
+    }
+
+    private func commitDroppedPath(relativePath: String, isDirectory: Bool, row: ShortcutSlotRow) -> Bool {
+        row.applyDroppedPath(relativePath: relativePath, isDirectory: isDirectory)
+        autosaveSettings()
+        statusLabel.stringValue = "Cible enregistrée : \(relativePath.isEmpty ? "Notes" : relativePath)"
+        return true
+    }
+
+    private func notePathFromDroppedText(_ text: String, root: URL) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        for urlText in droppedURLCandidates(from: trimmed) {
+            if let path = notePathFromNotePlanURL(urlText, root: root) {
+                return path
+            }
+        }
+
+        if let url = URL(string: trimmed), url.isFileURL {
+            let fileURL = url.standardizedFileURL
+            let rootURL = root.standardizedFileURL
+            let rootPath = rootURL.path.hasSuffix("/") ? rootURL.path : rootURL.path + "/"
+            if fileURL.path.hasPrefix(rootPath) {
+                return String(fileURL.path.dropFirst(rootPath.count))
+            }
+        }
+
+        if trimmed.hasPrefix(root.path) {
+            let rootPath = root.path.hasSuffix("/") ? root.path : root.path + "/"
+            return String(trimmed.dropFirst(rootPath.count))
+        }
+
+        for candidateText in droppedTitleCandidates(from: trimmed) {
+            if candidateText.contains("/") || candidateText.hasSuffix(".md") {
+                let candidate = candidateText.hasSuffix(".md") ? candidateText : "\(candidateText).md"
+                if FileManager.default.fileExists(atPath: root.appendingPathComponent(candidate).path) {
+                    return candidate
+                }
+            }
+            if let match = notePathMatchingTitle(candidateText, root: root) {
+                return match
+            }
+        }
+        return nil
+    }
+
+    private func notePathFromNotePlanURL(_ text: String, root: URL) -> String? {
         guard let components = URLComponents(string: text),
               components.scheme?.lowercased() == "noteplan" else {
             return nil
@@ -1440,9 +1577,77 @@ final class SettingsWindowController: NSWindowController {
             }
         }
         if let title = items.first(where: { $0.name == "noteTitle" })?.value, !title.isEmpty {
-            return title.hasSuffix(".md") ? title : "\(title).md"
+            return notePathMatchingTitle(title, root: root) ?? (title.hasSuffix(".md") ? title : "\(title).md")
         }
         return nil
+    }
+
+    private func droppedURLCandidates(from text: String) -> [String] {
+        var candidates: [String] = [text]
+        let pattern = #"noteplan://[^\s\)\]>"]+"#
+        if let regex = try? NSRegularExpression(pattern: pattern) {
+            let range = NSRange(text.startIndex..<text.endIndex, in: text)
+            for match in regex.matches(in: text, range: range) {
+                if let matchRange = Range(match.range, in: text) {
+                    candidates.append(String(text[matchRange]))
+                }
+            }
+        }
+        return Array(NSOrderedSet(array: candidates)) as? [String] ?? candidates
+    }
+
+    private func droppedTitleCandidates(from text: String) -> [String] {
+        var candidates: [String] = []
+        let lines = text
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        for line in lines {
+            let cleanHeading = line.trimmingCharacters(in: CharacterSet(charactersIn: "# \t"))
+            if line.hasPrefix("#"), !cleanHeading.isEmpty {
+                candidates.append(cleanHeading)
+            }
+            if line.hasPrefix("["),
+               let close = line.firstIndex(of: "]") {
+                let title = String(line[line.index(after: line.startIndex)..<close])
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !title.isEmpty { candidates.append(title) }
+            }
+            candidates.append(line)
+        }
+
+        let flattened = text
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: CharacterSet(charactersIn: " \t\r\n[]"))
+        if !flattened.isEmpty { candidates.append(flattened) }
+
+        return Array(NSOrderedSet(array: candidates)) as? [String] ?? candidates
+    }
+
+    private func notePathMatchingTitle(_ title: String, root: URL) -> String? {
+        let cleanTitle = title.trimmingCharacters(in: CharacterSet(charactersIn: " \t\r\n#[]"))
+        guard !cleanTitle.isEmpty else { return nil }
+        let lowerTitle = cleanTitle.lowercased()
+        let exactFileName = cleanTitle.hasSuffix(".md") ? cleanTitle : "\(cleanTitle).md"
+
+        let matches = noteMarkdownFiles(under: root).compactMap { url -> String? in
+            let relativePath = url.path.replacingOccurrences(of: root.path + "/", with: "")
+            let fileName = url.lastPathComponent
+            if fileName.compare(exactFileName, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame {
+                return relativePath
+            }
+            let baseName = url.deletingPathExtension().lastPathComponent.lowercased()
+            if baseName == lowerTitle {
+                return relativePath
+            }
+            let summary = noteSearchSummary(from: url)
+            if summary.title?.lowercased() == lowerTitle {
+                return relativePath
+            }
+            return nil
+        }
+        return matches.sorted { $0.count < $1.count }.first
     }
 
     @objc private func chooseNotesRoot() {
@@ -1525,6 +1730,14 @@ final class SettingsWindowController: NSWindowController {
         UserDefaults.standard.set(openNoteCheckbox.state == .on, forKey: Settings.openNoteKey)
         shortcutRows.forEach { Settings.setShortcutSlot($0.slot) }
         UserDefaults.standard.synchronize()
+    }
+
+    private func autosaveSettings(message: String? = nil) {
+        saveCurrentControlsToDefaults()
+        NotificationCenter.default.post(name: .settingsDidChange, object: nil)
+        if let message {
+            statusLabel.stringValue = message
+        }
     }
 
     private func reloadControlsFromSettings() {
