@@ -170,6 +170,7 @@ enum ShortcutDestination: String, CaseIterable {
 struct NoteSearchResult {
     let title: String
     let relativePath: String
+    let tags: [String]
     let modifiedAt: Date
 }
 
@@ -205,10 +206,12 @@ private func loadNoteSearchResults() -> [NoteSearchResult] {
             guard !relativePath.hasPrefix("@Trash/"), !relativePath.hasPrefix("@Archive/") else { continue }
             guard seen.insert(relativePath).inserted else { continue }
 
-            let title = noteTitle(from: url) ?? url.deletingPathExtension().lastPathComponent
+            let summary = noteSearchSummary(from: url)
+            let title = summary.title ?? url.deletingPathExtension().lastPathComponent
             results.append(NoteSearchResult(
                 title: title,
                 relativePath: relativePath,
+                tags: summary.tags,
                 modifiedAt: values?.contentModificationDate ?? .distantPast
             ))
         }
@@ -222,19 +225,37 @@ private func loadNoteSearchResults() -> [NoteSearchResult] {
     }
 }
 
-private func noteTitle(from url: URL) -> String? {
-    guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+private func noteSearchSummary(from url: URL) -> (title: String?, tags: [String]) {
+    guard let handle = try? FileHandle(forReadingFrom: url) else { return (nil, []) }
     defer { try? handle.close() }
-    let data = handle.readData(ofLength: 4096)
-    guard let content = String(data: data, encoding: .utf8) else { return nil }
+    let data = handle.readData(ofLength: 65536)
+    guard let content = String(data: data, encoding: .utf8) else { return (nil, []) }
+    var title: String?
     for line in content.components(separatedBy: .newlines) {
         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.hasPrefix("# ") {
-            let title = trimmed.dropFirst(2).trimmingCharacters(in: .whitespacesAndNewlines)
-            return title.isEmpty ? nil : title
+        if title == nil, trimmed.hasPrefix("# ") {
+            let parsedTitle = trimmed.dropFirst(2).trimmingCharacters(in: .whitespacesAndNewlines)
+            title = parsedTitle.isEmpty ? nil : parsedTitle
         }
     }
-    return nil
+    return (title, noteTags(in: content))
+}
+
+private func noteTags(in content: String) -> [String] {
+    let pattern = #"(?<![\p{L}\p{N}_])#[\p{L}\p{N}_][\p{L}\p{N}_/-]*"#
+    guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+    let range = NSRange(content.startIndex..<content.endIndex, in: content)
+    var seen = Set<String>()
+    var tags: [String] = []
+    for match in regex.matches(in: content, range: range) {
+        guard let swiftRange = Range(match.range, in: content) else { continue }
+        let tag = String(content[swiftRange])
+        let key = tag.lowercased()
+        if seen.insert(key).inserted {
+            tags.append(tag)
+        }
+    }
+    return tags.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
 }
 
 private func centerInMainVisibleScreen(_ window: NSWindow) {
@@ -612,7 +633,7 @@ final class NoteSearchWindowController: NSWindowController, NSTableViewDataSourc
         stack.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(stack)
 
-        searchField.placeholderString = "Titre ou chemin de note"
+        searchField.placeholderString = "Titre, chemin, #tag ou #contexte"
         searchField.stringValue = initialQuery
         searchField.delegate = self
         searchField.target = self
@@ -628,9 +649,13 @@ final class NoteSearchWindowController: NSWindowController, NSTableViewDataSourc
         titleColumn.width = 240
         let pathColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("path"))
         pathColumn.title = "Chemin"
-        pathColumn.width = 420
+        pathColumn.width = 320
+        let tagsColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("tags"))
+        tagsColumn.title = "Tags / Contextes"
+        tagsColumn.width = 180
         tableView.addTableColumn(titleColumn)
         tableView.addTableColumn(pathColumn)
+        tableView.addTableColumn(tagsColumn)
         tableView.delegate = self
         tableView.dataSource = self
         tableView.doubleAction = #selector(validateSelection)
@@ -678,15 +703,23 @@ final class NoteSearchWindowController: NSWindowController, NSTableViewDataSourc
         if query.isEmpty {
             filteredResults = Array(allResults.prefix(250))
         } else {
-            filteredResults = allResults.filter {
-                $0.title.lowercased().contains(query) || $0.relativePath.lowercased().contains(query)
+            let terms = query.split(separator: " ").map(String.init)
+            filteredResults = allResults.filter { result in
+                terms.allSatisfy { term in
+                    if term.hasPrefix("#") {
+                        return result.tags.contains { $0.lowercased().contains(term) }
+                    }
+                    return result.title.lowercased().contains(term)
+                        || result.relativePath.lowercased().contains(term)
+                        || result.tags.contains { $0.lowercased().contains(term) }
+                }
             }.prefix(250).map { $0 }
         }
         tableView.reloadData()
         if !filteredResults.isEmpty {
             tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
         }
-        statusLabel.stringValue = "\(filteredResults.count) résultat(s) affiché(s) sur \(allResults.count) notes"
+        statusLabel.stringValue = "\(filteredResults.count) résultat(s) affiché(s) sur \(allResults.count) notes. Chercher par titre, chemin, #tag ou #contexte."
     }
 
     func numberOfRows(in tableView: NSTableView) -> Int {
@@ -696,7 +729,15 @@ final class NoteSearchWindowController: NSWindowController, NSTableViewDataSourc
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         guard row >= 0, row < filteredResults.count else { return nil }
         let result = filteredResults[row]
-        let value = tableColumn?.identifier.rawValue == "title" ? result.title : result.relativePath
+        let value: String
+        switch tableColumn?.identifier.rawValue {
+        case "title":
+            value = result.title
+        case "tags":
+            value = result.tags.prefix(8).joined(separator: " ")
+        default:
+            value = result.relativePath
+        }
         let cell = NSTableCellView()
         let textField = NSTextField(labelWithString: value)
         textField.lineBreakMode = .byTruncatingMiddle
