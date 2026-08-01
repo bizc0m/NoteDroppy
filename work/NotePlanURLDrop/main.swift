@@ -13,7 +13,6 @@ private enum Settings {
     static let shortcutKeyCodeKey = "shortcutKeyCode"
     static let shortcutModifiersKey = "shortcutModifiers"
     static let didShowFirstLaunchSettingsKey = "didShowFirstLaunchSettings"
-    static let shortcutSlotCount = 10
 
     static var taskTag: String {
         let value = UserDefaults.standard.string(forKey: taskTagKey) ?? "#capture"
@@ -67,209 +66,11 @@ private enum Settings {
     }
 
     static var shortcutDisplay: String {
-        shortcutSlot(1).combo.display
-    }
-
-    static func shortcutSlot(_ index: Int) -> ShortcutSlot {
-        let enabledKey = "shortcutSlot\(index).enabled"
-        let keyCodeKey = "shortcutSlot\(index).keyCode"
-        let modifiersKey = "shortcutSlot\(index).modifiers"
-        let destinationKey = "shortcutSlot\(index).destination"
-        let noteKey = "shortcutSlot\(index).note"
-        let tagsKey = "shortcutSlot\(index).tags"
-
-        let defaultCombo = defaultShortcutCombo(index)
-        let enabled: Bool
-        if UserDefaults.standard.object(forKey: enabledKey) == nil {
-            enabled = index == 1 ? shortcutEnabled : false
-        } else {
-            enabled = UserDefaults.standard.bool(forKey: enabledKey)
-        }
-
-        let keyCode = UserDefaults.standard.object(forKey: keyCodeKey) == nil
-            ? defaultCombo.keyCode
-            : UInt32(UserDefaults.standard.integer(forKey: keyCodeKey))
-        let rawModifiers = UserDefaults.standard.object(forKey: modifiersKey) == nil
-            ? defaultCombo.carbonModifiers
-            : UInt32(UserDefaults.standard.integer(forKey: modifiersKey))
-        let note = UserDefaults.standard.string(forKey: noteKey) ?? ""
-        let tags = UserDefaults.standard.string(forKey: tagsKey) ?? (index == 1 ? taskTag : "#capture")
-        let destination: ShortcutDestination
-        if let storedDestination = UserDefaults.standard.string(forKey: destinationKey),
-           let parsedDestination = ShortcutDestination(rawValue: storedDestination) {
-            destination = parsedDestination
-        } else if !note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                  note.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "today" {
-            destination = .noteTitle
-        } else {
-            destination = .today
-        }
-
-        return ShortcutSlot(
-            index: index,
-            enabled: enabled,
-            combo: KeyCombo(keyCode: keyCode, carbonModifiers: normalizedCarbonModifiers(rawModifiers)),
-            destination: destination,
-            noteReference: note.trimmingCharacters(in: .whitespacesAndNewlines),
-            tags: tags.trimmingCharacters(in: .whitespacesAndNewlines)
-        )
-    }
-
-    static func setShortcutSlot(_ slot: ShortcutSlot) {
-        UserDefaults.standard.set(slot.enabled, forKey: "shortcutSlot\(slot.index).enabled")
-        UserDefaults.standard.set(Int(slot.combo.keyCode), forKey: "shortcutSlot\(slot.index).keyCode")
-        UserDefaults.standard.set(Int(slot.combo.carbonModifiers), forKey: "shortcutSlot\(slot.index).modifiers")
-        UserDefaults.standard.set(slot.destination.rawValue, forKey: "shortcutSlot\(slot.index).destination")
-        UserDefaults.standard.set(slot.noteReference, forKey: "shortcutSlot\(slot.index).note")
-        UserDefaults.standard.set(slot.tags, forKey: "shortcutSlot\(slot.index).tags")
-        if slot.index == 1 {
-            UserDefaults.standard.set(slot.enabled, forKey: shortcutEnabledKey)
-            UserDefaults.standard.set(Int(slot.combo.keyCode), forKey: shortcutKeyCodeKey)
-            UserDefaults.standard.set(Int(slot.combo.carbonModifiers), forKey: shortcutModifiersKey)
-            UserDefaults.standard.set(slot.tags.isEmpty ? "#capture" : slot.tags, forKey: taskTagKey)
-        }
-        UserDefaults.standard.synchronize()
-    }
-
-    static func allShortcutSlots() -> [ShortcutSlot] {
-        (1...shortcutSlotCount).map { shortcutSlot($0) }
-    }
-
-    static func defaultShortcutCombo(_ index: Int) -> KeyCombo {
-        let codes: [UInt32] = [
-            UInt32(kVK_ANSI_P), UInt32(kVK_ANSI_1), UInt32(kVK_ANSI_2), UInt32(kVK_ANSI_3), UInt32(kVK_ANSI_4),
-            UInt32(kVK_ANSI_5), UInt32(kVK_ANSI_6), UInt32(kVK_ANSI_7), UInt32(kVK_ANSI_8), UInt32(kVK_ANSI_9)
-        ]
-        return KeyCombo(keyCode: codes[max(0, min(index - 1, codes.count - 1))], carbonModifiers: UInt32(controlKey | optionKey | cmdKey))
+        KeyCombo(keyCode: shortcutKeyCode, carbonModifiers: shortcutModifiers).display
     }
 }
 
-struct ShortcutSlot {
-    let index: Int
-    var enabled: Bool
-    var combo: KeyCombo
-    var destination: ShortcutDestination
-    var noteReference: String
-    var tags: String
-}
-
-enum ShortcutDestination: String, CaseIterable {
-    case today
-    case noteTitle
-    case notePath
-
-    var title: String {
-        switch self {
-        case .today: return "Aujourd'hui"
-        case .noteTitle: return "Note nommée"
-        case .notePath: return "Chemin de note"
-        }
-    }
-}
-
-struct NoteSearchResult {
-    let title: String
-    let relativePath: String
-    let tags: [String]
-    let modifiedAt: Date
-}
-
-private func notePlanNotesRoots() -> [URL] {
-    let home = FileManager.default.homeDirectoryForCurrentUser
-    let roots = [
-        "Library/Containers/co.noteplan.NotePlan-setapp/Data/Library/Application Support/co.noteplan.NotePlan-setapp/Notes",
-        "Library/Containers/co.noteplan.NotePlan3/Data/Library/Application Support/co.noteplan.NotePlan3/Notes"
-    ]
-    return roots
-        .map { home.appendingPathComponent($0) }
-        .filter { FileManager.default.fileExists(atPath: $0.path) }
-}
-
-private func loadNoteSearchResults() -> [NoteSearchResult] {
-    let fileManager = FileManager.default
-    var seen = Set<String>()
-    var results: [NoteSearchResult] = []
-
-    for root in notePlanNotesRoots() {
-        guard let enumerator = fileManager.enumerator(
-            at: root,
-            includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        ) else { continue }
-
-        for case let url as URL in enumerator {
-            guard url.pathExtension.lowercased() == "md" else { continue }
-            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
-            guard values?.isRegularFile == true else { continue }
-
-            let relativePath = url.path.replacingOccurrences(of: root.path + "/", with: "")
-            guard !relativePath.hasPrefix("@Trash/"), !relativePath.hasPrefix("@Archive/") else { continue }
-            guard seen.insert(relativePath).inserted else { continue }
-
-            let summary = noteSearchSummary(from: url)
-            let title = summary.title ?? url.deletingPathExtension().lastPathComponent
-            results.append(NoteSearchResult(
-                title: title,
-                relativePath: relativePath,
-                tags: summary.tags,
-                modifiedAt: values?.contentModificationDate ?? .distantPast
-            ))
-        }
-    }
-
-    return results.sorted {
-        if $0.modifiedAt != $1.modifiedAt {
-            return $0.modifiedAt > $1.modifiedAt
-        }
-        return $0.relativePath.localizedCaseInsensitiveCompare($1.relativePath) == .orderedAscending
-    }
-}
-
-private func noteSearchSummary(from url: URL) -> (title: String?, tags: [String]) {
-    guard let handle = try? FileHandle(forReadingFrom: url) else { return (nil, []) }
-    defer { try? handle.close() }
-    let data = handle.readData(ofLength: 65536)
-    guard let content = String(data: data, encoding: .utf8) else { return (nil, []) }
-    var title: String?
-    for line in content.components(separatedBy: .newlines) {
-        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-        if title == nil, trimmed.hasPrefix("# ") {
-            let parsedTitle = trimmed.dropFirst(2).trimmingCharacters(in: .whitespacesAndNewlines)
-            title = parsedTitle.isEmpty ? nil : parsedTitle
-        }
-    }
-    return (title, noteTags(in: content))
-}
-
-private func noteTags(in content: String) -> [String] {
-    let pattern = #"(?<![\p{L}\p{N}_])#[\p{L}\p{N}_][\p{L}\p{N}_/-]*"#
-    guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
-    let range = NSRange(content.startIndex..<content.endIndex, in: content)
-    var seen = Set<String>()
-    var tags: [String] = []
-    for match in regex.matches(in: content, range: range) {
-        guard let swiftRange = Range(match.range, in: content) else { continue }
-        let tag = String(content[swiftRange])
-        let key = tag.lowercased()
-        if seen.insert(key).inserted {
-            tags.append(tag)
-        }
-    }
-    return tags.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
-}
-
-private func centerInMainVisibleScreen(_ window: NSWindow) {
-    guard let visibleFrame = NSScreen.main?.visibleFrame else {
-        window.center()
-        return
-    }
-    var frame = window.frame
-    frame.origin.x = visibleFrame.midX - frame.width / 2
-    frame.origin.y = visibleFrame.midY - frame.height / 2
-    window.setFrame(frame, display: true)
-}
-
-struct KeyCombo {
+fileprivate struct KeyCombo {
     let keyCode: UInt32
     let carbonModifiers: UInt32
 
@@ -345,32 +146,20 @@ struct KeyCombo {
     }
 }
 
-private func normalizedCarbonModifiers(_ raw: UInt32) -> UInt32 {
-    let allowedCarbon = UInt32(controlKey | optionKey | shiftKey | cmdKey)
-    if raw != 0, raw & ~allowedCarbon == 0 {
-        return raw
-    }
-    let converted = carbonModifiers(fromRawNSEventFlags: UInt(raw))
-    return converted == 0 ? UInt32(controlKey | optionKey | cmdKey) : converted
-}
-
 final class ShortcutRecorderButton: NSButton {
     fileprivate var onChange: ((KeyCombo) -> Void)?
     private var localMonitor: Any?
     private var isRecording = false
-    private var combo: KeyCombo
 
-    init(combo: KeyCombo = Settings.defaultShortcutCombo(1)) {
-        self.combo = combo
+    init() {
         super.init(frame: .zero)
-        title = combo.display
+        title = "Raccourci : \(Settings.shortcutDisplay)"
         bezelStyle = .rounded
         target = self
         action = #selector(beginRecording)
     }
 
     required init?(coder: NSCoder) {
-        self.combo = Settings.defaultShortcutCombo(1)
         super.init(coder: coder)
     }
 
@@ -413,14 +202,12 @@ final class ShortcutRecorderButton: NSButton {
             return
         }
         let combo = KeyCombo(keyCode: UInt32(event.keyCode), carbonModifiers: modifiers)
-        setCombo(combo)
+        UserDefaults.standard.set(Int(combo.keyCode), forKey: Settings.shortcutKeyCodeKey)
+        UserDefaults.standard.set(Int(combo.carbonModifiers), forKey: Settings.shortcutModifiersKey)
+        UserDefaults.standard.synchronize()
+        title = "Raccourci : \(combo.display)"
         onChange?(combo)
         stopRecording(updateTitle: false)
-    }
-
-    fileprivate func setCombo(_ combo: KeyCombo) {
-        self.combo = combo
-        title = combo.display
     }
 
     private func stopRecording(updateTitle: Bool = true) {
@@ -433,7 +220,7 @@ final class ShortcutRecorderButton: NSButton {
         }
         isRecording = false
         if updateTitle {
-            title = combo.display
+            title = "Raccourci : \(Settings.shortcutDisplay)"
         }
     }
 }
@@ -469,327 +256,24 @@ private func isReservedMenuShortcut(keyCode: UInt32, modifiers: UInt32) -> Bool 
     return false
 }
 
-final class ShortcutSlotRow {
-    let index: Int
-    let enabledCheckbox: NSButton
-    let recorder: ShortcutRecorderButton
-    let destinationPopup = NSPopUpButton()
-    let noteField: NSTextField
-    let searchButton = NSButton(title: "Rechercher", target: nil, action: nil)
-    let tagsField: NSTextField
-    var onSearch: ((ShortcutSlotRow) -> Void)?
-    private var storedCombo: KeyCombo
-
-    init(slot: ShortcutSlot) {
-        self.index = slot.index
-        self.storedCombo = slot.combo
-        self.enabledCheckbox = NSButton(checkboxWithTitle: "\(slot.index)", target: nil, action: nil)
-        self.recorder = ShortcutRecorderButton(combo: slot.combo)
-        self.noteField = NSTextField(string: slot.noteReference)
-        self.tagsField = NSTextField(string: slot.tags)
-
-        enabledCheckbox.state = slot.enabled ? .on : .off
-        ShortcutDestination.allCases.forEach { destinationPopup.addItem(withTitle: $0.title) }
-        destinationPopup.selectItem(withTitle: slot.destination.title)
-        destinationPopup.target = self
-        destinationPopup.action = #selector(destinationChanged)
-        noteField.placeholderString = placeholder(for: slot.destination)
-        searchButton.target = self
-        searchButton.action = #selector(searchNote)
-        searchButton.bezelStyle = .rounded
-        tagsField.placeholderString = "#capture, #client"
-
-        recorder.translatesAutoresizingMaskIntoConstraints = false
-        destinationPopup.translatesAutoresizingMaskIntoConstraints = false
-        noteField.translatesAutoresizingMaskIntoConstraints = false
-        searchButton.translatesAutoresizingMaskIntoConstraints = false
-        tagsField.translatesAutoresizingMaskIntoConstraints = false
-        recorder.widthAnchor.constraint(equalToConstant: 96).isActive = true
-        destinationPopup.widthAnchor.constraint(equalToConstant: 128).isActive = true
-        noteField.widthAnchor.constraint(equalToConstant: 190).isActive = true
-        searchButton.widthAnchor.constraint(equalToConstant: 92).isActive = true
-        tagsField.widthAnchor.constraint(equalToConstant: 140).isActive = true
-        refreshNoteFieldState()
-    }
-
-    var slot: ShortcutSlot {
-        let destination = selectedDestination()
-        return ShortcutSlot(
-            index: index,
-            enabled: enabledCheckbox.state == .on,
-            combo: storedCombo,
-            destination: destination,
-            noteReference: destination == .today ? "" : noteField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines),
-            tags: tagsField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        )
-    }
-
-    func setCombo(_ combo: KeyCombo) {
-        storedCombo = combo
-        recorder.setCombo(combo)
-    }
-
-    func view() -> NSView {
-        let row = NSStackView()
-        row.orientation = .horizontal
-        row.spacing = 8
-        row.alignment = .centerY
-        row.addArrangedSubview(enabledCheckbox)
-        row.addArrangedSubview(recorder)
-        row.addArrangedSubview(destinationPopup)
-        row.addArrangedSubview(noteField)
-        row.addArrangedSubview(searchButton)
-        row.addArrangedSubview(tagsField)
-        return row
-    }
-
-    @objc private func destinationChanged() {
-        noteField.placeholderString = placeholder(for: selectedDestination())
-        refreshNoteFieldState()
-    }
-
-    @objc private func searchNote() {
-        onSearch?(self)
-    }
-
-    func applySelectedNotePath(_ path: String) {
-        destinationPopup.selectItem(withTitle: ShortcutDestination.notePath.title)
-        noteField.stringValue = path
-        refreshNoteFieldState()
-    }
-
-    private func selectedDestination() -> ShortcutDestination {
-        ShortcutDestination.allCases.first { $0.title == destinationPopup.titleOfSelectedItem } ?? .today
-    }
-
-    private func refreshNoteFieldState() {
-        let destination = selectedDestination()
-        noteField.isEnabled = destination != .today
-        searchButton.isEnabled = true
-        if destination == .today {
-            noteField.stringValue = ""
-        }
-    }
-
-    private func placeholder(for destination: ShortcutDestination) -> String {
-        switch destination {
-        case .today: return "noteDate=today"
-        case .noteTitle: return "Titre NotePlan"
-        case .notePath: return "Dossier/Note.md"
-        }
-    }
-}
-
-final class NoteSearchWindowController: NSWindowController, NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate {
-    private static var retainedControllers: [NoteSearchWindowController] = []
-    private let searchField = NSSearchField()
-    private let tableView = NSTableView()
-    private let statusLabel = NSTextField(labelWithString: "")
-    private let allResults: [NoteSearchResult]
-    private var filteredResults: [NoteSearchResult] = []
-    private let onSelect: (String) -> Void
-
-    convenience init(initialQuery: String, onSelect: @escaping (String) -> Void) {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 720, height: 520),
-            styleMask: [.titled, .closable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = "Rechercher une note NotePlan"
-        centerInMainVisibleScreen(window)
-        self.init(window: window, initialQuery: initialQuery, onSelect: onSelect)
-    }
-
-    init(window: NSWindow, initialQuery: String, onSelect: @escaping (String) -> Void) {
-        self.allResults = loadNoteSearchResults()
-        self.onSelect = onSelect
-        super.init(window: window)
-        buildContent(initialQuery: initialQuery)
-        window.delegate = self
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    static func show(initialQuery: String, onSelect: @escaping (String) -> Void) {
-        let controller = NoteSearchWindowController(initialQuery: initialQuery, onSelect: onSelect)
-        retainedControllers.append(controller)
-        controller.showWindow(nil)
-        NSApp.activate(ignoringOtherApps: true)
-    }
-
-    fileprivate static func release(_ controller: NoteSearchWindowController) {
-        retainedControllers.removeAll { $0 === controller }
-    }
-
-    private func buildContent(initialQuery: String) {
-        guard let contentView = window?.contentView else { return }
-
-        let stack = NSStackView()
-        stack.orientation = .vertical
-        stack.spacing = 10
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(stack)
-
-        searchField.placeholderString = "Titre, chemin, #tag ou #contexte"
-        searchField.stringValue = initialQuery
-        searchField.delegate = self
-        searchField.target = self
-        searchField.action = #selector(searchChanged)
-
-        let scrollView = NSScrollView()
-        scrollView.hasVerticalScroller = true
-        scrollView.borderType = .bezelBorder
-        scrollView.documentView = tableView
-
-        let titleColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("title"))
-        titleColumn.title = "Note"
-        titleColumn.width = 240
-        let pathColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("path"))
-        pathColumn.title = "Chemin"
-        pathColumn.width = 320
-        let tagsColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("tags"))
-        tagsColumn.title = "Tags / Contextes"
-        tagsColumn.width = 180
-        tableView.addTableColumn(titleColumn)
-        tableView.addTableColumn(pathColumn)
-        tableView.addTableColumn(tagsColumn)
-        tableView.delegate = self
-        tableView.dataSource = self
-        tableView.doubleAction = #selector(validateSelection)
-        tableView.target = self
-
-        statusLabel.textColor = .secondaryLabelColor
-
-        let buttonRow = NSStackView()
-        buttonRow.orientation = .horizontal
-        buttonRow.spacing = 8
-        let validateButton = NSButton(title: "Valider", target: self, action: #selector(validateSelection))
-        validateButton.bezelStyle = .rounded
-        validateButton.keyEquivalent = "\r"
-        let cancelButton = NSButton(title: "Annuler", target: self, action: #selector(closeWindow))
-        cancelButton.bezelStyle = .rounded
-        buttonRow.addArrangedSubview(validateButton)
-        buttonRow.addArrangedSubview(cancelButton)
-
-        stack.addArrangedSubview(searchField)
-        stack.addArrangedSubview(scrollView)
-        stack.addArrangedSubview(statusLabel)
-        stack.addArrangedSubview(buttonRow)
-
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
-            stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
-            stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16),
-            scrollView.heightAnchor.constraint(greaterThanOrEqualToConstant: 360)
-        ])
-
-        applyFilter()
-    }
-
-    @objc private func searchChanged() {
-        applyFilter()
-    }
-
-    func controlTextDidChange(_ obj: Notification) {
-        applyFilter()
-    }
-
-    private func applyFilter() {
-        let query = searchField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if query.isEmpty {
-            filteredResults = Array(allResults.prefix(250))
-        } else {
-            let terms = query.split(separator: " ").map(String.init)
-            filteredResults = allResults.filter { result in
-                terms.allSatisfy { term in
-                    if term.hasPrefix("#") {
-                        return result.tags.contains { $0.lowercased().contains(term) }
-                    }
-                    return result.title.lowercased().contains(term)
-                        || result.relativePath.lowercased().contains(term)
-                        || result.tags.contains { $0.lowercased().contains(term) }
-                }
-            }.prefix(250).map { $0 }
-        }
-        tableView.reloadData()
-        if !filteredResults.isEmpty {
-            tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
-        }
-        statusLabel.stringValue = "\(filteredResults.count) résultat(s) affiché(s) sur \(allResults.count) notes. Chercher par titre, chemin, #tag ou #contexte."
-    }
-
-    func numberOfRows(in tableView: NSTableView) -> Int {
-        filteredResults.count
-    }
-
-    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        guard row >= 0, row < filteredResults.count else { return nil }
-        let result = filteredResults[row]
-        let value: String
-        switch tableColumn?.identifier.rawValue {
-        case "title":
-            value = result.title
-        case "tags":
-            value = result.tags.prefix(8).joined(separator: " ")
-        default:
-            value = result.relativePath
-        }
-        let cell = NSTableCellView()
-        let textField = NSTextField(labelWithString: value)
-        textField.lineBreakMode = .byTruncatingMiddle
-        textField.translatesAutoresizingMaskIntoConstraints = false
-        cell.addSubview(textField)
-        NSLayoutConstraint.activate([
-            textField.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 6),
-            textField.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -6),
-            textField.centerYAnchor.constraint(equalTo: cell.centerYAnchor)
-        ])
-        return cell
-    }
-
-    @objc private func validateSelection() {
-        let row = tableView.selectedRow
-        guard row >= 0, row < filteredResults.count else {
-            NSSound.beep()
-            return
-        }
-        onSelect(filteredResults[row].relativePath)
-        close()
-    }
-
-    @objc private func closeWindow() {
-        close()
-    }
-}
-
-extension NoteSearchWindowController: NSWindowDelegate {
-    func windowWillClose(_ notification: Notification) {
-        NoteSearchWindowController.release(self)
-    }
-}
-
 final class SettingsWindowController: NSWindowController {
     private let serviceNameField = NSTextField(string: Settings.serviceName)
     private let tagField = NSTextField(string: Settings.taskTag)
     private let openNoteCheckbox = NSButton(checkboxWithTitle: "Ouvrir NotePlan après l'ajout", target: nil, action: nil)
-    private var shortcutRows: [ShortcutSlotRow] = []
-    private let shortcutHelpLabel = NSTextField(labelWithString: "Actif | Raccourci | Destination | Note/Path | Tags séparés par virgule")
+    private let shortcutCheckbox = NSButton(checkboxWithTitle: "Raccourci global", target: nil, action: nil)
+    private let shortcutRecorder = ShortcutRecorderButton()
     private let helpButton = NSButton(title: "Aide", target: nil, action: nil)
     private let accessibilityButton = NSButton(title: "Autoriser Accessibilité", target: nil, action: nil)
     private let statusLabel = NSTextField(labelWithString: "")
 
     convenience init() {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 860, height: 720),
+            contentRect: NSRect(x: 0, y: 0, width: 460, height: 340),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
         )
-        window.title = "Préférences NoteDroppy"
+        window.title = "Réglages NoteDroppy"
         window.center()
         self.init(window: window)
         buildContent()
@@ -808,25 +292,6 @@ final class SettingsWindowController: NSWindowController {
         let title = NSTextField(labelWithString: "NoteDroppy")
         title.font = .boldSystemFont(ofSize: 18)
 
-        let logo = NSImageView()
-        logo.image = Bundle.main.url(forResource: "notedroppy-logo", withExtension: "png")
-            .flatMap { NSImage(contentsOf: $0) }
-            ?? NSApplication.shared.applicationIconImage
-        logo.imageScaling = .scaleProportionallyUpOrDown
-        logo.translatesAutoresizingMaskIntoConstraints = false
-        logo.widthAnchor.constraint(equalToConstant: 72).isActive = true
-        logo.heightAnchor.constraint(equalToConstant: 72).isActive = true
-
-        let titleStack = NSStackView()
-        titleStack.orientation = .horizontal
-        titleStack.spacing = 12
-        titleStack.alignment = .centerY
-        titleStack.addArrangedSubview(logo)
-        titleStack.addArrangedSubview(title)
-
-        let generalTitle = NSTextField(labelWithString: "Général")
-        generalTitle.font = .boldSystemFont(ofSize: 13)
-
         let serviceLabel = NSTextField(labelWithString: "Nom du Service")
         serviceNameField.placeholderString = "NotePlan : ajouter en tâche"
         serviceNameField.lineBreakMode = .byTruncatingTail
@@ -834,13 +299,11 @@ final class SettingsWindowController: NSWindowController {
         let tagLabel = NSTextField(labelWithString: "Tag ajouté à la tâche")
         tagField.placeholderString = "#capture"
 
-        let shortcutTitle = NSTextField(labelWithString: "Raccourcis")
-        shortcutTitle.font = .boldSystemFont(ofSize: 13)
-
         openNoteCheckbox.state = Settings.openNote ? .on : .off
-        shortcutHelpLabel.textColor = .secondaryLabelColor
-        shortcutHelpLabel.lineBreakMode = .byWordWrapping
-        shortcutHelpLabel.maximumNumberOfLines = 2
+        shortcutCheckbox.state = Settings.shortcutEnabled ? .on : .off
+        shortcutRecorder.onChange = { _ in
+            NotificationCenter.default.post(name: .settingsDidChange, object: nil)
+        }
 
         statusLabel.textColor = .secondaryLabelColor
         statusLabel.lineBreakMode = .byWordWrapping
@@ -876,39 +339,17 @@ final class SettingsWindowController: NSWindowController {
             field.translatesAutoresizingMaskIntoConstraints = false
             field.widthAnchor.constraint(equalToConstant: 360).isActive = true
         }
-        let slotsStack = NSStackView()
-        slotsStack.orientation = .vertical
-        slotsStack.spacing = 6
-        slotsStack.alignment = .leading
+        shortcutRecorder.translatesAutoresizingMaskIntoConstraints = false
+        shortcutRecorder.widthAnchor.constraint(equalToConstant: 360).isActive = true
 
-        let header = NSTextField(labelWithString: "Actif   Raccourci       Destination        Note/Path             Recherche      Tags")
-        header.textColor = .secondaryLabelColor
-        slotsStack.addArrangedSubview(header)
-
-        shortcutRows = Settings.allShortcutSlots().map { slot in
-            let row = ShortcutSlotRow(slot: slot)
-            row.setCombo(slot.combo)
-            row.recorder.onChange = { combo in
-                row.setCombo(combo)
-                NotificationCenter.default.post(name: .settingsDidChange, object: nil)
-            }
-            row.onSearch = { [weak self] row in
-                self?.showNoteSearch(for: row)
-            }
-            slotsStack.addArrangedSubview(row.view())
-            return row
-        }
-
-        stack.addArrangedSubview(titleStack)
-        stack.addArrangedSubview(generalTitle)
+        stack.addArrangedSubview(title)
         stack.addArrangedSubview(serviceLabel)
         stack.addArrangedSubview(serviceNameField)
         stack.addArrangedSubview(tagLabel)
         stack.addArrangedSubview(tagField)
         stack.addArrangedSubview(openNoteCheckbox)
-        stack.addArrangedSubview(shortcutTitle)
-        stack.addArrangedSubview(shortcutHelpLabel)
-        stack.addArrangedSubview(slotsStack)
+        stack.addArrangedSubview(shortcutCheckbox)
+        stack.addArrangedSubview(shortcutRecorder)
         stack.addArrangedSubview(buttons)
         stack.addArrangedSubview(statusLabel)
 
@@ -920,13 +361,6 @@ final class SettingsWindowController: NSWindowController {
         refreshAccessibilityStatus()
     }
 
-    private func showNoteSearch(for row: ShortcutSlotRow) {
-        NoteSearchWindowController.show(initialQuery: row.noteField.stringValue) { selectedPath in
-            row.applySelectedNotePath(selectedPath)
-            self.statusLabel.stringValue = "Note sélectionnée : \(selectedPath)"
-        }
-    }
-
     @objc private func saveSettings() {
         let serviceName = serviceNameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let tag = tagField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -934,7 +368,7 @@ final class SettingsWindowController: NSWindowController {
         UserDefaults.standard.set(serviceName.isEmpty ? "NotePlan : ajouter en tâche" : serviceName, forKey: Settings.serviceNameKey)
         UserDefaults.standard.set(tag.isEmpty ? "#capture" : tag, forKey: Settings.taskTagKey)
         UserDefaults.standard.set(openNoteCheckbox.state == .on, forKey: Settings.openNoteKey)
-        shortcutRows.forEach { Settings.setShortcutSlot($0.slot) }
+        UserDefaults.standard.set(shortcutCheckbox.state == .on, forKey: Settings.shortcutEnabledKey)
         UserDefaults.standard.synchronize()
         NotificationCenter.default.post(name: .settingsDidChange, object: nil)
 
@@ -1164,13 +598,15 @@ final class ClipboardSnapshot {
 }
 
 final class GlobalShortcutMonitor {
-    private var hotKeyRefs: [UInt32: EventHotKeyRef] = [:]
+    private var hotKeyRef: EventHotKeyRef?
     private var eventHandlerRef: EventHandlerRef?
     private var lastFire = Date.distantPast
-    private let handler: (Int) -> Void
+    private let handler: () -> Void
     private let hotKeySignature = fourCharCode("NDPY")
+    private let hotKeyID = UInt32(1)
+    private var registeredCombo = KeyCombo(keyCode: Settings.shortcutKeyCode, carbonModifiers: Settings.shortcutModifiers)
 
-    init(handler: @escaping (Int) -> Void) {
+    init(handler: @escaping () -> Void) {
         self.handler = handler
         update()
         NotificationCenter.default.addObserver(
@@ -1212,6 +648,7 @@ final class GlobalShortcutMonitor {
 
     private func update() {
         stop()
+        guard Settings.shortcutEnabled else { return }
 
         var eventType = EventTypeSpec(
             eventClass: OSType(kEventClassKeyboard),
@@ -1230,28 +667,26 @@ final class GlobalShortcutMonitor {
             return
         }
 
-        for slot in Settings.allShortcutSlots() where slot.enabled {
-            var ref: EventHotKeyRef?
-            let carbonHotKeyID = EventHotKeyID(signature: hotKeySignature, id: UInt32(slot.index))
-            let registerStatus = RegisterEventHotKey(
-                slot.combo.keyCode,
-                slot.combo.carbonModifiers,
-                carbonHotKeyID,
-                GetApplicationEventTarget(),
-                0,
-                &ref
-            )
-            if registerStatus == noErr, let ref {
-                hotKeyRefs[UInt32(slot.index)] = ref
-            }
+        registeredCombo = KeyCombo(keyCode: Settings.shortcutKeyCode, carbonModifiers: Settings.shortcutModifiers)
+        let carbonHotKeyID = EventHotKeyID(signature: hotKeySignature, id: hotKeyID)
+        let registerStatus = RegisterEventHotKey(
+            registeredCombo.keyCode,
+            registeredCombo.carbonModifiers,
+            carbonHotKeyID,
+            GetApplicationEventTarget(),
+            0,
+            &hotKeyRef
+        )
+        if registerStatus != noErr {
+            stop()
         }
     }
 
     private func stop() {
-        for ref in hotKeyRefs.values {
-            UnregisterEventHotKey(ref)
+        if let hotKeyRef {
+            UnregisterEventHotKey(hotKeyRef)
+            self.hotKeyRef = nil
         }
-        hotKeyRefs.removeAll()
         if let eventHandlerRef {
             RemoveEventHandler(eventHandlerRef)
             self.eventHandlerRef = nil
@@ -1259,13 +694,13 @@ final class GlobalShortcutMonitor {
     }
 
     fileprivate func fireIfMatching(signature: UInt32, id: UInt32) -> OSStatus {
-        guard signature == hotKeySignature, hotKeyRefs[id] != nil else {
+        guard signature == hotKeySignature, id == hotKeyID else {
             return OSStatus(eventNotHandledErr)
         }
         guard Date().timeIntervalSince(lastFire) > 0.8 else { return noErr }
         lastFire = Date()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
-            self.handler(Int(id))
+        DispatchQueue.main.async {
+            self.handler()
         }
         return noErr
     }
@@ -1309,8 +744,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         log("launch")
-        shortcutMonitor = GlobalShortcutMonitor { [weak self] slotIndex in
-            self?.captureSelectedTextWithShortcut(slotIndex: slotIndex)
+        shortcutMonitor = GlobalShortcutMonitor { [weak self] in
+            self?.captureSelectedTextWithShortcut()
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
             if !self.didReceiveOpenEvent {
@@ -1502,13 +937,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func captureSelectedTextWithShortcut(slotIndex: Int) {
-        let slot = Settings.shortcutSlot(slotIndex)
-        guard slot.enabled else {
-            log("shortcut:disabled-slot:\(slotIndex)")
-            return
-        }
-        log("shortcut:invoked:slot:\(slotIndex)")
+    private func captureSelectedTextWithShortcut() {
+        log("shortcut:invoked")
         guard canCaptureFrontmostApplication() else {
             log("shortcut:ignored-frontmost-app")
             NSSound.beep()
@@ -1524,7 +954,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let selectedText = selectedTextFromAccessibility(),
            let normalized = normalizedTodoText(selectedText) {
             log("shortcut:ax-selected-text:\(normalized)")
-            sendTodo(normalized, shortcutSlot: slot)
+            sendTodo(normalized)
             return
         }
 
@@ -1545,7 +975,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
             self.log("shortcut:text:\(normalized)")
-            self.sendTodo(normalized, shortcutSlot: slot)
+            self.sendTodo(normalized)
         }
     }
 
@@ -1644,47 +1074,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
-    private func sendTodo(_ todoText: String, shortcutSlot: ShortcutSlot? = nil) {
-        guard let content = normalizedTaskContent(todoText, tags: shortcutSlot?.tags) else { return }
+    private func sendTodo(_ todoText: String) {
+        guard let content = normalizedTaskContent(todoText) else { return }
         log("sendTodo:\(content)")
-        let task = formattedTask(from: content, tags: shortcutSlot?.tags)
+        let task = formattedTask(from: content)
         let openNoteValue = Settings.openNote ? "yes" : "no"
-        let noteTarget: String
-        if let shortcutSlot {
-            switch shortcutSlot.destination {
-            case .today:
-                noteTarget = "noteDate=today"
-            case .noteTitle:
-                let noteTitle = shortcutSlot.noteReference.trimmingCharacters(in: .whitespacesAndNewlines)
-                noteTarget = noteTitle.isEmpty ? "noteDate=today" : "noteTitle=\(encode(noteTitle))"
-            case .notePath:
-                let notePath = shortcutSlot.noteReference.trimmingCharacters(in: .whitespacesAndNewlines)
-                noteTarget = notePath.isEmpty ? "noteDate=today" : "notePath=\(encode(notePath))&fileName=\(encode(notePath))"
-            }
-        } else {
-            noteTarget = "noteDate=today"
-        }
-        log("sendTodoTarget:\(noteTarget)")
-        let target = "noteplan://x-callback-url/addText?\(noteTarget)&text=\(encode(task))&mode=append&openNote=\(openNoteValue)"
+        let target = "noteplan://x-callback-url/addText?noteDate=today&text=\(encode(task))&mode=append&openNote=\(openNoteValue)"
         if let url = URL(string: target) {
             NSWorkspace.shared.open(url)
         }
     }
 
-    private func formattedTask(from content: String, tags: String? = nil) -> String {
-        let tag = normalizedTags(tags ?? Settings.taskTag)
-        var lines = content.components(separatedBy: .newlines)
-        while lines.first?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true {
-            lines.removeFirst()
-        }
-        while lines.last?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true {
-            lines.removeLast()
-        }
+    private func formattedTask(from content: String) -> String {
+        let tag = Settings.taskTag.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lines = content
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
 
-        guard let first = lines.first else {
+        guard let firstLine = lines.first(where: { !$0.isEmpty }) else {
             return "- [ ] \(tag)"
         }
-        let firstLine = first.trimmingCharacters(in: .whitespacesAndNewlines)
 
         let continuation = lines.dropFirst().map { line in
             line.isEmpty ? ">" : "> \(line)"
@@ -1693,7 +1102,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return (["- [ ] \(firstLine)\(suffix)"] + continuation).joined(separator: "\n")
     }
 
-    private func normalizedTaskContent(_ value: String, tags: String? = nil) -> String? {
+    private func normalizedTaskContent(_ value: String) -> String? {
         var content = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !content.isEmpty, content != "(null)" else { return nil }
 
@@ -1703,30 +1112,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             content = content.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
-        for tag in normalizedTagList(tags ?? Settings.taskTag) {
-            if content == tag {
-                return nil
-            }
-            if content.hasSuffix(" \(tag)") {
-                content.removeLast(tag.count + 1)
-                content = content.trimmingCharacters(in: .whitespacesAndNewlines)
-            }
+        let tag = Settings.taskTag.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !tag.isEmpty, content == tag {
+            return nil
+        }
+        if !tag.isEmpty, content.hasSuffix(" \(tag)") {
+            content.removeLast(tag.count + 1)
+            content = content.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
         guard !content.isEmpty, content != "(null)" else { return nil }
         return content
-    }
-
-    private func normalizedTags(_ value: String) -> String {
-        normalizedTagList(value).joined(separator: " ")
-    }
-
-    private func normalizedTagList(_ value: String) -> [String] {
-        value
-            .split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .map { $0.hasPrefix("#") ? $0 : "#\($0)" }
     }
 
     private func encode(_ value: String) -> String {
@@ -1788,7 +1184,7 @@ mainMenu.addItem(appMenuItem)
 let appMenu = NSMenu()
 appMenu.addItem(withTitle: "À propos de NoteDroppy", action: #selector(AppDelegate.showAbout(_:)), keyEquivalent: "")
 appMenu.addItem(NSMenuItem.separator())
-appMenu.addItem(withTitle: "Préférences...", action: #selector(AppDelegate.showSettingsWindowFromMenu(_:)), keyEquivalent: ",")
+appMenu.addItem(withTitle: "Réglages...", action: #selector(AppDelegate.showSettingsWindowFromMenu(_:)), keyEquivalent: ",")
 appMenu.addItem(NSMenuItem.separator())
 appMenu.addItem(withTitle: "Quitter NoteDroppy", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
 appMenuItem.submenu = appMenu

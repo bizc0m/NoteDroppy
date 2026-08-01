@@ -63,11 +63,7 @@ Réglages disponibles :
 - Nom du Service macOS.
 - Tag ajouté à la tâche.
 - Ouverture de NotePlan après ajout.
-- 10 raccourcis globaux configurables.
-- Pour chaque raccourci : Actif, Raccourci, Destination, Note/Path, Tags.
-- Destinations : Aujourd'hui, Note nommée, Chemin de note.
-- Le bouton `Rechercher` liste les notes NotePlan, filtre par titre, chemin, `#tag` ou `#contexte`, puis valide le chemin dans `Note/Path`.
-- Tags séparés par virgule, automatiquement normalisés en tags NotePlan.
+- Raccourci global.
 - Accès direct au panneau Accessibilité macOS.
 - Aide intégrée dans l'app avec bouton `GitHub Repository`.
 
