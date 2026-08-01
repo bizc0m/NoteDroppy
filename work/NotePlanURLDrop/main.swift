@@ -1264,7 +1264,7 @@ final class GlobalShortcutMonitor {
         }
         guard Date().timeIntervalSince(lastFire) > 0.8 else { return noErr }
         lastFire = Date()
-        DispatchQueue.main.async {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
             self.handler(Int(id))
         }
         return noErr
