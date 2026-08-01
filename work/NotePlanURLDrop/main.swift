@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import Carbon
+import Darwin
 import Foundation
 import UniformTypeIdentifiers
 
@@ -10,6 +11,8 @@ private enum Settings {
     static let taskTagKey = "taskTag"
     static let openNoteKey = "openNote"
     static let serviceNameKey = "serviceName"
+    static let notesRootPathKey = "notesRootPath"
+    static let notesRootBookmarkKey = "notesRootBookmark"
     static let shortcutEnabledKey = "shortcutEnabled"
     static let shortcutKeyCodeKey = "shortcutKeyCode"
     static let shortcutModifiersKey = "shortcutModifiers"
@@ -33,6 +36,39 @@ private enum Settings {
         let value = UserDefaults.standard.string(forKey: serviceNameKey) ?? "NotePlan : ajouter en tâche"
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "NotePlan : ajouter en tâche" : trimmed
+    }
+
+    static var notesRootPath: String {
+        let value = UserDefaults.standard.string(forKey: notesRootPathKey) ?? ""
+        return value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func selectedNotesRoot() -> URL? {
+        if let data = UserDefaults.standard.data(forKey: notesRootBookmarkKey) {
+            var stale = false
+            if let url = try? URL(
+                resolvingBookmarkData: data,
+                options: [.withSecurityScope],
+                relativeTo: nil,
+                bookmarkDataIsStale: &stale
+            ) {
+                if stale {
+                    setNotesRoot(url)
+                }
+                return url
+            }
+        }
+
+        let path = notesRootPath
+        return path.isEmpty ? nil : URL(fileURLWithPath: path)
+    }
+
+    static func setNotesRoot(_ url: URL) {
+        UserDefaults.standard.set(url.path, forKey: notesRootPathKey)
+        if let data = try? url.bookmarkData(options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil) {
+            UserDefaults.standard.set(data, forKey: notesRootBookmarkKey)
+        }
+        UserDefaults.standard.synchronize()
     }
 
     static var shortcutEnabled: Bool {
@@ -156,6 +192,7 @@ struct PreferencesFile: Codable {
     var openNote: Bool
     var serviceName: String
     var defaultTags: String
+    var notesRootPath: String?
     var shortcuts: [ShortcutSlotFile]
 
     static func current() -> PreferencesFile {
@@ -164,6 +201,7 @@ struct PreferencesFile: Codable {
             openNote: Settings.openNote,
             serviceName: Settings.serviceName,
             defaultTags: Settings.taskTag,
+            notesRootPath: Settings.notesRootPath,
             shortcuts: Settings.allShortcutSlots().map(ShortcutSlotFile.init(slot:))
         )
     }
@@ -172,6 +210,10 @@ struct PreferencesFile: Codable {
         UserDefaults.standard.set(openNote, forKey: Settings.openNoteKey)
         UserDefaults.standard.set(serviceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "NotePlan : ajouter en tâche" : serviceName, forKey: Settings.serviceNameKey)
         UserDefaults.standard.set(defaultTags.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "#capture" : defaultTags, forKey: Settings.taskTagKey)
+        let trimmedNotesRoot = (notesRootPath ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedNotesRoot.isEmpty {
+            Settings.setNotesRoot(URL(fileURLWithPath: trimmedNotesRoot))
+        }
         for shortcut in shortcuts.prefix(Settings.shortcutSlotCount) {
             Settings.setShortcutSlot(shortcut.slot)
         }
@@ -280,34 +322,28 @@ private func normalizedPreferenceTags(_ value: String) -> [String] {
 }
 
 private func notePlanNotesRoots() -> [URL] {
-    let home = FileManager.default.homeDirectoryForCurrentUser
-    let roots = [
-        "Library/Containers/co.noteplan.NotePlan-setapp/Data/Library/Application Support/co.noteplan.NotePlan-setapp/Notes",
-        "Library/Containers/co.noteplan.NotePlan3/Data/Library/Application Support/co.noteplan.NotePlan3/Notes"
-    ]
-    return roots
-        .map { home.appendingPathComponent($0) }
-        .filter { FileManager.default.fileExists(atPath: $0.path) }
+    guard let selectedRoot = Settings.selectedNotesRoot() else { return [] }
+    var isDirectory: ObjCBool = false
+    guard FileManager.default.fileExists(atPath: selectedRoot.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+        return []
+    }
+    return [selectedRoot]
 }
 
 private func loadNoteSearchResults() -> [NoteSearchResult] {
-    let fileManager = FileManager.default
     var seen = Set<String>()
     var results: [NoteSearchResult] = []
 
     for root in notePlanNotesRoots() {
-        guard let enumerator = fileManager.enumerator(
-            at: root,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        ) else { continue }
-
-        for case let url as URL in enumerator {
-            guard url.pathExtension.lowercased() == "md" else { continue }
-            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
-            guard values?.isRegularFile == true else { continue }
+        let scopedAccess = root.startAccessingSecurityScopedResource()
+        defer {
+            if scopedAccess {
+                root.stopAccessingSecurityScopedResource()
+            }
+        }
+        writeDebugLog("search:index:root:start:\(root.path)")
+        for url in noteMarkdownFiles(under: root) {
             let relativePath = url.path.replacingOccurrences(of: root.path + "/", with: "")
-            guard !relativePath.hasPrefix("@Trash/"), !relativePath.hasPrefix("@Archive/") else { continue }
             guard seen.insert(relativePath).inserted else { continue }
 
             let summary = noteSearchSummary(from: url)
@@ -317,15 +353,52 @@ private func loadNoteSearchResults() -> [NoteSearchResult] {
                 relativePath: relativePath,
                 folder: folder == "." ? "" : folder,
                 tags: summary.tags,
-                modifiedAt: values?.contentModificationDate ?? .distantPast
+                modifiedAt: .distantPast
             ))
         }
+        writeDebugLog("search:index:root:done:\(root.path):\(results.count)")
     }
 
     return results.sorted {
         if $0.modifiedAt != $1.modifiedAt { return $0.modifiedAt > $1.modifiedAt }
         return $0.relativePath.localizedCaseInsensitiveCompare($1.relativePath) == .orderedAscending
     }
+}
+
+private func noteMarkdownFiles(under root: URL) -> [URL] {
+    let skippedDirectories = Set(["@Trash", "@Archive", ".obsidian"])
+    var files: [URL] = []
+    var pending: [(path: String, depth: Int)] = [(root.path, 0)]
+
+    while let current = pending.popLast() {
+        guard current.depth <= 8 else { continue }
+        guard let directory = opendir(current.path) else { continue }
+        defer { closedir(directory) }
+
+        while let entry = readdir(directory) {
+            var dName = entry.pointee.d_name
+            let dNameCapacity = MemoryLayout.size(ofValue: dName)
+            let name = withUnsafePointer(to: &dName) {
+                $0.withMemoryRebound(to: CChar.self, capacity: dNameCapacity) {
+                    String(cString: $0)
+                }
+            }
+            if name == "." || name == ".." || name.hasPrefix(".") { continue }
+            if skippedDirectories.contains(name) { continue }
+
+            let childPath = (current.path as NSString).appendingPathComponent(name)
+            var info = stat()
+            guard lstat(childPath, &info) == 0 else { continue }
+
+            if (info.st_mode & S_IFMT) == S_IFDIR {
+                pending.append((childPath, current.depth + 1))
+            } else if (info.st_mode & S_IFMT) == S_IFREG, childPath.lowercased().hasSuffix(".md") {
+                files.append(URL(fileURLWithPath: childPath))
+            }
+        }
+    }
+
+    return files
 }
 
 private func noteSearchSummary(from url: URL) -> (title: String?, tags: [String]) {
@@ -378,6 +451,20 @@ private func centeredWindow(_ title: String, width: CGFloat, height: CGFloat, st
         window.center()
     }
     return window
+}
+
+private func writeDebugLog(_ message: String) {
+    let line = "\(Date()) \(message)\n"
+    let url = URL(fileURLWithPath: "/tmp/NotePlanURLDrop.log")
+    guard let data = line.data(using: .utf8) else { return }
+    if FileManager.default.fileExists(atPath: url.path),
+       let handle = try? FileHandle(forWritingTo: url) {
+        defer { try? handle.close() }
+        _ = try? handle.seekToEnd()
+        try? handle.write(contentsOf: data)
+    } else {
+        try? data.write(to: url)
+    }
 }
 
 struct KeyCombo {
@@ -738,6 +825,7 @@ final class NoteSearchWindowController: NSWindowController, NSTableViewDataSourc
     private let statusLabel = NSTextField(labelWithString: "")
     private var allResults: [NoteSearchResult] = []
     private var filteredResults: [NoteSearchResult] = []
+    private var isIndexing = false
     private let onSelect: (NoteSearchResult) -> Void
 
     convenience init(initialQuery: String, onSelect: @escaping (NoteSearchResult) -> Void) {
@@ -754,14 +842,30 @@ final class NoteSearchWindowController: NSWindowController, NSTableViewDataSourc
     }
 
     private func loadResultsAsync() {
+        guard Settings.selectedNotesRoot() != nil else {
+            allResults = []
+            filteredResults = []
+            tableView.reloadData()
+            statusLabel.stringValue = "Aucun dossier Notes choisi. Ouvre Préférences > Choisir dossier Notes."
+            return
+        }
+
+        isIndexing = true
         statusLabel.stringValue = "Indexation des notes en cours..."
+        writeDebugLog("search:index:start")
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let results = loadNoteSearchResults()
+            writeDebugLog("search:index:done:\(results.count)")
             DispatchQueue.main.async {
                 guard let self else { return }
+                self.isIndexing = false
                 self.allResults = results
                 self.applyFilter()
             }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
+            guard let self, self.isIndexing else { return }
+            self.statusLabel.stringValue = "Indexation trop lente ou bloquée. Vérifie le dossier Notes choisi dans Préférences."
         }
     }
 
@@ -933,6 +1037,8 @@ extension NoteSearchWindowController: NSWindowDelegate {
 final class SettingsWindowController: NSWindowController {
     private let serviceNameField = NSTextField(string: Settings.serviceName)
     private let tagField = NSTextField(string: Settings.taskTag)
+    private let notesRootField = NSTextField(string: Settings.notesRootPath)
+    private let chooseNotesRootButton = NSButton(title: "Choisir dossier Notes", target: nil, action: nil)
     private let openNoteCheckbox = NSButton(checkboxWithTitle: "Ouvrir NotePlan après l'ajout", target: nil, action: nil)
     private var shortcutRows: [ShortcutSlotRow] = []
     private let shortcutHelpLabel = NSTextField(labelWithString: "Actif | Raccourci | Destination | Dossier | Note/Path | Tags. Variables: $date, $day, $time, $datetime, $month, $year")
@@ -943,7 +1049,7 @@ final class SettingsWindowController: NSWindowController {
     private let statusLabel = NSTextField(labelWithString: "")
 
     convenience init() {
-        let window = centeredWindow("Préférences NoteDroppy", width: 980, height: 760, style: [.titled, .closable, .miniaturizable, .resizable])
+        let window = centeredWindow("Préférences NoteDroppy", width: 980, height: 800, style: [.titled, .closable, .miniaturizable, .resizable])
         self.init(window: window)
         buildContent()
     }
@@ -981,6 +1087,23 @@ final class SettingsWindowController: NSWindowController {
 
         let tagLabel = NSTextField(labelWithString: "Tag ajouté à la tâche")
         tagField.placeholderString = "#capture"
+
+        let notesRootLabel = NSTextField(labelWithString: "Dossier Notes NotePlan")
+        notesRootField.placeholderString = "Choisir le dossier Notes pour activer la recherche"
+        notesRootField.isEditable = false
+        notesRootField.isSelectable = true
+        notesRootField.lineBreakMode = .byTruncatingMiddle
+
+        chooseNotesRootButton.target = self
+        chooseNotesRootButton.action = #selector(chooseNotesRoot)
+        chooseNotesRootButton.bezelStyle = .rounded
+
+        let notesRootRow = NSStackView()
+        notesRootRow.orientation = .horizontal
+        notesRootRow.spacing = 8
+        notesRootRow.alignment = .centerY
+        notesRootRow.addArrangedSubview(notesRootField)
+        notesRootRow.addArrangedSubview(chooseNotesRootButton)
 
         openNoteCheckbox.state = Settings.openNote ? .on : .off
         shortcutHelpLabel.textColor = .secondaryLabelColor
@@ -1027,7 +1150,7 @@ final class SettingsWindowController: NSWindowController {
         buttons.addArrangedSubview(accessibilityButton)
         buttons.addArrangedSubview(quitButton)
 
-        [serviceNameField, tagField].forEach { field in
+        [serviceNameField, tagField, notesRootField].forEach { field in
             field.translatesAutoresizingMaskIntoConstraints = false
             field.widthAnchor.constraint(equalToConstant: 360).isActive = true
         }
@@ -1057,6 +1180,8 @@ final class SettingsWindowController: NSWindowController {
         stack.addArrangedSubview(serviceNameField)
         stack.addArrangedSubview(tagLabel)
         stack.addArrangedSubview(tagField)
+        stack.addArrangedSubview(notesRootLabel)
+        stack.addArrangedSubview(notesRootRow)
         stack.addArrangedSubview(openNoteCheckbox)
         stack.addArrangedSubview(shortcutHelpLabel)
         stack.addArrangedSubview(slotsStack)
@@ -1072,6 +1197,10 @@ final class SettingsWindowController: NSWindowController {
     }
 
     private func showNoteSearch(for row: ShortcutSlotRow) {
+        guard Settings.selectedNotesRoot() != nil else {
+            statusLabel.stringValue = "Choisis d'abord le dossier Notes NotePlan pour activer la recherche."
+            return
+        }
         let initial = [row.folderField.stringValue, row.noteField.stringValue]
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
@@ -1080,6 +1209,23 @@ final class SettingsWindowController: NSWindowController {
             row.applySelectedNote(selected)
             self.statusLabel.stringValue = "Note sélectionnée : \(selected.relativePath)"
         }
+    }
+
+    @objc private func chooseNotesRoot() {
+        let panel = NSOpenPanel()
+        panel.title = "Choisir le dossier Notes NotePlan"
+        panel.prompt = "Choisir"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = false
+        if !Settings.notesRootPath.isEmpty {
+            panel.directoryURL = URL(fileURLWithPath: Settings.notesRootPath)
+        }
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        Settings.setNotesRoot(url)
+        notesRootField.stringValue = url.path
+        statusLabel.stringValue = "Dossier Notes choisi : \(url.path)"
     }
 
     @objc private func saveSettings() {
@@ -1150,6 +1296,7 @@ final class SettingsWindowController: NSWindowController {
     private func reloadControlsFromSettings() {
         serviceNameField.stringValue = Settings.serviceName
         tagField.stringValue = Settings.taskTag
+        notesRootField.stringValue = Settings.notesRootPath
         openNoteCheckbox.state = Settings.openNote ? .on : .off
         let slots = Settings.allShortcutSlots()
         for (row, slot) in zip(shortcutRows, slots) {
