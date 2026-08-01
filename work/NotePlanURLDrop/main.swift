@@ -13,6 +13,7 @@ private enum Settings {
     static let shortcutKeyCodeKey = "shortcutKeyCode"
     static let shortcutModifiersKey = "shortcutModifiers"
     static let didShowFirstLaunchSettingsKey = "didShowFirstLaunchSettings"
+    static let shortcutSlotCount = 10
 
     static var taskTag: String {
         let value = UserDefaults.standard.string(forKey: taskTagKey) ?? "#capture"
@@ -66,11 +67,79 @@ private enum Settings {
     }
 
     static var shortcutDisplay: String {
-        KeyCombo(keyCode: shortcutKeyCode, carbonModifiers: shortcutModifiers).display
+        shortcutSlot(1).combo.display
+    }
+
+    static func shortcutSlot(_ index: Int) -> ShortcutSlot {
+        let enabledKey = "shortcutSlot\(index).enabled"
+        let keyCodeKey = "shortcutSlot\(index).keyCode"
+        let modifiersKey = "shortcutSlot\(index).modifiers"
+        let noteKey = "shortcutSlot\(index).note"
+        let tagsKey = "shortcutSlot\(index).tags"
+
+        let defaultCombo = defaultShortcutCombo(index)
+        let enabled: Bool
+        if UserDefaults.standard.object(forKey: enabledKey) == nil {
+            enabled = index == 1 ? shortcutEnabled : false
+        } else {
+            enabled = UserDefaults.standard.bool(forKey: enabledKey)
+        }
+
+        let keyCode = UserDefaults.standard.object(forKey: keyCodeKey) == nil
+            ? defaultCombo.keyCode
+            : UInt32(UserDefaults.standard.integer(forKey: keyCodeKey))
+        let rawModifiers = UserDefaults.standard.object(forKey: modifiersKey) == nil
+            ? defaultCombo.carbonModifiers
+            : UInt32(UserDefaults.standard.integer(forKey: modifiersKey))
+        let note = UserDefaults.standard.string(forKey: noteKey) ?? ""
+        let tags = UserDefaults.standard.string(forKey: tagsKey) ?? (index == 1 ? taskTag : "#capture")
+
+        return ShortcutSlot(
+            index: index,
+            enabled: enabled,
+            combo: KeyCombo(keyCode: keyCode, carbonModifiers: normalizedCarbonModifiers(rawModifiers)),
+            noteTitle: note.trimmingCharacters(in: .whitespacesAndNewlines),
+            tags: tags.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+    }
+
+    static func setShortcutSlot(_ slot: ShortcutSlot) {
+        UserDefaults.standard.set(slot.enabled, forKey: "shortcutSlot\(slot.index).enabled")
+        UserDefaults.standard.set(Int(slot.combo.keyCode), forKey: "shortcutSlot\(slot.index).keyCode")
+        UserDefaults.standard.set(Int(slot.combo.carbonModifiers), forKey: "shortcutSlot\(slot.index).modifiers")
+        UserDefaults.standard.set(slot.noteTitle, forKey: "shortcutSlot\(slot.index).note")
+        UserDefaults.standard.set(slot.tags, forKey: "shortcutSlot\(slot.index).tags")
+        if slot.index == 1 {
+            UserDefaults.standard.set(slot.enabled, forKey: shortcutEnabledKey)
+            UserDefaults.standard.set(Int(slot.combo.keyCode), forKey: shortcutKeyCodeKey)
+            UserDefaults.standard.set(Int(slot.combo.carbonModifiers), forKey: shortcutModifiersKey)
+            UserDefaults.standard.set(slot.tags.isEmpty ? "#capture" : slot.tags, forKey: taskTagKey)
+        }
+        UserDefaults.standard.synchronize()
+    }
+
+    static func allShortcutSlots() -> [ShortcutSlot] {
+        (1...shortcutSlotCount).map { shortcutSlot($0) }
+    }
+
+    static func defaultShortcutCombo(_ index: Int) -> KeyCombo {
+        let codes: [UInt32] = [
+            UInt32(kVK_ANSI_1), UInt32(kVK_ANSI_2), UInt32(kVK_ANSI_3), UInt32(kVK_ANSI_4), UInt32(kVK_ANSI_5),
+            UInt32(kVK_ANSI_6), UInt32(kVK_ANSI_7), UInt32(kVK_ANSI_8), UInt32(kVK_ANSI_9), UInt32(kVK_ANSI_0)
+        ]
+        return KeyCombo(keyCode: codes[max(0, min(index - 1, codes.count - 1))], carbonModifiers: UInt32(controlKey | optionKey | cmdKey))
     }
 }
 
-fileprivate struct KeyCombo {
+struct ShortcutSlot {
+    let index: Int
+    var enabled: Bool
+    var combo: KeyCombo
+    var noteTitle: String
+    var tags: String
+}
+
+struct KeyCombo {
     let keyCode: UInt32
     let carbonModifiers: UInt32
 
@@ -146,20 +215,32 @@ fileprivate struct KeyCombo {
     }
 }
 
+private func normalizedCarbonModifiers(_ raw: UInt32) -> UInt32 {
+    let allowedCarbon = UInt32(controlKey | optionKey | shiftKey | cmdKey)
+    if raw != 0, raw & ~allowedCarbon == 0 {
+        return raw
+    }
+    let converted = carbonModifiers(fromRawNSEventFlags: UInt(raw))
+    return converted == 0 ? UInt32(controlKey | optionKey | cmdKey) : converted
+}
+
 final class ShortcutRecorderButton: NSButton {
     fileprivate var onChange: ((KeyCombo) -> Void)?
     private var localMonitor: Any?
     private var isRecording = false
+    private var combo: KeyCombo
 
-    init() {
+    init(combo: KeyCombo = Settings.defaultShortcutCombo(1)) {
+        self.combo = combo
         super.init(frame: .zero)
-        title = "Raccourci : \(Settings.shortcutDisplay)"
+        title = combo.display
         bezelStyle = .rounded
         target = self
         action = #selector(beginRecording)
     }
 
     required init?(coder: NSCoder) {
+        self.combo = Settings.defaultShortcutCombo(1)
         super.init(coder: coder)
     }
 
@@ -202,12 +283,14 @@ final class ShortcutRecorderButton: NSButton {
             return
         }
         let combo = KeyCombo(keyCode: UInt32(event.keyCode), carbonModifiers: modifiers)
-        UserDefaults.standard.set(Int(combo.keyCode), forKey: Settings.shortcutKeyCodeKey)
-        UserDefaults.standard.set(Int(combo.carbonModifiers), forKey: Settings.shortcutModifiersKey)
-        UserDefaults.standard.synchronize()
-        title = "Raccourci : \(combo.display)"
+        setCombo(combo)
         onChange?(combo)
         stopRecording(updateTitle: false)
+    }
+
+    fileprivate func setCombo(_ combo: KeyCombo) {
+        self.combo = combo
+        title = combo.display
     }
 
     private func stopRecording(updateTitle: Bool = true) {
@@ -220,7 +303,7 @@ final class ShortcutRecorderButton: NSButton {
         }
         isRecording = false
         if updateTitle {
-            title = "Raccourci : \(Settings.shortcutDisplay)"
+            title = combo.display
         }
     }
 }
@@ -256,22 +339,75 @@ private func isReservedMenuShortcut(keyCode: UInt32, modifiers: UInt32) -> Bool 
     return false
 }
 
+final class ShortcutSlotRow {
+    let index: Int
+    let enabledCheckbox: NSButton
+    let recorder: ShortcutRecorderButton
+    let noteField: NSTextField
+    let tagsField: NSTextField
+    private var storedCombo: KeyCombo
+
+    init(slot: ShortcutSlot) {
+        self.index = slot.index
+        self.storedCombo = slot.combo
+        self.enabledCheckbox = NSButton(checkboxWithTitle: "\(slot.index)", target: nil, action: nil)
+        self.recorder = ShortcutRecorderButton(combo: slot.combo)
+        self.noteField = NSTextField(string: slot.noteTitle)
+        self.tagsField = NSTextField(string: slot.tags)
+
+        enabledCheckbox.state = slot.enabled ? .on : .off
+        noteField.placeholderString = "today ou titre de note"
+        tagsField.placeholderString = "#capture, #client"
+
+        recorder.translatesAutoresizingMaskIntoConstraints = false
+        noteField.translatesAutoresizingMaskIntoConstraints = false
+        tagsField.translatesAutoresizingMaskIntoConstraints = false
+        recorder.widthAnchor.constraint(equalToConstant: 96).isActive = true
+        noteField.widthAnchor.constraint(equalToConstant: 190).isActive = true
+        tagsField.widthAnchor.constraint(equalToConstant: 150).isActive = true
+    }
+
+    var slot: ShortcutSlot {
+        ShortcutSlot(
+            index: index,
+            enabled: enabledCheckbox.state == .on,
+            combo: storedCombo,
+            noteTitle: noteField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines),
+            tags: tagsField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+    }
+
+    func setCombo(_ combo: KeyCombo) {
+        storedCombo = combo
+        recorder.setCombo(combo)
+    }
+
+    func view() -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.spacing = 8
+        row.alignment = .centerY
+        row.addArrangedSubview(enabledCheckbox)
+        row.addArrangedSubview(recorder)
+        row.addArrangedSubview(noteField)
+        row.addArrangedSubview(tagsField)
+        return row
+    }
+}
+
 final class SettingsWindowController: NSWindowController {
     private let serviceNameField = NSTextField(string: Settings.serviceName)
     private let tagField = NSTextField(string: Settings.taskTag)
     private let openNoteCheckbox = NSButton(checkboxWithTitle: "Ouvrir NotePlan après l'ajout", target: nil, action: nil)
-    private let shortcutCheckbox = NSButton(checkboxWithTitle: "Raccourci global", target: nil, action: nil)
-    private let shortcutCurrentLabel = NSTextField(labelWithString: "")
-    private let shortcutRecorder = ShortcutRecorderButton()
-    private let resetShortcutButton = NSButton(title: "Réinitialiser", target: nil, action: nil)
-    private let shortcutHelpLabel = NSTextField(labelWithString: "1. Active Raccourci global. 2. Clique Configurer. 3. Tape le raccourci.")
+    private var shortcutRows: [ShortcutSlotRow] = []
+    private let shortcutHelpLabel = NSTextField(labelWithString: "Actif | Raccourci | Note cible | Tags séparés par virgule")
     private let helpButton = NSButton(title: "Aide", target: nil, action: nil)
     private let accessibilityButton = NSButton(title: "Autoriser Accessibilité", target: nil, action: nil)
     private let statusLabel = NSTextField(labelWithString: "")
 
     convenience init() {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 460),
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 680),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -309,23 +445,6 @@ final class SettingsWindowController: NSWindowController {
         shortcutTitle.font = .boldSystemFont(ofSize: 13)
 
         openNoteCheckbox.state = Settings.openNote ? .on : .off
-        shortcutCheckbox.state = Settings.shortcutEnabled ? .on : .off
-        shortcutRecorder.onChange = { _ in
-            self.refreshShortcutStatus()
-            NotificationCenter.default.post(name: .settingsDidChange, object: nil)
-        }
-        resetShortcutButton.target = self
-        resetShortcutButton.action = #selector(resetShortcut)
-        resetShortcutButton.bezelStyle = .rounded
-        refreshShortcutStatus()
-
-        let shortcutRow = NSStackView()
-        shortcutRow.orientation = .horizontal
-        shortcutRow.spacing = 8
-        shortcutRow.alignment = .centerY
-        shortcutRow.addArrangedSubview(shortcutRecorder)
-        shortcutRow.addArrangedSubview(resetShortcutButton)
-
         shortcutHelpLabel.textColor = .secondaryLabelColor
         shortcutHelpLabel.lineBreakMode = .byWordWrapping
         shortcutHelpLabel.maximumNumberOfLines = 2
@@ -364,8 +483,25 @@ final class SettingsWindowController: NSWindowController {
             field.translatesAutoresizingMaskIntoConstraints = false
             field.widthAnchor.constraint(equalToConstant: 360).isActive = true
         }
-        shortcutRecorder.translatesAutoresizingMaskIntoConstraints = false
-        shortcutRecorder.widthAnchor.constraint(equalToConstant: 260).isActive = true
+        let slotsStack = NSStackView()
+        slotsStack.orientation = .vertical
+        slotsStack.spacing = 6
+        slotsStack.alignment = .leading
+
+        let header = NSTextField(labelWithString: "N°     Raccourci       Note cible                         Tags")
+        header.textColor = .secondaryLabelColor
+        slotsStack.addArrangedSubview(header)
+
+        shortcutRows = Settings.allShortcutSlots().map { slot in
+            let row = ShortcutSlotRow(slot: slot)
+            row.setCombo(slot.combo)
+            row.recorder.onChange = { combo in
+                row.setCombo(combo)
+                NotificationCenter.default.post(name: .settingsDidChange, object: nil)
+            }
+            slotsStack.addArrangedSubview(row.view())
+            return row
+        }
 
         stack.addArrangedSubview(title)
         stack.addArrangedSubview(generalTitle)
@@ -375,10 +511,8 @@ final class SettingsWindowController: NSWindowController {
         stack.addArrangedSubview(tagField)
         stack.addArrangedSubview(openNoteCheckbox)
         stack.addArrangedSubview(shortcutTitle)
-        stack.addArrangedSubview(shortcutCheckbox)
-        stack.addArrangedSubview(shortcutCurrentLabel)
-        stack.addArrangedSubview(shortcutRow)
         stack.addArrangedSubview(shortcutHelpLabel)
+        stack.addArrangedSubview(slotsStack)
         stack.addArrangedSubview(buttons)
         stack.addArrangedSubview(statusLabel)
 
@@ -390,19 +524,6 @@ final class SettingsWindowController: NSWindowController {
         refreshAccessibilityStatus()
     }
 
-    private func refreshShortcutStatus() {
-        shortcutCurrentLabel.stringValue = "Raccourci actuel : \(Settings.shortcutDisplay)"
-        shortcutRecorder.title = "Configurer"
-    }
-
-    @objc private func resetShortcut() {
-        UserDefaults.standard.set(Int(kVK_ANSI_N), forKey: Settings.shortcutKeyCodeKey)
-        UserDefaults.standard.set(Int(UInt32(controlKey | optionKey | cmdKey)), forKey: Settings.shortcutModifiersKey)
-        UserDefaults.standard.synchronize()
-        refreshShortcutStatus()
-        NotificationCenter.default.post(name: .settingsDidChange, object: nil)
-    }
-
     @objc private func saveSettings() {
         let serviceName = serviceNameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let tag = tagField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -410,7 +531,7 @@ final class SettingsWindowController: NSWindowController {
         UserDefaults.standard.set(serviceName.isEmpty ? "NotePlan : ajouter en tâche" : serviceName, forKey: Settings.serviceNameKey)
         UserDefaults.standard.set(tag.isEmpty ? "#capture" : tag, forKey: Settings.taskTagKey)
         UserDefaults.standard.set(openNoteCheckbox.state == .on, forKey: Settings.openNoteKey)
-        UserDefaults.standard.set(shortcutCheckbox.state == .on, forKey: Settings.shortcutEnabledKey)
+        shortcutRows.forEach { Settings.setShortcutSlot($0.slot) }
         UserDefaults.standard.synchronize()
         NotificationCenter.default.post(name: .settingsDidChange, object: nil)
 
@@ -419,7 +540,6 @@ final class SettingsWindowController: NSWindowController {
         } else {
             statusLabel.stringValue = "Réglages enregistrés. Nom du Service gardé pour l'app, mais macOS n'a pas pu être rafraîchi."
         }
-        refreshShortcutStatus()
         refreshAccessibilityStatus(append: true)
     }
 
@@ -641,15 +761,13 @@ final class ClipboardSnapshot {
 }
 
 final class GlobalShortcutMonitor {
-    private var hotKeyRef: EventHotKeyRef?
+    private var hotKeyRefs: [UInt32: EventHotKeyRef] = [:]
     private var eventHandlerRef: EventHandlerRef?
     private var lastFire = Date.distantPast
-    private let handler: () -> Void
+    private let handler: (Int) -> Void
     private let hotKeySignature = fourCharCode("NDPY")
-    private let hotKeyID = UInt32(1)
-    private var registeredCombo = KeyCombo(keyCode: Settings.shortcutKeyCode, carbonModifiers: Settings.shortcutModifiers)
 
-    init(handler: @escaping () -> Void) {
+    init(handler: @escaping (Int) -> Void) {
         self.handler = handler
         update()
         NotificationCenter.default.addObserver(
@@ -691,7 +809,6 @@ final class GlobalShortcutMonitor {
 
     private func update() {
         stop()
-        guard Settings.shortcutEnabled else { return }
 
         var eventType = EventTypeSpec(
             eventClass: OSType(kEventClassKeyboard),
@@ -710,26 +827,28 @@ final class GlobalShortcutMonitor {
             return
         }
 
-        registeredCombo = KeyCombo(keyCode: Settings.shortcutKeyCode, carbonModifiers: Settings.shortcutModifiers)
-        let carbonHotKeyID = EventHotKeyID(signature: hotKeySignature, id: hotKeyID)
-        let registerStatus = RegisterEventHotKey(
-            registeredCombo.keyCode,
-            registeredCombo.carbonModifiers,
-            carbonHotKeyID,
-            GetApplicationEventTarget(),
-            0,
-            &hotKeyRef
-        )
-        if registerStatus != noErr {
-            stop()
+        for slot in Settings.allShortcutSlots() where slot.enabled {
+            var ref: EventHotKeyRef?
+            let carbonHotKeyID = EventHotKeyID(signature: hotKeySignature, id: UInt32(slot.index))
+            let registerStatus = RegisterEventHotKey(
+                slot.combo.keyCode,
+                slot.combo.carbonModifiers,
+                carbonHotKeyID,
+                GetApplicationEventTarget(),
+                0,
+                &ref
+            )
+            if registerStatus == noErr, let ref {
+                hotKeyRefs[UInt32(slot.index)] = ref
+            }
         }
     }
 
     private func stop() {
-        if let hotKeyRef {
-            UnregisterEventHotKey(hotKeyRef)
-            self.hotKeyRef = nil
+        for ref in hotKeyRefs.values {
+            UnregisterEventHotKey(ref)
         }
+        hotKeyRefs.removeAll()
         if let eventHandlerRef {
             RemoveEventHandler(eventHandlerRef)
             self.eventHandlerRef = nil
@@ -737,13 +856,13 @@ final class GlobalShortcutMonitor {
     }
 
     fileprivate func fireIfMatching(signature: UInt32, id: UInt32) -> OSStatus {
-        guard signature == hotKeySignature, id == hotKeyID else {
+        guard signature == hotKeySignature, hotKeyRefs[id] != nil else {
             return OSStatus(eventNotHandledErr)
         }
         guard Date().timeIntervalSince(lastFire) > 0.8 else { return noErr }
         lastFire = Date()
         DispatchQueue.main.async {
-            self.handler()
+            self.handler(Int(id))
         }
         return noErr
     }
@@ -787,8 +906,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         log("launch")
-        shortcutMonitor = GlobalShortcutMonitor { [weak self] in
-            self?.captureSelectedTextWithShortcut()
+        shortcutMonitor = GlobalShortcutMonitor { [weak self] slotIndex in
+            self?.captureSelectedTextWithShortcut(slotIndex: slotIndex)
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
             if !self.didReceiveOpenEvent {
@@ -960,8 +1079,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func captureSelectedTextWithShortcut() {
-        log("shortcut:invoked")
+    private func captureSelectedTextWithShortcut(slotIndex: Int) {
+        let slot = Settings.shortcutSlot(slotIndex)
+        guard slot.enabled else {
+            log("shortcut:disabled-slot:\(slotIndex)")
+            return
+        }
+        log("shortcut:invoked:slot:\(slotIndex)")
         guard canCaptureFrontmostApplication() else {
             log("shortcut:ignored-frontmost-app")
             NSSound.beep()
@@ -977,7 +1101,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let selectedText = selectedTextFromAccessibility(),
            let normalized = normalizedTodoText(selectedText) {
             log("shortcut:ax-selected-text:\(normalized)")
-            sendTodo(normalized)
+            sendTodo(normalized, shortcutSlot: slot)
             return
         }
 
@@ -998,7 +1122,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
             self.log("shortcut:text:\(normalized)")
-            self.sendTodo(normalized)
+            self.sendTodo(normalized, shortcutSlot: slot)
         }
     }
 
@@ -1097,19 +1221,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
-    private func sendTodo(_ todoText: String) {
-        guard let content = normalizedTaskContent(todoText) else { return }
+    private func sendTodo(_ todoText: String, shortcutSlot: ShortcutSlot? = nil) {
+        guard let content = normalizedTaskContent(todoText, tags: shortcutSlot?.tags) else { return }
         log("sendTodo:\(content)")
-        let task = formattedTask(from: content)
+        let task = formattedTask(from: content, tags: shortcutSlot?.tags)
         let openNoteValue = Settings.openNote ? "yes" : "no"
-        let target = "noteplan://x-callback-url/addText?noteDate=today&text=\(encode(task))&mode=append&openNote=\(openNoteValue)"
+        let noteTarget: String
+        if let noteTitle = shortcutSlot?.noteTitle.trimmingCharacters(in: .whitespacesAndNewlines),
+           !noteTitle.isEmpty,
+           noteTitle.lowercased() != "today" {
+            noteTarget = "noteTitle=\(encode(noteTitle))"
+        } else {
+            noteTarget = "noteDate=today"
+        }
+        let target = "noteplan://x-callback-url/addText?\(noteTarget)&text=\(encode(task))&mode=append&openNote=\(openNoteValue)"
         if let url = URL(string: target) {
             NSWorkspace.shared.open(url)
         }
     }
 
-    private func formattedTask(from content: String) -> String {
-        let tag = Settings.taskTag.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func formattedTask(from content: String, tags: String? = nil) -> String {
+        let tag = normalizedTags(tags ?? Settings.taskTag)
         let lines = content
             .components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -1125,7 +1257,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return (["- [ ] \(firstLine)\(suffix)"] + continuation).joined(separator: "\n")
     }
 
-    private func normalizedTaskContent(_ value: String) -> String? {
+    private func normalizedTaskContent(_ value: String, tags: String? = nil) -> String? {
         var content = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !content.isEmpty, content != "(null)" else { return nil }
 
@@ -1135,17 +1267,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             content = content.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
-        let tag = Settings.taskTag.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !tag.isEmpty, content == tag {
-            return nil
-        }
-        if !tag.isEmpty, content.hasSuffix(" \(tag)") {
-            content.removeLast(tag.count + 1)
-            content = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        for tag in normalizedTagList(tags ?? Settings.taskTag) {
+            if content == tag {
+                return nil
+            }
+            if content.hasSuffix(" \(tag)") {
+                content.removeLast(tag.count + 1)
+                content = content.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
         }
 
         guard !content.isEmpty, content != "(null)" else { return nil }
         return content
+    }
+
+    private func normalizedTags(_ value: String) -> String {
+        normalizedTagList(value).joined(separator: " ")
+    }
+
+    private func normalizedTagList(_ value: String) -> [String] {
+        value
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .map { $0.hasPrefix("#") ? $0 : "#\($0)" }
     }
 
     private func encode(_ value: String) -> String {
