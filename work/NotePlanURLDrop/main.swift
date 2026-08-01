@@ -707,6 +707,80 @@ private func isReservedMenuShortcut(keyCode: UInt32, modifiers: UInt32) -> Bool 
     return false
 }
 
+final class ShortcutTargetField: NSTextField {
+    var acceptsDrop = true
+    var onDropTarget: ((ShortcutTarget) -> Bool)?
+
+    init() {
+        super.init(frame: .zero)
+        isEditable = false
+        isSelectable = true
+        lineBreakMode = .byTruncatingMiddle
+        registerForDraggedTypes([.fileURL, .URL, .string])
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        isEditable = false
+        isSelectable = true
+        lineBreakMode = .byTruncatingMiddle
+        registerForDraggedTypes([.fileURL, .URL, .string])
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        acceptsDrop && target(from: sender.draggingPasteboard) != nil ? .copy : []
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        guard acceptsDrop, let target = target(from: sender.draggingPasteboard) else {
+            NSSound.beep()
+            return false
+        }
+        return onDropTarget?(target) ?? false
+    }
+
+    private func target(from pasteboard: NSPasteboard) -> ShortcutTarget? {
+        if let url = droppedURL(from: pasteboard) {
+            return ShortcutTarget(url: url)
+        }
+        if let text = pasteboard.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty {
+            if let url = Foundation.URL(string: text), url.scheme != nil {
+                return ShortcutTarget(url: url)
+            }
+            return ShortcutTarget(rawText: text)
+        }
+        return nil
+    }
+
+    private func droppedURL(from pasteboard: NSPasteboard) -> URL? {
+        if let value = pasteboard.string(forType: .fileURL), let url = Foundation.URL(string: value) {
+            return url
+        }
+        if let value = pasteboard.string(forType: .URL), let url = Foundation.URL(string: value) {
+            return url
+        }
+        if let objects = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL] {
+            return objects.first
+        }
+        return nil
+    }
+}
+
+struct ShortcutTarget {
+    let url: URL?
+    let rawText: String?
+
+    init(url: URL) {
+        self.url = url
+        self.rawText = nil
+    }
+
+    init(rawText: String) {
+        self.url = nil
+        self.rawText = rawText
+    }
+}
+
 final class ShortcutSlotRow {
     let index: Int
     let enabledCheckbox: NSButton
@@ -715,8 +789,10 @@ final class ShortcutSlotRow {
     let folderField: NSTextField
     let noteField: NSTextField
     let searchButton = NSButton(title: "Rechercher", target: nil, action: nil)
+    let targetField = ShortcutTargetField()
     let tagsField: NSTextField
     var onSearch: ((ShortcutSlotRow) -> Void)?
+    var onTargetDrop: ((ShortcutSlotRow, ShortcutTarget) -> Bool)?
     private var storedCombo: KeyCombo
     private var isTodaySlot: Bool { index == 1 }
     private var displayIndex: String { index == 10 ? "0" : "\(index)" }
@@ -737,27 +813,31 @@ final class ShortcutSlotRow {
         destinationPopup.action = #selector(destinationChanged)
         folderField.placeholderString = "Dossier"
         noteField.placeholderString = placeholder(for: slot.index == 1 ? .today : slot.destination)
+        targetField.placeholderString = slot.index == 1 ? "Aujourd'hui" : "Déposer une note .md ici"
+        targetField.stringValue = targetDisplay(for: slot.index == 1 ? .today : slot.destination, folder: slot.folder, note: slot.noteReference)
+        targetField.acceptsDrop = slot.index != 1
+        targetField.onDropTarget = { [weak self] target in
+            guard let self else { return false }
+            return self.onTargetDrop?(self, target) ?? false
+        }
         searchButton.target = self
         searchButton.action = #selector(searchNote)
         searchButton.bezelStyle = .rounded
         tagsField.placeholderString = "capture, $year, #projet"
 
-        [enabledCheckbox, recorder, destinationPopup, folderField, noteField, searchButton, tagsField].forEach {
+        [enabledCheckbox, recorder, destinationPopup, folderField, noteField, searchButton, targetField, tagsField].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
         }
         enabledCheckbox.widthAnchor.constraint(equalToConstant: Self.columnWidths[0]).isActive = true
         recorder.widthAnchor.constraint(equalToConstant: Self.columnWidths[1]).isActive = true
-        destinationPopup.widthAnchor.constraint(equalToConstant: Self.columnWidths[2]).isActive = true
-        folderField.widthAnchor.constraint(equalToConstant: Self.columnWidths[3]).isActive = true
-        noteField.widthAnchor.constraint(equalToConstant: Self.columnWidths[4]).isActive = true
-        searchButton.widthAnchor.constraint(equalToConstant: Self.columnWidths[5]).isActive = true
-        tagsField.widthAnchor.constraint(equalToConstant: Self.columnWidths[6]).isActive = true
+        targetField.widthAnchor.constraint(equalToConstant: Self.columnWidths[2]).isActive = true
+        tagsField.widthAnchor.constraint(equalToConstant: Self.columnWidths[3]).isActive = true
         refreshNoteFieldState()
     }
 
     static let columnSpacing: CGFloat = 12
-    static let columnTitles = ["Actif", "Raccourci", "Destination", "Dossier", "Note/Path", "Recherche", "Tags"]
-    static let columnWidths: [CGFloat] = [44, 92, 128, 150, 190, 94, 170]
+    static let columnTitles = ["Actif", "Raccourci", "Cible", "Tags"]
+    static let columnWidths: [CGFloat] = [44, 92, 470, 240]
 
     static func headerView() -> NSView {
         let row = NSStackView()
@@ -800,10 +880,7 @@ final class ShortcutSlotRow {
         row.alignment = .centerY
         row.addArrangedSubview(enabledCheckbox)
         row.addArrangedSubview(recorder)
-        row.addArrangedSubview(destinationPopup)
-        row.addArrangedSubview(folderField)
-        row.addArrangedSubview(noteField)
-        row.addArrangedSubview(searchButton)
+        row.addArrangedSubview(targetField)
         row.addArrangedSubview(tagsField)
         return row
     }
@@ -813,6 +890,7 @@ final class ShortcutSlotRow {
         destinationPopup.selectItem(withTitle: ShortcutDestination.notePath.title)
         folderField.stringValue = result.folder
         noteField.stringValue = URL(fileURLWithPath: result.relativePath).lastPathComponent
+        targetField.stringValue = targetDisplay(for: .notePath, folder: result.folder, note: URL(fileURLWithPath: result.relativePath).lastPathComponent)
         if tagsField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             tagsField.stringValue = result.tags.prefix(4).joined(separator: ", ")
         }
@@ -827,6 +905,7 @@ final class ShortcutSlotRow {
         destinationPopup.selectItem(withTitle: destination.title)
         folderField.stringValue = isTodaySlot ? "" : slot.folder
         noteField.stringValue = isTodaySlot ? "" : slot.noteReference
+        targetField.stringValue = targetDisplay(for: destination, folder: slot.folder, note: slot.noteReference)
         tagsField.stringValue = slot.tags
         noteField.placeholderString = placeholder(for: destination)
         refreshNoteFieldState()
@@ -854,11 +933,42 @@ final class ShortcutSlotRow {
         destinationPopup.isEnabled = !isTodaySlot
         folderField.isEnabled = destination != .today
         noteField.isEnabled = destination != .today
+        targetField.acceptsDrop = !isTodaySlot
         searchButton.isEnabled = !isTodaySlot
         if destination == .today {
             folderField.stringValue = ""
             noteField.stringValue = ""
+            targetField.stringValue = "Aujourd'hui"
+        } else if targetField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            targetField.stringValue = targetDisplay(for: destination, folder: folderField.stringValue, note: noteField.stringValue)
         }
+    }
+
+    func applyDroppedPath(relativePath: String, isDirectory: Bool) {
+        guard !isTodaySlot else { return }
+        destinationPopup.selectItem(withTitle: ShortcutDestination.notePath.title)
+        if isDirectory {
+            folderField.stringValue = relativePath
+            noteField.stringValue = ""
+            targetField.stringValue = relativePath.isEmpty ? "Déposer une note .md ici" : "\(relativePath)/"
+        } else {
+            let url = URL(fileURLWithPath: relativePath)
+            let folder = url.deletingLastPathComponent().relativePath
+            folderField.stringValue = folder == "." ? "" : folder
+            noteField.stringValue = url.lastPathComponent
+            targetField.stringValue = relativePath
+        }
+        refreshNoteFieldState()
+    }
+
+    private func targetDisplay(for destination: ShortcutDestination, folder: String, note: String) -> String {
+        if destination == .today { return "Aujourd'hui" }
+        let cleanFolder = folder.trimmingCharacters(in: CharacterSet(charactersIn: " /"))
+        let cleanNote = note.trimmingCharacters(in: CharacterSet(charactersIn: " /"))
+        if cleanFolder.isEmpty && cleanNote.isEmpty { return "Déposer une note .md ici" }
+        if cleanFolder.isEmpty { return cleanNote }
+        if cleanNote.isEmpty { return "\(cleanFolder)/" }
+        return "\(cleanFolder)/\(cleanNote)"
     }
 
     private func placeholder(for destination: ShortcutDestination) -> String {
@@ -1093,7 +1203,7 @@ final class SettingsWindowController: NSWindowController {
     private let chooseNotesRootButton = NSButton(title: "Choisir dossier Notes", target: nil, action: nil)
     private let openNoteCheckbox = NSButton(checkboxWithTitle: "Ouvrir NotePlan après l'ajout", target: nil, action: nil)
     private var shortcutRows: [ShortcutSlotRow] = []
-    private let shortcutHelpLabel = NSTextField(labelWithString: "Actif | Raccourci | Destination | Dossier | Note/Path | Tags. Variables: $date, $day, $time, $datetime, $month, $year")
+    private let shortcutHelpLabel = NSTextField(labelWithString: "Actif | Raccourci | Cible | Tags. Dépose une note .md sur les slots 2-10. Variables: $date, $day, $time, $datetime, $month, $year")
     private let helpButton = NSButton(title: "Aide", target: nil, action: nil)
     private let accessibilityButton = NSButton(title: "Autoriser Accessibilité", target: nil, action: nil)
     private let exportButton = NSButton(title: "Exporter JSON", target: nil, action: nil)
@@ -1223,6 +1333,9 @@ final class SettingsWindowController: NSWindowController {
             row.onSearch = { [weak self] row in
                 self?.showNoteSearch(for: row)
             }
+            row.onTargetDrop = { [weak self] row, target in
+                self?.applyDroppedTarget(target, to: row) ?? false
+            }
             slotsStack.addArrangedSubview(row.view())
             return row
         }
@@ -1261,6 +1374,75 @@ final class SettingsWindowController: NSWindowController {
             row.applySelectedNote(selected)
             self.statusLabel.stringValue = "Note sélectionnée : \(selected.relativePath)"
         }
+    }
+
+    private func applyDroppedTarget(_ target: ShortcutTarget, to row: ShortcutSlotRow) -> Bool {
+        guard let root = Settings.selectedNotesRoot() else {
+            statusLabel.stringValue = "Choisis d'abord le dossier Notes NotePlan, puis dépose une note .md."
+            NSSound.beep()
+            return false
+        }
+
+        if let url = target.url {
+            guard url.isFileURL else {
+                statusLabel.stringValue = "Dépose une note .md ou un dossier depuis Finder."
+                NSSound.beep()
+                return false
+            }
+
+            let fileURL = url.standardizedFileURL
+            let rootURL = root.standardizedFileURL
+            let filePath = fileURL.path
+            let rootPath = rootURL.path.hasSuffix("/") ? rootURL.path : rootURL.path + "/"
+
+            guard filePath == rootURL.path || filePath.hasPrefix(rootPath) else {
+                statusLabel.stringValue = "La cible doit être dans le dossier Notes choisi."
+                NSSound.beep()
+                return false
+            }
+
+            let relativePath = filePath == rootURL.path
+                ? ""
+                : String(filePath.dropFirst(rootPath.count))
+            var isDirectory: ObjCBool = false
+            FileManager.default.fileExists(atPath: filePath, isDirectory: &isDirectory)
+            if !isDirectory.boolValue, fileURL.pathExtension.lowercased() != "md" {
+                statusLabel.stringValue = "Dépose une note .md ou un dossier NotePlan."
+                NSSound.beep()
+                return false
+            }
+
+            row.applyDroppedPath(relativePath: relativePath, isDirectory: isDirectory.boolValue)
+            statusLabel.stringValue = "Cible définie : \(relativePath.isEmpty ? rootURL.lastPathComponent : relativePath)"
+            return true
+        }
+
+        if let text = target.rawText, let path = notePathFromDroppedText(text) {
+            row.applyDroppedPath(relativePath: path, isDirectory: false)
+            statusLabel.stringValue = "Cible définie : \(path)"
+            return true
+        }
+
+        statusLabel.stringValue = "Dépose une note .md depuis Finder."
+        NSSound.beep()
+        return false
+    }
+
+    private func notePathFromDroppedText(_ text: String) -> String? {
+        guard let components = URLComponents(string: text),
+              components.scheme?.lowercased() == "noteplan" else {
+            return nil
+        }
+        let items = components.queryItems ?? []
+        for name in ["notePath", "fileName"] {
+            if let value = items.first(where: { $0.name == name })?.value, !value.isEmpty {
+                return value
+            }
+        }
+        if let title = items.first(where: { $0.name == "noteTitle" })?.value, !title.isEmpty {
+            return title.hasSuffix(".md") ? title : "\(title).md"
+        }
+        return nil
     }
 
     @objc private func chooseNotesRoot() {
