@@ -728,12 +728,12 @@ final class ShortcutTargetField: NSTextField {
     }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        writeDebugLog("shortcut-drop:field:entered:\((sender.draggingPasteboard.types ?? []).map { $0.rawValue }.joined(separator: ","))")
+        writeDebugLog("shortcut-drop:field:entered:\(pasteboardDebugDescription(sender.draggingPasteboard))")
         return acceptsDrop && shortcutTarget(from: sender.draggingPasteboard) != nil ? NSDragOperation.copy : NSDragOperation()
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        writeDebugLog("shortcut-drop:field:perform:\((sender.draggingPasteboard.types ?? []).map { $0.rawValue }.joined(separator: ","))")
+        writeDebugLog("shortcut-drop:field:perform:\(pasteboardDebugDescription(sender.draggingPasteboard))")
         guard acceptsDrop, let target = shortcutTarget(from: sender.draggingPasteboard) else {
             NSSound.beep()
             return false
@@ -757,12 +757,12 @@ final class ShortcutSlotDropStack: NSStackView {
     }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        writeDebugLog("shortcut-drop:row:entered:\((sender.draggingPasteboard.types ?? []).map { $0.rawValue }.joined(separator: ","))")
+        writeDebugLog("shortcut-drop:row:entered:\(pasteboardDebugDescription(sender.draggingPasteboard))")
         return acceptsDrop && shortcutTarget(from: sender.draggingPasteboard) != nil ? NSDragOperation.copy : NSDragOperation()
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        writeDebugLog("shortcut-drop:row:perform:\((sender.draggingPasteboard.types ?? []).map { $0.rawValue }.joined(separator: ","))")
+        writeDebugLog("shortcut-drop:row:perform:\(pasteboardDebugDescription(sender.draggingPasteboard))")
         guard acceptsDrop, let target = shortcutTarget(from: sender.draggingPasteboard) else {
             NSSound.beep()
             return false
@@ -779,6 +779,13 @@ private let shortcutDropPasteboardTypes: [NSPasteboard.PasteboardType] = [
     NSPasteboard.PasteboardType("public.text"),
     NSPasteboard.PasteboardType("public.url"),
     NSPasteboard.PasteboardType("public.url-name"),
+    NSPasteboard.PasteboardType("public.data"),
+    NSPasteboard.PasteboardType("public.item"),
+    NSPasteboard.PasteboardType("public.content"),
+    NSPasteboard.PasteboardType("co.noteplan.notecard"),
+    NSPasteboard.PasteboardType("NSFilesPromisePboardType"),
+    NSPasteboard.PasteboardType("com.apple.pasteboard.promised-file-url"),
+    NSPasteboard.PasteboardType("com.apple.NSFilePromiseItemMetaData"),
     NSPasteboard.PasteboardType("net.daringfireball.markdown"),
     NSPasteboard.PasteboardType("com.apple.traditional-mac-plain-text")
 ]
@@ -830,6 +837,9 @@ private func pasteboardStrings(from pasteboard: NSPasteboard) -> [String] {
         if let value = pasteboard.string(forType: type)?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
             values.append(value)
         }
+        if let data = pasteboard.data(forType: type) {
+            values.append(contentsOf: strings(fromPasteboardData: data))
+        }
     }
     if let objects = pasteboard.readObjects(forClasses: [NSString.self], options: nil) as? [String] {
         values.append(contentsOf: objects.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty })
@@ -846,6 +856,35 @@ private func pasteboardStrings(from pasteboard: NSPasteboard) -> [String] {
     }
 }
 
+private func strings(fromPasteboardData data: Data) -> [String] {
+    var values: [String] = []
+    for encoding in [String.Encoding.utf8, .utf16, .utf16LittleEndian, .utf16BigEndian, .macOSRoman] {
+        if let value = String(data: data, encoding: encoding)?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
+            values.append(value)
+        }
+    }
+
+    let printableBytes = data.map { byte -> UInt8 in
+        if byte == 10 || byte == 13 || byte == 9 || (byte >= 32 && byte <= 126) {
+            return byte
+        }
+        return 32
+    }
+    if let printable = String(bytes: printableBytes, encoding: .utf8) {
+        values.append(contentsOf: printable
+            .components(separatedBy: .whitespacesAndNewlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { value in
+                value.range(of: "noteplan://", options: .caseInsensitive) != nil ||
+                value.lowercased().hasSuffix(".md") ||
+                value.lowercased().contains(".md") ||
+                value.range(of: "notePath=", options: .caseInsensitive) != nil ||
+                value.range(of: "fileName=", options: .caseInsensitive) != nil
+            })
+    }
+    return values
+}
+
 private func pasteboardPreview(from pasteboard: NSPasteboard) -> String {
     pasteboardStrings(from: pasteboard)
         .prefix(6)
@@ -858,6 +897,12 @@ private func pasteboardPreview(from pasteboard: NSPasteboard) -> String {
             return collapsed
         }
         .joined(separator: " | ")
+}
+
+private func pasteboardDebugDescription(_ pasteboard: NSPasteboard) -> String {
+    let types = (pasteboard.types ?? []).map { $0.rawValue }.joined(separator: ",")
+    let preview = pasteboardPreview(from: pasteboard)
+    return preview.isEmpty ? types : "\(types) :: \(preview)"
 }
 
 struct ShortcutTarget {
@@ -1593,6 +1638,10 @@ final class SettingsWindowController: NSWindowController {
             }
         }
 
+        if let path = notePathFromQueryText(trimmed, root: root) {
+            return path
+        }
+
         if let url = URL(string: trimmed), url.isFileURL {
             let fileURL = url.standardizedFileURL
             let rootURL = root.standardizedFileURL
@@ -1617,6 +1666,31 @@ final class SettingsWindowController: NSWindowController {
             if let match = notePathMatchingTitle(candidateText, root: root) {
                 return match
             }
+        }
+        return nil
+    }
+
+    private func notePathFromQueryText(_ text: String, root: URL) -> String? {
+        let queryText: String
+        if let questionMark = text.firstIndex(of: "?") {
+            queryText = String(text[text.index(after: questionMark)...])
+        } else {
+            queryText = text
+        }
+
+        guard queryText.contains("="),
+              let components = URLComponents(string: "noteplan://local?\(queryText)") else {
+            return nil
+        }
+
+        let items = components.queryItems ?? []
+        for name in ["notePath", "fileName"] {
+            if let value = items.first(where: { $0.name == name })?.value, !value.isEmpty {
+                return value
+            }
+        }
+        if let title = items.first(where: { $0.name == "noteTitle" })?.value, !title.isEmpty {
+            return notePathMatchingTitle(title, root: root) ?? (title.hasSuffix(".md") ? title : "\(title).md")
         }
         return nil
     }
