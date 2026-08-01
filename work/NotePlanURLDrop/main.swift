@@ -241,10 +241,9 @@ struct NoteSearchResult {
 }
 
 private func expandedVariables(_ value: String, date: Date = Date()) -> String {
-    let locale = Locale(identifier: "fr_FR")
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "fr_FR")
     func format(_ template: String) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = locale
         formatter.dateFormat = template
         return formatter.string(from: date)
     }
@@ -345,9 +344,10 @@ private func noteSearchSummary(from url: URL) -> (title: String?, tags: [String]
     return (title, noteTags(in: content))
 }
 
+private let noteTagPattern = try? NSRegularExpression(pattern: #"(?<![\p{L}\p{N}_])[#@][\p{L}\p{N}_][\p{L}\p{N}_/-]*"#)
+
 private func noteTags(in content: String) -> [String] {
-    let pattern = #"(?<![\p{L}\p{N}_])[#@][\p{L}\p{N}_][\p{L}\p{N}_/-]*"#
-    guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+    guard let regex = noteTagPattern else { return [] }
     let range = NSRange(content.startIndex..<content.endIndex, in: content)
     var seen = Set<String>()
     var tags: [String] = []
@@ -1906,7 +1906,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             content = content.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
-        for tag in normalizedTagList(expandedVariables(tags)) {
+        for tag in normalizedPreferenceTags(expandedVariables(tags)) {
             if content == tag {
                 return nil
             }
@@ -1921,15 +1921,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func normalizedTags(_ value: String) -> String {
-        normalizedTagList(value).joined(separator: " ")
-    }
-
-    private func normalizedTagList(_ value: String) -> [String] {
-        value
-            .split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .map { $0.hasPrefix("#") ? $0 : "#\($0)" }
+        normalizedPreferenceTags(value).joined(separator: " ")
     }
 
     private func encode(_ value: String) -> String {
