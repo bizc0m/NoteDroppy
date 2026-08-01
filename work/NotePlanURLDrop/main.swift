@@ -628,7 +628,7 @@ final class ShortcutSlotRow {
 
     static let columnSpacing: CGFloat = 12
     static let columnTitles = ["Actif", "Raccourci", "Destination", "Dossier", "Note/Path", "Recherche", "Tags"]
-    static let columnWidths: [CGFloat] = [34, 92, 128, 150, 190, 94, 170]
+    static let columnWidths: [CGFloat] = [44, 92, 128, 150, 190, 94, 170]
 
     static func headerView() -> NSView {
         let row = NSStackView()
