@@ -24,6 +24,9 @@ codesign --force --deep -s "$SIGN_IDENTITY" "$APP"
 
 mkdir -p "$PACKAGE_DIR"
 ditto "$APP" "$PACKAGE_DIR/NoteDroppy.app"
+if [[ -d "$ROOT_DIR/examples" ]]; then
+  ditto "$ROOT_DIR/examples" "$PACKAGE_DIR/examples"
+fi
 cat > "$PACKAGE_DIR/install-notedroppy.sh" <<'EOF'
 #!/bin/zsh
 set -euo pipefail

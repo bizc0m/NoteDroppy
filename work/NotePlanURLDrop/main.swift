@@ -2,6 +2,7 @@ import AppKit
 import ApplicationServices
 import Carbon
 import Foundation
+import UniformTypeIdentifiers
 
 private enum Settings {
     static let codeSignIdentity = "NoteDroppy Local Code Signing"
@@ -150,6 +151,71 @@ struct ShortcutSlot {
     var tags: String
 }
 
+struct PreferencesFile: Codable {
+    var version: Int
+    var openNote: Bool
+    var serviceName: String
+    var defaultTags: String
+    var shortcuts: [ShortcutSlotFile]
+
+    static func current() -> PreferencesFile {
+        PreferencesFile(
+            version: 1,
+            openNote: Settings.openNote,
+            serviceName: Settings.serviceName,
+            defaultTags: Settings.taskTag,
+            shortcuts: Settings.allShortcutSlots().map(ShortcutSlotFile.init(slot:))
+        )
+    }
+
+    func apply() {
+        UserDefaults.standard.set(openNote, forKey: Settings.openNoteKey)
+        UserDefaults.standard.set(serviceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "NotePlan : ajouter en tâche" : serviceName, forKey: Settings.serviceNameKey)
+        UserDefaults.standard.set(defaultTags.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "#capture" : defaultTags, forKey: Settings.taskTagKey)
+        for shortcut in shortcuts.prefix(Settings.shortcutSlotCount) {
+            Settings.setShortcutSlot(shortcut.slot)
+        }
+        UserDefaults.standard.synchronize()
+        NotificationCenter.default.post(name: .settingsDidChange, object: nil)
+    }
+}
+
+struct ShortcutSlotFile: Codable {
+    var index: Int
+    var enabled: Bool
+    var shortcut: String
+    var keyCode: UInt32
+    var modifiers: UInt32
+    var destination: ShortcutDestination
+    var folder: String
+    var notePath: String
+    var tags: [String]
+
+    init(slot: ShortcutSlot) {
+        index = slot.index
+        enabled = slot.enabled
+        shortcut = shortcutString(from: slot.combo)
+        keyCode = slot.combo.keyCode
+        modifiers = slot.combo.carbonModifiers
+        destination = slot.destination
+        folder = slot.folder
+        notePath = slot.noteReference
+        tags = normalizedPreferenceTags(slot.tags)
+    }
+
+    var slot: ShortcutSlot {
+        ShortcutSlot(
+            index: max(1, min(index, Settings.shortcutSlotCount)),
+            enabled: enabled,
+            combo: KeyCombo(keyCode: keyCode, carbonModifiers: normalizedCarbonModifiers(modifiers)),
+            destination: destination,
+            noteReference: notePath,
+            folder: folder,
+            tags: tags.joined(separator: ", ")
+        )
+    }
+}
+
 enum ShortcutDestination: String, CaseIterable {
     case today
     case noteTitle
@@ -163,6 +229,8 @@ enum ShortcutDestination: String, CaseIterable {
         }
     }
 }
+
+extension ShortcutDestination: Codable {}
 
 struct NoteSearchResult {
     let title: String
@@ -187,6 +255,29 @@ private func expandedVariables(_ value: String, date: Date = Date()) -> String {
         .replacingOccurrences(of: "$time", with: format("HH:mm"))
         .replacingOccurrences(of: "$month", with: format("yyyy-MM"))
         .replacingOccurrences(of: "$year", with: format("yyyy"))
+}
+
+private func shortcutString(from combo: KeyCombo) -> String {
+    var parts: [String] = []
+    if combo.carbonModifiers & UInt32(controlKey) != 0 { parts.append("ctrl") }
+    if combo.carbonModifiers & UInt32(optionKey) != 0 { parts.append("option") }
+    if combo.carbonModifiers & UInt32(shiftKey) != 0 { parts.append("shift") }
+    if combo.carbonModifiers & UInt32(cmdKey) != 0 { parts.append("cmd") }
+    parts.append(combo.display
+        .replacingOccurrences(of: "⌃", with: "")
+        .replacingOccurrences(of: "⌥", with: "")
+        .replacingOccurrences(of: "⇧", with: "")
+        .replacingOccurrences(of: "⌘", with: "")
+        .lowercased())
+    return parts.joined(separator: "+")
+}
+
+private func normalizedPreferenceTags(_ value: String) -> [String] {
+    value
+        .split(separator: ",")
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
+        .map { $0.hasPrefix("#") || $0.hasPrefix("@") ? $0 : "#\($0)" }
 }
 
 private func notePlanNotesRoots() -> [URL] {
@@ -577,6 +668,17 @@ final class ShortcutSlotRow {
         refreshNoteFieldState()
     }
 
+    func apply(slot: ShortcutSlot) {
+        enabledCheckbox.state = slot.enabled ? .on : .off
+        setCombo(slot.combo)
+        destinationPopup.selectItem(withTitle: slot.destination.title)
+        folderField.stringValue = slot.folder
+        noteField.stringValue = slot.noteReference
+        tagsField.stringValue = slot.tags
+        noteField.placeholderString = placeholder(for: slot.destination)
+        refreshNoteFieldState()
+    }
+
     @objc private func destinationChanged() {
         noteField.placeholderString = placeholder(for: selectedDestination())
         refreshNoteFieldState()
@@ -803,6 +905,8 @@ final class SettingsWindowController: NSWindowController {
     private let shortcutHelpLabel = NSTextField(labelWithString: "Actif | Raccourci | Destination | Dossier | Note/Path | Tags. Variables: $date, $day, $time, $datetime, $month, $year")
     private let helpButton = NSButton(title: "Aide", target: nil, action: nil)
     private let accessibilityButton = NSButton(title: "Autoriser Accessibilité", target: nil, action: nil)
+    private let exportButton = NSButton(title: "Exporter JSON", target: nil, action: nil)
+    private let importButton = NSButton(title: "Importer JSON", target: nil, action: nil)
     private let statusLabel = NSTextField(labelWithString: "")
 
     convenience init() {
@@ -875,7 +979,17 @@ final class SettingsWindowController: NSWindowController {
         helpButton.action = #selector(openHelp)
         helpButton.bezelStyle = .rounded
 
+        exportButton.target = self
+        exportButton.action = #selector(exportPreferencesJSON)
+        exportButton.bezelStyle = .rounded
+
+        importButton.target = self
+        importButton.action = #selector(importPreferencesJSON)
+        importButton.bezelStyle = .rounded
+
         buttons.addArrangedSubview(saveButton)
+        buttons.addArrangedSubview(exportButton)
+        buttons.addArrangedSubview(importButton)
         buttons.addArrangedSubview(helpButton)
         buttons.addArrangedSubview(accessibilityButton)
         buttons.addArrangedSubview(quitButton)
@@ -954,6 +1068,63 @@ final class SettingsWindowController: NSWindowController {
             statusLabel.stringValue = "Réglages enregistrés. Nom du Service gardé pour l'app, mais macOS n'a pas pu être rafraîchi."
         }
         refreshAccessibilityStatus(append: true)
+    }
+
+    @objc private func exportPreferencesJSON() {
+        saveCurrentControlsToDefaults()
+        let panel = NSSavePanel()
+        panel.title = "Exporter les préférences NoteDroppy"
+        panel.nameFieldStringValue = "notedroppy-preferences.json"
+        panel.allowedContentTypes = [.json]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+            let data = try encoder.encode(PreferencesFile.current())
+            try data.write(to: url, options: .atomic)
+            statusLabel.stringValue = "Préférences exportées : \(url.path)"
+        } catch {
+            statusLabel.stringValue = "Export JSON impossible : \(error.localizedDescription)"
+        }
+    }
+
+    @objc private func importPreferencesJSON() {
+        let panel = NSOpenPanel()
+        panel.title = "Importer les préférences NoteDroppy"
+        panel.allowedContentTypes = [.json]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let data = try Data(contentsOf: url)
+            let preferences = try JSONDecoder().decode(PreferencesFile.self, from: data)
+            preferences.apply()
+            reloadControlsFromSettings()
+            statusLabel.stringValue = "Préférences importées : \(url.path)"
+        } catch {
+            statusLabel.stringValue = "Import JSON impossible : \(error.localizedDescription)"
+        }
+    }
+
+    private func saveCurrentControlsToDefaults() {
+        let serviceName = serviceNameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let tag = tagField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        UserDefaults.standard.set(serviceName.isEmpty ? "NotePlan : ajouter en tâche" : serviceName, forKey: Settings.serviceNameKey)
+        UserDefaults.standard.set(tag.isEmpty ? "#capture" : tag, forKey: Settings.taskTagKey)
+        UserDefaults.standard.set(openNoteCheckbox.state == .on, forKey: Settings.openNoteKey)
+        shortcutRows.forEach { Settings.setShortcutSlot($0.slot) }
+        UserDefaults.standard.synchronize()
+    }
+
+    private func reloadControlsFromSettings() {
+        serviceNameField.stringValue = Settings.serviceName
+        tagField.stringValue = Settings.taskTag
+        openNoteCheckbox.state = Settings.openNote ? .on : .off
+        let slots = Settings.allShortcutSlots()
+        for (row, slot) in zip(shortcutRows, slots) {
+            row.apply(slot: slot)
+        }
+        NotificationCenter.default.post(name: .settingsDidChange, object: nil)
     }
 
     @objc private func openAccessibilitySettings() {
