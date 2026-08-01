@@ -1744,22 +1744,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         waitForCopiedText(pasteboard: pasteboard, previousChangeCount: previousChangeCount, attemptsRemaining: 12) { text in
             defer { snapshot.restore(to: pasteboard) }
-            if let text,
-               let normalized = self.normalizedTodoText(text) {
+            let clipboardText = text.flatMap { self.normalizedTodoText($0) }
+            let axText = self.selectedTextFromAccessibility().flatMap { self.normalizedTodoText($0) }
+            if let normalized = self.bestShortcutText(clipboardText: clipboardText, axText: axText) {
                 self.log("shortcut:text:\(normalized)")
                 self.sendTodo(normalized, shortcutSlot: slot)
                 return
             }
-
-            if let selectedText = self.selectedTextFromAccessibility(),
-               let normalized = self.normalizedTodoText(selectedText) {
-                self.log("shortcut:ax-selected-text:\(normalized)")
-                self.sendTodo(normalized, shortcutSlot: slot)
-                return
-            }
-
             self.log("shortcut:no-selected-text")
         }
+    }
+
+    private func bestShortcutText(clipboardText: String?, axText: String?) -> String? {
+        guard let clipboardText else { return axText }
+        guard let axText else { return clipboardText }
+        if clipboardText == axText { return clipboardText }
+        if clipboardText.hasSuffix(axText) { return axText }
+        if axText.hasSuffix(clipboardText) { return clipboardText }
+        return clipboardText
     }
 
     private func selectedTextFromAccessibility() -> String? {
@@ -1957,7 +1959,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func encode(_ value: String) -> String {
         var allowed = CharacterSet.urlQueryAllowed
-        allowed.remove(charactersIn: "&+=?#")
+        allowed.remove(charactersIn: "&+=?#/")
         return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
     }
 
