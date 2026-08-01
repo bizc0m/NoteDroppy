@@ -17,7 +17,9 @@ private enum Settings {
     static let shortcutKeyCodeKey = "shortcutKeyCode"
     static let shortcutModifiersKey = "shortcutModifiers"
     static let didShowFirstLaunchSettingsKey = "didShowFirstLaunchSettings"
+    static let shortcutLayoutVersionKey = "shortcutLayoutVersion"
     static let shortcutSlotCount = 10
+    static let currentShortcutLayoutVersion = 2
 
     static var taskTag: String {
         let value = UserDefaults.standard.string(forKey: taskTagKey) ?? "#capture"
@@ -133,27 +135,31 @@ private enum Settings {
         let note = UserDefaults.standard.string(forKey: noteKey) ?? ""
         let folder = UserDefaults.standard.string(forKey: folderKey) ?? ""
         let tags = UserDefaults.standard.string(forKey: tagsKey) ?? (index == 1 ? taskTag : "#capture")
-        let destination = UserDefaults.standard.string(forKey: destinationKey)
+        let storedDestination = UserDefaults.standard.string(forKey: destinationKey)
             .flatMap(ShortcutDestination.init(rawValue:)) ?? .today
+        let destination: ShortcutDestination = index == 1 ? .today : storedDestination
 
         return ShortcutSlot(
             index: index,
             enabled: enabled,
             combo: KeyCombo(keyCode: keyCode, carbonModifiers: normalizedCarbonModifiers(rawModifiers)),
             destination: destination,
-            noteReference: note.trimmingCharacters(in: .whitespacesAndNewlines),
-            folder: folder.trimmingCharacters(in: .whitespacesAndNewlines),
+            noteReference: index == 1 ? "" : note.trimmingCharacters(in: .whitespacesAndNewlines),
+            folder: index == 1 ? "" : folder.trimmingCharacters(in: .whitespacesAndNewlines),
             tags: tags.trimmingCharacters(in: .whitespacesAndNewlines)
         )
     }
 
     static func setShortcutSlot(_ slot: ShortcutSlot) {
+        let destination: ShortcutDestination = slot.index == 1 ? .today : slot.destination
+        let noteReference = slot.index == 1 ? "" : slot.noteReference
+        let folder = slot.index == 1 ? "" : slot.folder
         UserDefaults.standard.set(slot.enabled, forKey: "shortcutSlot\(slot.index).enabled")
         UserDefaults.standard.set(Int(slot.combo.keyCode), forKey: "shortcutSlot\(slot.index).keyCode")
         UserDefaults.standard.set(Int(slot.combo.carbonModifiers), forKey: "shortcutSlot\(slot.index).modifiers")
-        UserDefaults.standard.set(slot.destination.rawValue, forKey: "shortcutSlot\(slot.index).destination")
-        UserDefaults.standard.set(slot.noteReference, forKey: "shortcutSlot\(slot.index).note")
-        UserDefaults.standard.set(slot.folder, forKey: "shortcutSlot\(slot.index).folder")
+        UserDefaults.standard.set(destination.rawValue, forKey: "shortcutSlot\(slot.index).destination")
+        UserDefaults.standard.set(noteReference, forKey: "shortcutSlot\(slot.index).note")
+        UserDefaults.standard.set(folder, forKey: "shortcutSlot\(slot.index).folder")
         UserDefaults.standard.set(slot.tags, forKey: "shortcutSlot\(slot.index).tags")
         if slot.index == 1 {
             UserDefaults.standard.set(slot.enabled, forKey: shortcutEnabledKey)
@@ -170,10 +176,44 @@ private enum Settings {
 
     static func defaultShortcutCombo(_ index: Int) -> KeyCombo {
         let codes: [UInt32] = [
+            UInt32(kVK_ANSI_1), UInt32(kVK_ANSI_2), UInt32(kVK_ANSI_3), UInt32(kVK_ANSI_4), UInt32(kVK_ANSI_5),
+            UInt32(kVK_ANSI_6), UInt32(kVK_ANSI_7), UInt32(kVK_ANSI_8), UInt32(kVK_ANSI_9), UInt32(kVK_ANSI_0)
+        ]
+        return KeyCombo(keyCode: codes[max(0, min(index - 1, codes.count - 1))], carbonModifiers: UInt32(controlKey | optionKey | cmdKey))
+    }
+
+    static func migrateShortcutLayoutIfNeeded() {
+        let defaults = UserDefaults.standard
+        guard defaults.integer(forKey: shortcutLayoutVersionKey) < currentShortcutLayoutVersion else { return }
+
+        let legacyCodes: [UInt32] = [
             UInt32(kVK_ANSI_P), UInt32(kVK_ANSI_1), UInt32(kVK_ANSI_2), UInt32(kVK_ANSI_3), UInt32(kVK_ANSI_4),
             UInt32(kVK_ANSI_5), UInt32(kVK_ANSI_6), UInt32(kVK_ANSI_7), UInt32(kVK_ANSI_8), UInt32(kVK_ANSI_9)
         ]
-        return KeyCombo(keyCode: codes[max(0, min(index - 1, codes.count - 1))], carbonModifiers: UInt32(controlKey | optionKey | cmdKey))
+        let newCodes: [UInt32] = [
+            UInt32(kVK_ANSI_1), UInt32(kVK_ANSI_2), UInt32(kVK_ANSI_3), UInt32(kVK_ANSI_4), UInt32(kVK_ANSI_5),
+            UInt32(kVK_ANSI_6), UInt32(kVK_ANSI_7), UInt32(kVK_ANSI_8), UInt32(kVK_ANSI_9), UInt32(kVK_ANSI_0)
+        ]
+        let defaultModifiers = UInt32(controlKey | optionKey | cmdKey)
+
+        for index in 1...shortcutSlotCount {
+            let keyCodeKey = "shortcutSlot\(index).keyCode"
+            let modifiersKey = "shortcutSlot\(index).modifiers"
+            let hasKey = defaults.object(forKey: keyCodeKey) != nil
+            let storedKey = hasKey ? UInt32(defaults.integer(forKey: keyCodeKey)) : legacyCodes[index - 1]
+            let storedModifiers = defaults.object(forKey: modifiersKey) == nil
+                ? defaultModifiers
+                : UInt32(defaults.integer(forKey: modifiersKey))
+            if storedKey == legacyCodes[index - 1], normalizedCarbonModifiers(storedModifiers) == defaultModifiers {
+                defaults.set(Int(newCodes[index - 1]), forKey: keyCodeKey)
+                defaults.set(Int(defaultModifiers), forKey: modifiersKey)
+            }
+        }
+
+        defaults.set(Int(newCodes[0]), forKey: shortcutKeyCodeKey)
+        defaults.set(Int(defaultModifiers), forKey: shortcutModifiersKey)
+        defaults.set(currentShortcutLayoutVersion, forKey: shortcutLayoutVersionKey)
+        defaults.synchronize()
     }
 }
 
@@ -678,23 +718,25 @@ final class ShortcutSlotRow {
     let tagsField: NSTextField
     var onSearch: ((ShortcutSlotRow) -> Void)?
     private var storedCombo: KeyCombo
+    private var isTodaySlot: Bool { index == 1 }
+    private var displayIndex: String { index == 10 ? "0" : "\(index)" }
 
     init(slot: ShortcutSlot) {
         self.index = slot.index
         self.storedCombo = slot.combo
-        self.enabledCheckbox = NSButton(checkboxWithTitle: "\(slot.index)", target: nil, action: nil)
+        self.enabledCheckbox = NSButton(checkboxWithTitle: slot.index == 10 ? "0" : "\(slot.index)", target: nil, action: nil)
         self.recorder = ShortcutRecorderButton(combo: slot.combo)
-        self.folderField = NSTextField(string: slot.folder)
-        self.noteField = NSTextField(string: slot.noteReference)
+        self.folderField = NSTextField(string: slot.index == 1 ? "" : slot.folder)
+        self.noteField = NSTextField(string: slot.index == 1 ? "" : slot.noteReference)
         self.tagsField = NSTextField(string: slot.tags)
 
         enabledCheckbox.state = slot.enabled ? .on : .off
         ShortcutDestination.allCases.forEach { destinationPopup.addItem(withTitle: $0.title) }
-        destinationPopup.selectItem(withTitle: slot.destination.title)
+        destinationPopup.selectItem(withTitle: (slot.index == 1 ? ShortcutDestination.today : slot.destination).title)
         destinationPopup.target = self
         destinationPopup.action = #selector(destinationChanged)
         folderField.placeholderString = "Dossier"
-        noteField.placeholderString = placeholder(for: slot.destination)
+        noteField.placeholderString = placeholder(for: slot.index == 1 ? .today : slot.destination)
         searchButton.target = self
         searchButton.action = #selector(searchNote)
         searchButton.bezelStyle = .rounded
@@ -734,14 +776,14 @@ final class ShortcutSlotRow {
     }
 
     var slot: ShortcutSlot {
-        let destination = selectedDestination()
+        let destination: ShortcutDestination = isTodaySlot ? .today : selectedDestination()
         return ShortcutSlot(
             index: index,
             enabled: enabledCheckbox.state == .on,
             combo: storedCombo,
             destination: destination,
             noteReference: destination == .today ? "" : noteField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines),
-            folder: folderField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines),
+            folder: destination == .today ? "" : folderField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines),
             tags: tagsField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         )
     }
@@ -767,6 +809,7 @@ final class ShortcutSlotRow {
     }
 
     func applySelectedNote(_ result: NoteSearchResult) {
+        guard !isTodaySlot else { return }
         destinationPopup.selectItem(withTitle: ShortcutDestination.notePath.title)
         folderField.stringValue = result.folder
         noteField.stringValue = URL(fileURLWithPath: result.relativePath).lastPathComponent
@@ -778,12 +821,14 @@ final class ShortcutSlotRow {
 
     func apply(slot: ShortcutSlot) {
         enabledCheckbox.state = slot.enabled ? .on : .off
+        enabledCheckbox.title = displayIndex
         setCombo(slot.combo)
-        destinationPopup.selectItem(withTitle: slot.destination.title)
-        folderField.stringValue = slot.folder
-        noteField.stringValue = slot.noteReference
+        let destination: ShortcutDestination = isTodaySlot ? .today : slot.destination
+        destinationPopup.selectItem(withTitle: destination.title)
+        folderField.stringValue = isTodaySlot ? "" : slot.folder
+        noteField.stringValue = isTodaySlot ? "" : slot.noteReference
         tagsField.stringValue = slot.tags
-        noteField.placeholderString = placeholder(for: slot.destination)
+        noteField.placeholderString = placeholder(for: destination)
         refreshNoteFieldState()
     }
 
@@ -793,6 +838,7 @@ final class ShortcutSlotRow {
     }
 
     @objc private func searchNote() {
+        guard !isTodaySlot else { return }
         onSearch?(self)
     }
 
@@ -801,10 +847,16 @@ final class ShortcutSlotRow {
     }
 
     private func refreshNoteFieldState() {
-        let destination = selectedDestination()
+        let destination: ShortcutDestination = isTodaySlot ? .today : selectedDestination()
+        if isTodaySlot {
+            destinationPopup.selectItem(withTitle: ShortcutDestination.today.title)
+        }
+        destinationPopup.isEnabled = !isTodaySlot
         folderField.isEnabled = destination != .today
         noteField.isEnabled = destination != .today
+        searchButton.isEnabled = !isTodaySlot
         if destination == .today {
+            folderField.stringValue = ""
             noteField.stringValue = ""
         }
     }
@@ -1668,6 +1720,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         log("launch")
+        Settings.migrateShortcutLayoutIfNeeded()
         shortcutMonitor = GlobalShortcutMonitor { [weak self] slotIndex in
             self?.captureSelectedTextWithShortcut(slotIndex: slotIndex)
         }
