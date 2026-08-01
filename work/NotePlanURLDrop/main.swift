@@ -261,15 +261,17 @@ final class SettingsWindowController: NSWindowController {
     private let tagField = NSTextField(string: Settings.taskTag)
     private let openNoteCheckbox = NSButton(checkboxWithTitle: "Ouvrir NotePlan après l'ajout", target: nil, action: nil)
     private let shortcutCheckbox = NSButton(checkboxWithTitle: "Raccourci global", target: nil, action: nil)
+    private let shortcutCurrentLabel = NSTextField(labelWithString: "")
     private let shortcutRecorder = ShortcutRecorderButton()
-    private let shortcutHelpLabel = NSTextField(labelWithString: "Clique le bouton puis tape le raccourci à utiliser pour capturer la sélection.")
+    private let resetShortcutButton = NSButton(title: "Réinitialiser", target: nil, action: nil)
+    private let shortcutHelpLabel = NSTextField(labelWithString: "1. Active Raccourci global. 2. Clique Configurer. 3. Tape le raccourci.")
     private let helpButton = NSButton(title: "Aide", target: nil, action: nil)
     private let accessibilityButton = NSButton(title: "Autoriser Accessibilité", target: nil, action: nil)
     private let statusLabel = NSTextField(labelWithString: "")
 
     convenience init() {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 500, height: 420),
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 460),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -309,8 +311,21 @@ final class SettingsWindowController: NSWindowController {
         openNoteCheckbox.state = Settings.openNote ? .on : .off
         shortcutCheckbox.state = Settings.shortcutEnabled ? .on : .off
         shortcutRecorder.onChange = { _ in
+            self.refreshShortcutStatus()
             NotificationCenter.default.post(name: .settingsDidChange, object: nil)
         }
+        resetShortcutButton.target = self
+        resetShortcutButton.action = #selector(resetShortcut)
+        resetShortcutButton.bezelStyle = .rounded
+        refreshShortcutStatus()
+
+        let shortcutRow = NSStackView()
+        shortcutRow.orientation = .horizontal
+        shortcutRow.spacing = 8
+        shortcutRow.alignment = .centerY
+        shortcutRow.addArrangedSubview(shortcutRecorder)
+        shortcutRow.addArrangedSubview(resetShortcutButton)
+
         shortcutHelpLabel.textColor = .secondaryLabelColor
         shortcutHelpLabel.lineBreakMode = .byWordWrapping
         shortcutHelpLabel.maximumNumberOfLines = 2
@@ -350,7 +365,7 @@ final class SettingsWindowController: NSWindowController {
             field.widthAnchor.constraint(equalToConstant: 360).isActive = true
         }
         shortcutRecorder.translatesAutoresizingMaskIntoConstraints = false
-        shortcutRecorder.widthAnchor.constraint(equalToConstant: 360).isActive = true
+        shortcutRecorder.widthAnchor.constraint(equalToConstant: 260).isActive = true
 
         stack.addArrangedSubview(title)
         stack.addArrangedSubview(generalTitle)
@@ -361,7 +376,8 @@ final class SettingsWindowController: NSWindowController {
         stack.addArrangedSubview(openNoteCheckbox)
         stack.addArrangedSubview(shortcutTitle)
         stack.addArrangedSubview(shortcutCheckbox)
-        stack.addArrangedSubview(shortcutRecorder)
+        stack.addArrangedSubview(shortcutCurrentLabel)
+        stack.addArrangedSubview(shortcutRow)
         stack.addArrangedSubview(shortcutHelpLabel)
         stack.addArrangedSubview(buttons)
         stack.addArrangedSubview(statusLabel)
@@ -372,6 +388,19 @@ final class SettingsWindowController: NSWindowController {
             stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 22)
         ])
         refreshAccessibilityStatus()
+    }
+
+    private func refreshShortcutStatus() {
+        shortcutCurrentLabel.stringValue = "Raccourci actuel : \(Settings.shortcutDisplay)"
+        shortcutRecorder.title = "Configurer"
+    }
+
+    @objc private func resetShortcut() {
+        UserDefaults.standard.set(Int(kVK_ANSI_N), forKey: Settings.shortcutKeyCodeKey)
+        UserDefaults.standard.set(Int(UInt32(controlKey | optionKey | cmdKey)), forKey: Settings.shortcutModifiersKey)
+        UserDefaults.standard.synchronize()
+        refreshShortcutStatus()
+        NotificationCenter.default.post(name: .settingsDidChange, object: nil)
     }
 
     @objc private func saveSettings() {
@@ -390,6 +419,7 @@ final class SettingsWindowController: NSWindowController {
         } else {
             statusLabel.stringValue = "Réglages enregistrés. Nom du Service gardé pour l'app, mais macOS n'a pas pu être rafraîchi."
         }
+        refreshShortcutStatus()
         refreshAccessibilityStatus(append: true)
     }
 
