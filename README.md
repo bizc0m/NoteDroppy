@@ -113,7 +113,9 @@ Ce paquet n'est pas notarise par Apple. Sur un autre Mac, macOS peut demander un
 - Nom du Service macOS.
 - Tag ajouté à la tâche, par défaut `#capture`.
 - Ouverture de NotePlan après ajout.
-- Raccourci global configurable.
+- 10 raccourcis globaux configurables.
+- Pour chaque raccourci : Actif, combinaison clavier, destination, Note/Path, tags séparés par virgule.
+- Destinations : Aujourd'hui (`noteDate=today`), Note nommée (`noteTitle=<titre>`), Chemin de note (`notePath=<chemin>` avec compatibilité NotePlan `fileName`).
 - Bouton vers le panneau Accessibilité macOS.
 - Aide intégrée avec lien vers le repo GitHub.
 

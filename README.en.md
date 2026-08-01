@@ -113,7 +113,9 @@ This package is not Apple-notarized. On another Mac, macOS may ask for Gatekeepe
 - macOS Service name.
 - Task tag, default `#capture`.
 - Open NotePlan after adding.
-- Configurable global shortcut.
+- 10 configurable global shortcuts.
+- For each shortcut: Enabled, key combo, destination, Note/Path, comma-separated tags.
+- Destinations: Today (`noteDate=today`), Named note (`noteTitle=<title>`), Note path (`notePath=<path>` with NotePlan `fileName` compatibility).
 - Button to open macOS Accessibility settings.
 - In-app Help window with a GitHub repository link.
 
