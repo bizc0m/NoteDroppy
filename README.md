@@ -116,6 +116,7 @@ Ce paquet n'est pas notarise par Apple. Sur un autre Mac, macOS peut demander un
 - 10 raccourcis globaux configurables.
 - Pour chaque raccourci : Actif, combinaison clavier, destination, Note/Path, tags séparés par virgule.
 - Destinations : Aujourd'hui (`noteDate=today`), Note nommée (`noteTitle=<titre>`), Chemin de note (`notePath=<chemin>` avec compatibilité NotePlan `fileName`).
+- Recherche directe dans les notes NotePlan depuis chaque ligne de raccourci, avec validation du chemin dans `Note/Path`.
 - Bouton vers le panneau Accessibilité macOS.
 - Aide intégrée avec lien vers le repo GitHub.
 

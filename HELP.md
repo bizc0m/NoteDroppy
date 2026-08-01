@@ -66,6 +66,7 @@ Réglages disponibles :
 - 10 raccourcis globaux configurables.
 - Pour chaque raccourci : Actif, Raccourci, Destination, Note/Path, Tags.
 - Destinations : Aujourd'hui, Note nommée, Chemin de note.
+- Le bouton `Rechercher` liste les notes NotePlan, filtre par titre ou chemin, puis valide le chemin dans `Note/Path`.
 - Tags séparés par virgule, automatiquement normalisés en tags NotePlan.
 - Accès direct au panneau Accessibilité macOS.
 - Aide intégrée dans l'app avec bouton `GitHub Repository`.

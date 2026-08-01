@@ -167,6 +167,87 @@ enum ShortcutDestination: String, CaseIterable {
     }
 }
 
+struct NoteSearchResult {
+    let title: String
+    let relativePath: String
+    let modifiedAt: Date
+}
+
+private func notePlanNotesRoots() -> [URL] {
+    let home = FileManager.default.homeDirectoryForCurrentUser
+    let roots = [
+        "Library/Containers/co.noteplan.NotePlan-setapp/Data/Library/Application Support/co.noteplan.NotePlan-setapp/Notes",
+        "Library/Containers/co.noteplan.NotePlan3/Data/Library/Application Support/co.noteplan.NotePlan3/Notes"
+    ]
+    return roots
+        .map { home.appendingPathComponent($0) }
+        .filter { FileManager.default.fileExists(atPath: $0.path) }
+}
+
+private func loadNoteSearchResults() -> [NoteSearchResult] {
+    let fileManager = FileManager.default
+    var seen = Set<String>()
+    var results: [NoteSearchResult] = []
+
+    for root in notePlanNotesRoots() {
+        guard let enumerator = fileManager.enumerator(
+            at: root,
+            includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else { continue }
+
+        for case let url as URL in enumerator {
+            guard url.pathExtension.lowercased() == "md" else { continue }
+            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
+            guard values?.isRegularFile == true else { continue }
+
+            let relativePath = url.path.replacingOccurrences(of: root.path + "/", with: "")
+            guard !relativePath.hasPrefix("@Trash/"), !relativePath.hasPrefix("@Archive/") else { continue }
+            guard seen.insert(relativePath).inserted else { continue }
+
+            let title = noteTitle(from: url) ?? url.deletingPathExtension().lastPathComponent
+            results.append(NoteSearchResult(
+                title: title,
+                relativePath: relativePath,
+                modifiedAt: values?.contentModificationDate ?? .distantPast
+            ))
+        }
+    }
+
+    return results.sorted {
+        if $0.modifiedAt != $1.modifiedAt {
+            return $0.modifiedAt > $1.modifiedAt
+        }
+        return $0.relativePath.localizedCaseInsensitiveCompare($1.relativePath) == .orderedAscending
+    }
+}
+
+private func noteTitle(from url: URL) -> String? {
+    guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+    defer { try? handle.close() }
+    let data = handle.readData(ofLength: 4096)
+    guard let content = String(data: data, encoding: .utf8) else { return nil }
+    for line in content.components(separatedBy: .newlines) {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("# ") {
+            let title = trimmed.dropFirst(2).trimmingCharacters(in: .whitespacesAndNewlines)
+            return title.isEmpty ? nil : title
+        }
+    }
+    return nil
+}
+
+private func centerInMainVisibleScreen(_ window: NSWindow) {
+    guard let visibleFrame = NSScreen.main?.visibleFrame else {
+        window.center()
+        return
+    }
+    var frame = window.frame
+    frame.origin.x = visibleFrame.midX - frame.width / 2
+    frame.origin.y = visibleFrame.midY - frame.height / 2
+    window.setFrame(frame, display: true)
+}
+
 struct KeyCombo {
     let keyCode: UInt32
     let carbonModifiers: UInt32
@@ -373,7 +454,9 @@ final class ShortcutSlotRow {
     let recorder: ShortcutRecorderButton
     let destinationPopup = NSPopUpButton()
     let noteField: NSTextField
+    let searchButton = NSButton(title: "Rechercher", target: nil, action: nil)
     let tagsField: NSTextField
+    var onSearch: ((ShortcutSlotRow) -> Void)?
     private var storedCombo: KeyCombo
 
     init(slot: ShortcutSlot) {
@@ -390,15 +473,20 @@ final class ShortcutSlotRow {
         destinationPopup.target = self
         destinationPopup.action = #selector(destinationChanged)
         noteField.placeholderString = placeholder(for: slot.destination)
+        searchButton.target = self
+        searchButton.action = #selector(searchNote)
+        searchButton.bezelStyle = .rounded
         tagsField.placeholderString = "#capture, #client"
 
         recorder.translatesAutoresizingMaskIntoConstraints = false
         destinationPopup.translatesAutoresizingMaskIntoConstraints = false
         noteField.translatesAutoresizingMaskIntoConstraints = false
+        searchButton.translatesAutoresizingMaskIntoConstraints = false
         tagsField.translatesAutoresizingMaskIntoConstraints = false
         recorder.widthAnchor.constraint(equalToConstant: 96).isActive = true
         destinationPopup.widthAnchor.constraint(equalToConstant: 128).isActive = true
-        noteField.widthAnchor.constraint(equalToConstant: 200).isActive = true
+        noteField.widthAnchor.constraint(equalToConstant: 190).isActive = true
+        searchButton.widthAnchor.constraint(equalToConstant: 92).isActive = true
         tagsField.widthAnchor.constraint(equalToConstant: 140).isActive = true
         refreshNoteFieldState()
     }
@@ -429,12 +517,23 @@ final class ShortcutSlotRow {
         row.addArrangedSubview(recorder)
         row.addArrangedSubview(destinationPopup)
         row.addArrangedSubview(noteField)
+        row.addArrangedSubview(searchButton)
         row.addArrangedSubview(tagsField)
         return row
     }
 
     @objc private func destinationChanged() {
         noteField.placeholderString = placeholder(for: selectedDestination())
+        refreshNoteFieldState()
+    }
+
+    @objc private func searchNote() {
+        onSearch?(self)
+    }
+
+    func applySelectedNotePath(_ path: String) {
+        destinationPopup.selectItem(withTitle: ShortcutDestination.notePath.title)
+        noteField.stringValue = path
         refreshNoteFieldState()
     }
 
@@ -445,6 +544,7 @@ final class ShortcutSlotRow {
     private func refreshNoteFieldState() {
         let destination = selectedDestination()
         noteField.isEnabled = destination != .today
+        searchButton.isEnabled = true
         if destination == .today {
             noteField.stringValue = ""
         }
@@ -456,6 +556,178 @@ final class ShortcutSlotRow {
         case .noteTitle: return "Titre NotePlan"
         case .notePath: return "Dossier/Note.md"
         }
+    }
+}
+
+final class NoteSearchWindowController: NSWindowController, NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate {
+    private static var retainedControllers: [NoteSearchWindowController] = []
+    private let searchField = NSSearchField()
+    private let tableView = NSTableView()
+    private let statusLabel = NSTextField(labelWithString: "")
+    private let allResults: [NoteSearchResult]
+    private var filteredResults: [NoteSearchResult] = []
+    private let onSelect: (String) -> Void
+
+    convenience init(initialQuery: String, onSelect: @escaping (String) -> Void) {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 720, height: 520),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Rechercher une note NotePlan"
+        centerInMainVisibleScreen(window)
+        self.init(window: window, initialQuery: initialQuery, onSelect: onSelect)
+    }
+
+    init(window: NSWindow, initialQuery: String, onSelect: @escaping (String) -> Void) {
+        self.allResults = loadNoteSearchResults()
+        self.onSelect = onSelect
+        super.init(window: window)
+        buildContent(initialQuery: initialQuery)
+        window.delegate = self
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    static func show(initialQuery: String, onSelect: @escaping (String) -> Void) {
+        let controller = NoteSearchWindowController(initialQuery: initialQuery, onSelect: onSelect)
+        retainedControllers.append(controller)
+        controller.showWindow(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    fileprivate static func release(_ controller: NoteSearchWindowController) {
+        retainedControllers.removeAll { $0 === controller }
+    }
+
+    private func buildContent(initialQuery: String) {
+        guard let contentView = window?.contentView else { return }
+
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.spacing = 10
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(stack)
+
+        searchField.placeholderString = "Titre ou chemin de note"
+        searchField.stringValue = initialQuery
+        searchField.delegate = self
+        searchField.target = self
+        searchField.action = #selector(searchChanged)
+
+        let scrollView = NSScrollView()
+        scrollView.hasVerticalScroller = true
+        scrollView.borderType = .bezelBorder
+        scrollView.documentView = tableView
+
+        let titleColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("title"))
+        titleColumn.title = "Note"
+        titleColumn.width = 240
+        let pathColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("path"))
+        pathColumn.title = "Chemin"
+        pathColumn.width = 420
+        tableView.addTableColumn(titleColumn)
+        tableView.addTableColumn(pathColumn)
+        tableView.delegate = self
+        tableView.dataSource = self
+        tableView.doubleAction = #selector(validateSelection)
+        tableView.target = self
+
+        statusLabel.textColor = .secondaryLabelColor
+
+        let buttonRow = NSStackView()
+        buttonRow.orientation = .horizontal
+        buttonRow.spacing = 8
+        let validateButton = NSButton(title: "Valider", target: self, action: #selector(validateSelection))
+        validateButton.bezelStyle = .rounded
+        validateButton.keyEquivalent = "\r"
+        let cancelButton = NSButton(title: "Annuler", target: self, action: #selector(closeWindow))
+        cancelButton.bezelStyle = .rounded
+        buttonRow.addArrangedSubview(validateButton)
+        buttonRow.addArrangedSubview(cancelButton)
+
+        stack.addArrangedSubview(searchField)
+        stack.addArrangedSubview(scrollView)
+        stack.addArrangedSubview(statusLabel)
+        stack.addArrangedSubview(buttonRow)
+
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
+            stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16),
+            scrollView.heightAnchor.constraint(greaterThanOrEqualToConstant: 360)
+        ])
+
+        applyFilter()
+    }
+
+    @objc private func searchChanged() {
+        applyFilter()
+    }
+
+    func controlTextDidChange(_ obj: Notification) {
+        applyFilter()
+    }
+
+    private func applyFilter() {
+        let query = searchField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if query.isEmpty {
+            filteredResults = Array(allResults.prefix(250))
+        } else {
+            filteredResults = allResults.filter {
+                $0.title.lowercased().contains(query) || $0.relativePath.lowercased().contains(query)
+            }.prefix(250).map { $0 }
+        }
+        tableView.reloadData()
+        if !filteredResults.isEmpty {
+            tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        }
+        statusLabel.stringValue = "\(filteredResults.count) résultat(s) affiché(s) sur \(allResults.count) notes"
+    }
+
+    func numberOfRows(in tableView: NSTableView) -> Int {
+        filteredResults.count
+    }
+
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        guard row >= 0, row < filteredResults.count else { return nil }
+        let result = filteredResults[row]
+        let value = tableColumn?.identifier.rawValue == "title" ? result.title : result.relativePath
+        let cell = NSTableCellView()
+        let textField = NSTextField(labelWithString: value)
+        textField.lineBreakMode = .byTruncatingMiddle
+        textField.translatesAutoresizingMaskIntoConstraints = false
+        cell.addSubview(textField)
+        NSLayoutConstraint.activate([
+            textField.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 6),
+            textField.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -6),
+            textField.centerYAnchor.constraint(equalTo: cell.centerYAnchor)
+        ])
+        return cell
+    }
+
+    @objc private func validateSelection() {
+        let row = tableView.selectedRow
+        guard row >= 0, row < filteredResults.count else {
+            NSSound.beep()
+            return
+        }
+        onSelect(filteredResults[row].relativePath)
+        close()
+    }
+
+    @objc private func closeWindow() {
+        close()
+    }
+}
+
+extension NoteSearchWindowController: NSWindowDelegate {
+    func windowWillClose(_ notification: Notification) {
+        NoteSearchWindowController.release(self)
     }
 }
 
@@ -471,7 +743,7 @@ final class SettingsWindowController: NSWindowController {
 
     convenience init() {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 760, height: 720),
+            contentRect: NSRect(x: 0, y: 0, width: 860, height: 720),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -568,7 +840,7 @@ final class SettingsWindowController: NSWindowController {
         slotsStack.spacing = 6
         slotsStack.alignment = .leading
 
-        let header = NSTextField(labelWithString: "Actif   Raccourci       Destination        Note/Path                  Tags")
+        let header = NSTextField(labelWithString: "Actif   Raccourci       Destination        Note/Path             Recherche      Tags")
         header.textColor = .secondaryLabelColor
         slotsStack.addArrangedSubview(header)
 
@@ -578,6 +850,9 @@ final class SettingsWindowController: NSWindowController {
             row.recorder.onChange = { combo in
                 row.setCombo(combo)
                 NotificationCenter.default.post(name: .settingsDidChange, object: nil)
+            }
+            row.onSearch = { [weak self] row in
+                self?.showNoteSearch(for: row)
             }
             slotsStack.addArrangedSubview(row.view())
             return row
@@ -602,6 +877,13 @@ final class SettingsWindowController: NSWindowController {
             stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 22)
         ])
         refreshAccessibilityStatus()
+    }
+
+    private func showNoteSearch(for row: ShortcutSlotRow) {
+        NoteSearchWindowController.show(initialQuery: row.noteField.stringValue) { selectedPath in
+            row.applySelectedNotePath(selectedPath)
+            self.statusLabel.stringValue = "Note sélectionnée : \(selectedPath)"
+        }
     }
 
     @objc private func saveSettings() {
