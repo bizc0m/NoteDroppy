@@ -892,6 +892,26 @@ private func shortcutTarget(from pasteboard: NSPasteboard) -> ShortcutTarget? {
     let strings = pasteboardStrings(from: pasteboard)
     writeDebugLog("shortcut-target:types:\((pasteboard.types ?? []).map { $0.rawValue }.joined(separator: ","))")
 
+    if let filename = pasteboardFilenames(from: pasteboard).first {
+        return ShortcutTarget(url: URL(fileURLWithPath: filename))
+    }
+
+    if let value = pasteboard.string(forType: .fileURL),
+       let url = URL(string: value),
+       url.isFileURL,
+       !url.path.hasPrefix("/.file/id=") {
+        return ShortcutTarget(url: url)
+    }
+
+    if let objects = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL],
+       let url = objects.first(where: { $0.isFileURL && !$0.path.hasPrefix("/.file/id=") }) {
+        return ShortcutTarget(url: url)
+    }
+
+    if let existingPath = strings.lazy.compactMap({ existingFinderPath(from: $0) }).first {
+        return ShortcutTarget(url: URL(fileURLWithPath: existingPath))
+    }
+
     if let notePlanText = strings.first(where: { $0.range(of: "noteplan://", options: .caseInsensitive) != nil }) {
         return ShortcutTarget(rawText: notePlanText)
     }
@@ -902,16 +922,12 @@ private func shortcutTarget(from pasteboard: NSPasteboard) -> ShortcutTarget? {
 
     if let pathLike = strings.first(where: { value in
         let lower = value.lowercased()
-        return lower.hasPrefix("file://") || lower.hasSuffix(".md") || lower.contains(".md)") || lower.contains("/")
+        return lower.hasPrefix("file://") || lower.hasSuffix(".md") || lower.contains(".md)")
     }) {
         if let url = URL(string: pathLike), url.scheme?.lowercased() == "file", !url.path.hasPrefix("/.file/id=") {
             return ShortcutTarget(url: url)
         }
         return ShortcutTarget(rawText: pathLike)
-    }
-
-    if let value = pasteboard.string(forType: .fileURL), let url = URL(string: value), !url.path.hasPrefix("/.file/id=") {
-        return ShortcutTarget(url: url)
     }
 
     if let value = pasteboard.string(forType: .URL)?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
@@ -920,16 +936,50 @@ private func shortcutTarget(from pasteboard: NSPasteboard) -> ShortcutTarget? {
         }
     }
 
-    if let objects = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL] {
-        if let url = objects.first(where: { ($0.isFileURL && !$0.path.hasPrefix("/.file/id=")) || $0.scheme?.lowercased() == "noteplan" }) {
-            return ShortcutTarget(url: url)
-        }
+    if let objects = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL],
+       let url = objects.first(where: { $0.scheme?.lowercased() == "noteplan" }) {
+        return ShortcutTarget(url: url)
     }
 
     if let title = strings.first(where: { !$0.isEmpty }) {
         return ShortcutTarget(rawText: title)
     }
 
+    return nil
+}
+
+private func pasteboardFilenames(from pasteboard: NSPasteboard) -> [String] {
+    let filenamesType = NSPasteboard.PasteboardType("NSFilenamesPboardType")
+    guard let data = pasteboard.data(forType: filenamesType),
+          let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil)
+    else {
+        return []
+    }
+    return strings(fromPropertyList: plist).filter { FileManager.default.fileExists(atPath: $0) }
+}
+
+private func existingFinderPath(from text: String) -> String? {
+    let raw = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !raw.isEmpty else { return nil }
+
+    var candidates = [raw]
+    if let embeddedPath = embeddedMarkdownPath(from: raw) {
+        candidates.append(embeddedPath)
+    }
+
+    for candidate in candidates {
+        let decoded = candidate.removingPercentEncoding ?? candidate
+        let path: String
+        if let url = URL(string: decoded), url.isFileURL {
+            guard !url.path.hasPrefix("/.file/id=") else { continue }
+            path = url.path
+        } else {
+            path = decoded
+        }
+        if path.hasPrefix("/"), FileManager.default.fileExists(atPath: path) {
+            return path
+        }
+    }
     return nil
 }
 
@@ -1742,7 +1792,10 @@ final class SettingsWindowController: NSWindowController {
         }
 
         if let text = target.rawText, let path = notePathFromDroppedText(text, root: root) {
-            return commitDroppedPath(relativePath: path, isDirectory: false, row: row)
+            var isDirectory: ObjCBool = false
+            let targetURL = root.appendingPathComponent(path)
+            FileManager.default.fileExists(atPath: targetURL.path, isDirectory: &isDirectory)
+            return commitDroppedPath(relativePath: path, isDirectory: isDirectory.boolValue, row: row)
         }
 
         statusLabel.stringValue = "Dépose une note .md depuis Finder."
