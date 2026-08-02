@@ -2798,7 +2798,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         log("service:text:\(text)")
-        sendTodo(text, sourceURL: sourceWebPageURL())
+        sendTodo(text, sourceURL: sourceWebPageURL(for: NSWorkspace.shared.frontmostApplication) ?? sourceWebURL(from: pasteboard))
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
             if NSApp.windows.isEmpty {
                 NSApp.terminate(nil)
@@ -2825,7 +2825,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let sourceURL = sourceWebPageURL()
+        let sourceURL = sourceWebPageURL(for: NSWorkspace.shared.frontmostApplication)
         let pasteboard = NSPasteboard.general
         let snapshot = ClipboardSnapshot(pasteboard: pasteboard)
         let previousChangeCount = pasteboard.changeCount
@@ -2835,13 +2835,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        waitForCopiedText(pasteboard: pasteboard, previousChangeCount: previousChangeCount, attemptsRemaining: 12) { text in
+        waitForCopiedText(pasteboard: pasteboard, previousChangeCount: previousChangeCount, attemptsRemaining: 12) { text, pastedSourceURL in
             defer { snapshot.restore(to: pasteboard) }
             let clipboardText = text.flatMap { self.normalizedTodoText($0) }
             let axText = self.selectedTextFromAccessibility().flatMap { self.normalizedTodoText($0) }
             if let normalized = self.bestShortcutText(clipboardText: clipboardText, axText: axText) {
                 self.log("shortcut:text:\(normalized)")
-                self.sendTodo(normalized, shortcutSlot: slot, sourceURL: sourceURL)
+                self.sendTodo(normalized, shortcutSlot: slot, sourceURL: sourceURL ?? pastedSourceURL)
                 return
             }
             self.log("shortcut:no-selected-text")
@@ -2890,9 +2890,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return selectedText
     }
 
-    private func sourceWebPageURL() -> String? {
+    private func sourceWebPageURL(for application: NSRunningApplication?) -> String? {
+        guard let appName = application?.localizedName else { return nil }
+        let escapedAppName = appName.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
         let script = """
-        tell application "System Events" to set frontApp to name of first application process whose frontmost is true
+        set frontApp to "\(escapedAppName)"
         set chromiumApps to {"Google Chrome", "Google Chrome Canary", "Brave Browser", "Microsoft Edge", "Arc", "Chromium"}
         if frontApp is "Safari" then
             tell application "Safari"
@@ -2907,26 +2909,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         end if
         return ""
         """
-        guard let output = shell(["/usr/bin/osascript", "-e", script])?.trimmingCharacters(in: .whitespacesAndNewlines),
+        guard let output = shell(["/usr/bin/osascript", "-e", script], timeout: 1.0)?.trimmingCharacters(in: .whitespacesAndNewlines),
               isWebURL(output) else {
+            log("source-url:none-or-timeout:\(appName)")
             return nil
         }
         log("source-url:\(output)")
         return output
     }
 
+    private func sourceWebURL(from pasteboard: NSPasteboard) -> String? {
+        for candidate in pasteboardStrings(from: pasteboard) {
+            if isWebURL(candidate), let url = URL(string: candidate), url.host != nil {
+                log("source-url:pasteboard:\(candidate)")
+                return candidate
+            }
+            if let url = firstWebURL(in: candidate), URL(string: url)?.host != nil {
+                log("source-url:pasteboard:\(url)")
+                return url
+            }
+        }
+        return nil
+    }
+
     private func waitForCopiedText(
         pasteboard: NSPasteboard,
         previousChangeCount: Int,
         attemptsRemaining: Int,
-        completion: @escaping (String?) -> Void
+        completion: @escaping (String?, String?) -> Void
     ) {
         if pasteboard.changeCount != previousChangeCount {
-            completion(pasteboard.string(forType: .string))
+            completion(pasteboard.string(forType: .string), sourceWebURL(from: pasteboard))
             return
         }
         guard attemptsRemaining > 0 else {
-            completion(nil)
+            completion(nil, nil)
             return
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
@@ -3100,7 +3117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
     }
 
-    private func shell(_ args: [String]) -> String? {
+    private func shell(_ args: [String], timeout: TimeInterval? = nil) -> String? {
         guard let executable = args.first else { return nil }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
@@ -3110,7 +3127,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         process.standardError = Pipe()
         do {
             try process.run()
-            process.waitUntilExit()
+            if let timeout {
+                let semaphore = DispatchSemaphore(value: 0)
+                DispatchQueue.global(qos: .utility).async {
+                    process.waitUntilExit()
+                    semaphore.signal()
+                }
+                if semaphore.wait(timeout: .now() + timeout) == .timedOut {
+                    process.terminate()
+                    return nil
+                }
+            } else {
+                process.waitUntilExit()
+            }
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
             return String(data: data, encoding: .utf8)
         } catch {
