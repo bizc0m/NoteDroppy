@@ -507,6 +507,29 @@ private func writeDebugLog(_ message: String) {
     }
 }
 
+private func styleFillableField(_ field: NSTextField) {
+    field.drawsBackground = true
+    field.backgroundColor = NSColor.controlBackgroundColor.blended(withFraction: 0.16, of: .white) ?? .controlBackgroundColor
+    field.textColor = .labelColor
+}
+
+private func formLabel(_ title: String, width: CGFloat = 142) -> NSTextField {
+    let label = NSTextField(labelWithString: title)
+    label.font = .systemFont(ofSize: 13, weight: .semibold)
+    label.translatesAutoresizingMaskIntoConstraints = false
+    label.widthAnchor.constraint(equalToConstant: width).isActive = true
+    return label
+}
+
+private func horizontalRow(spacing: CGFloat = 8) -> NSStackView {
+    let row = NSStackView()
+    row.orientation = .horizontal
+    row.spacing = spacing
+    row.alignment = .centerY
+    row.translatesAutoresizingMaskIntoConstraints = false
+    return row
+}
+
 struct KeyCombo {
     let keyCode: UInt32
     let carbonModifiers: UInt32
@@ -1158,6 +1181,7 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         noteField.placeholderString = placeholder(for: slot.index == 1 ? .today : slot.destination)
         targetField.placeholderString = slot.index == 1 ? "Aujourd'hui" : "Déposer ou coller une note ici"
         targetField.stringValue = targetDisplay(for: slot.index == 1 ? .today : slot.destination, folder: slot.folder, note: slot.noteReference)
+        styleFillableField(targetField)
         targetField.acceptsDrop = slot.index != 1
         targetField.onDropTarget = { [weak self] target in
             guard let self else { return false }
@@ -1174,6 +1198,7 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         tagsField.delegate = self
         tagsField.target = self
         tagsField.action = #selector(rowChanged)
+        [folderField, noteField, tagsField].forEach(styleFillableField)
 
         [enabledCheckbox, recorder, destinationPopup, folderField, noteField, searchButton, targetField, tagsField].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
@@ -1607,14 +1632,11 @@ final class SettingsWindowController: NSWindowController {
         titleStack.addArrangedSubview(logo)
         titleStack.addArrangedSubview(title)
 
-        let serviceLabel = NSTextField(labelWithString: "Nom du Service")
         serviceNameField.placeholderString = "NotePlan : ajouter en tâche"
         serviceNameField.lineBreakMode = .byTruncatingTail
 
-        let tagLabel = NSTextField(labelWithString: "Tag ajouté à la tâche")
         tagField.placeholderString = "#capture"
 
-        let notesRootLabel = NSTextField(labelWithString: "Dossier Notes NotePlan")
         notesRootField.placeholderString = "Choisir le dossier Notes pour activer la recherche"
         notesRootField.isEditable = false
         notesRootField.isSelectable = true
@@ -1624,10 +1646,14 @@ final class SettingsWindowController: NSWindowController {
         chooseNotesRootButton.action = #selector(chooseNotesRoot)
         chooseNotesRootButton.bezelStyle = .rounded
 
-        let notesRootRow = NSStackView()
-        notesRootRow.orientation = .horizontal
-        notesRootRow.spacing = 8
-        notesRootRow.alignment = .centerY
+        let serviceTagRow = horizontalRow(spacing: 10)
+        serviceTagRow.addArrangedSubview(formLabel("Nom du Service", width: 118))
+        serviceTagRow.addArrangedSubview(serviceNameField)
+        serviceTagRow.addArrangedSubview(formLabel("Tags tâche", width: 78))
+        serviceTagRow.addArrangedSubview(tagField)
+
+        let notesRootRow = horizontalRow(spacing: 10)
+        notesRootRow.addArrangedSubview(formLabel("Dossier Notes", width: 118))
         notesRootRow.addArrangedSubview(notesRootField)
         notesRootRow.addArrangedSubview(chooseNotesRootButton)
 
@@ -1677,9 +1703,12 @@ final class SettingsWindowController: NSWindowController {
         buttons.addArrangedSubview(quitButton)
 
         [serviceNameField, tagField, notesRootField].forEach { field in
+            styleFillableField(field)
             field.translatesAutoresizingMaskIntoConstraints = false
-            field.widthAnchor.constraint(equalToConstant: 360).isActive = true
         }
+        serviceNameField.widthAnchor.constraint(equalToConstant: 360).isActive = true
+        tagField.widthAnchor.constraint(equalToConstant: 260).isActive = true
+        notesRootField.widthAnchor.constraint(equalToConstant: 560).isActive = true
 
         let slotsStack = NSStackView()
         slotsStack.orientation = .vertical
@@ -1712,11 +1741,7 @@ final class SettingsWindowController: NSWindowController {
         }
 
         stack.addArrangedSubview(titleStack)
-        stack.addArrangedSubview(serviceLabel)
-        stack.addArrangedSubview(serviceNameField)
-        stack.addArrangedSubview(tagLabel)
-        stack.addArrangedSubview(tagField)
-        stack.addArrangedSubview(notesRootLabel)
+        stack.addArrangedSubview(serviceTagRow)
         stack.addArrangedSubview(notesRootRow)
         stack.addArrangedSubview(openNoteCheckbox)
         stack.addArrangedSubview(shortcutHelpLabel)
