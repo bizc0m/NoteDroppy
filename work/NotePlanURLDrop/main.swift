@@ -135,8 +135,9 @@ private enum Settings {
         let note = UserDefaults.standard.string(forKey: noteKey) ?? ""
         let folder = UserDefaults.standard.string(forKey: folderKey) ?? ""
         let tags = UserDefaults.standard.string(forKey: tagsKey) ?? (index == 1 ? taskTag : "#capture")
-        let destination = UserDefaults.standard.string(forKey: destinationKey)
-            .flatMap(ShortcutDestination.init(rawValue:)) ?? .today
+        let savedDestination = UserDefaults.standard.string(forKey: destinationKey)
+            .flatMap { ShortcutDestination(rawValue: $0) }
+        let destination = Settings.validDestination(savedDestination ?? (index == 1 ? .today : .standard), for: index)
 
         return ShortcutSlot(
             index: index,
@@ -153,7 +154,8 @@ private enum Settings {
         UserDefaults.standard.set(slot.enabled, forKey: "shortcutSlot\(slot.index).enabled")
         UserDefaults.standard.set(Int(slot.combo.keyCode), forKey: "shortcutSlot\(slot.index).keyCode")
         UserDefaults.standard.set(Int(slot.combo.carbonModifiers), forKey: "shortcutSlot\(slot.index).modifiers")
-        UserDefaults.standard.set(slot.destination.rawValue, forKey: "shortcutSlot\(slot.index).destination")
+        let destination = Settings.validDestination(slot.destination, for: slot.index)
+        UserDefaults.standard.set(destination.rawValue, forKey: "shortcutSlot\(slot.index).destination")
         UserDefaults.standard.set(slot.noteReference, forKey: "shortcutSlot\(slot.index).note")
         UserDefaults.standard.set(slot.folder, forKey: "shortcutSlot\(slot.index).folder")
         UserDefaults.standard.set(slot.tags, forKey: "shortcutSlot\(slot.index).tags")
@@ -168,6 +170,14 @@ private enum Settings {
 
     static func allShortcutSlots() -> [ShortcutSlot] {
         (1...shortcutSlotCount).map { shortcutSlot($0) }
+    }
+
+    static func destinations(forShortcut index: Int) -> [ShortcutDestination] {
+        index == 1 ? ShortcutDestination.allCases : ShortcutDestination.allCases.filter { $0 != .today }
+    }
+
+    static func validDestination(_ destination: ShortcutDestination, for index: Int) -> ShortcutDestination {
+        index == 1 || destination != .today ? destination : .standard
     }
 
     static func defaultShortcutCombo(_ index: Int) -> KeyCombo {
@@ -1185,8 +1195,8 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         enabledCheckbox.state = slot.enabled ? .on : .off
         enabledCheckbox.target = self
         enabledCheckbox.action = #selector(rowChanged)
-        ShortcutDestination.allCases.forEach { destinationPopup.addItem(withTitle: $0.title) }
-        destinationPopup.selectItem(withTitle: slot.destination.title)
+        Settings.destinations(forShortcut: slot.index).forEach { destinationPopup.addItem(withTitle: $0.title) }
+        destinationPopup.selectItem(withTitle: Settings.validDestination(slot.destination, for: slot.index).title)
         destinationPopup.target = self
         destinationPopup.action = #selector(destinationChanged)
         folderField.placeholderString = "Dossier"
@@ -1306,15 +1316,18 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
     }
 
     func apply(slot: ShortcutSlot) {
+        let destination = Settings.validDestination(slot.destination, for: index)
         enabledCheckbox.state = slot.enabled ? .on : .off
         enabledCheckbox.title = displayIndex
         setCombo(slot.combo)
-        destinationPopup.selectItem(withTitle: slot.destination.title)
+        destinationPopup.removeAllItems()
+        Settings.destinations(forShortcut: index).forEach { destinationPopup.addItem(withTitle: $0.title) }
+        destinationPopup.selectItem(withTitle: destination.title)
         folderField.stringValue = slot.folder
         noteField.stringValue = slot.noteReference
-        targetField.stringValue = targetDisplay(for: slot.destination, folder: slot.folder, note: slot.noteReference)
+        targetField.stringValue = targetDisplay(for: destination, folder: slot.folder, note: slot.noteReference)
         tagsField.stringValue = slot.tags
-        noteField.placeholderString = placeholder(for: slot.destination)
+        noteField.placeholderString = placeholder(for: destination)
         refreshNoteFieldState()
     }
 
@@ -1341,7 +1354,8 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
     }
 
     private func selectedDestination() -> ShortcutDestination {
-        ShortcutDestination.allCases.first { $0.title == destinationPopup.titleOfSelectedItem } ?? .today
+        let selected = ShortcutDestination.allCases.first { $0.title == destinationPopup.titleOfSelectedItem } ?? (index == 1 ? .today : .standard)
+        return Settings.validDestination(selected, for: index)
     }
 
     private func refreshNoteFieldState() {
@@ -1650,7 +1664,8 @@ final class SettingsWindowController: NSWindowController {
     private let chooseNotesRootButton = NSButton(title: "Choisir dossier Notes", target: nil, action: nil)
     private let openNoteCheckbox = NSButton(checkboxWithTitle: "Ouvrir NotePlan après l'ajout", target: nil, action: nil)
     private var shortcutRows: [ShortcutSlotRow] = []
-    private let shortcutHelpLabel = NSTextField(labelWithString: "Cible : choisir Standard, Aujourd'hui (NotePlan), ou déposer depuis Finder une note .md / coller un lien NotePlan. Variables : $date, $day, $time, $datetime, $month, $year")
+    private let shortcutHelpLabel = NSTextField(labelWithString: "Cible : slot 1 peut utiliser Aujourd'hui (NotePlan). Sinon choisir Standard, déposer depuis Finder une note .md, ou coller un lien NotePlan.")
+    private let variablesHelpLabel = NSTextField(labelWithString: "Variables : $date, $day, $time, $datetime, $month, $year")
     private let helpButton = NSButton(title: "Aide", target: nil, action: nil)
     private let accessibilityButton = NSButton(title: "Autoriser Accessibilité", target: nil, action: nil)
     private let exportButton = NSButton(title: "Exporter JSON", target: nil, action: nil)
@@ -1707,7 +1722,7 @@ final class SettingsWindowController: NSWindowController {
         let serviceTagRow = horizontalRow(spacing: 10)
         serviceTagRow.addArrangedSubview(formLabel("Nom du Service", width: 118))
         serviceTagRow.addArrangedSubview(serviceNameField)
-        serviceTagRow.addArrangedSubview(formLabel("Tags tâche", width: 78))
+        serviceTagRow.addArrangedSubview(formLabel("Tag de la tâche via service", width: 178))
         serviceTagRow.addArrangedSubview(tagField)
 
         let notesRootRow = horizontalRow(spacing: 10)
@@ -1719,6 +1734,9 @@ final class SettingsWindowController: NSWindowController {
         shortcutHelpLabel.textColor = .secondaryLabelColor
         shortcutHelpLabel.lineBreakMode = .byWordWrapping
         shortcutHelpLabel.maximumNumberOfLines = 2
+        variablesHelpLabel.textColor = .secondaryLabelColor
+        variablesHelpLabel.lineBreakMode = .byWordWrapping
+        variablesHelpLabel.maximumNumberOfLines = 1
 
         statusLabel.textColor = .secondaryLabelColor
         statusLabel.lineBreakMode = .byWordWrapping
@@ -1803,6 +1821,7 @@ final class SettingsWindowController: NSWindowController {
         stack.addArrangedSubview(notesRootRow)
         stack.addArrangedSubview(openNoteCheckbox)
         stack.addArrangedSubview(shortcutHelpLabel)
+        stack.addArrangedSubview(variablesHelpLabel)
         stack.addArrangedSubview(slotsStack)
         stack.addArrangedSubview(buttons)
         stack.addArrangedSubview(statusLabel)
@@ -2776,7 +2795,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         log("service:text:\(text)")
-        sendTodo(text)
+        sendTodo(text, sourceURL: sourceWebPageURL())
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
             if NSApp.windows.isEmpty {
                 NSApp.terminate(nil)
@@ -2803,6 +2822,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        let sourceURL = sourceWebPageURL()
         let pasteboard = NSPasteboard.general
         let snapshot = ClipboardSnapshot(pasteboard: pasteboard)
         let previousChangeCount = pasteboard.changeCount
@@ -2818,7 +2838,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let axText = self.selectedTextFromAccessibility().flatMap { self.normalizedTodoText($0) }
             if let normalized = self.bestShortcutText(clipboardText: clipboardText, axText: axText) {
                 self.log("shortcut:text:\(normalized)")
-                self.sendTodo(normalized, shortcutSlot: slot)
+                self.sendTodo(normalized, shortcutSlot: slot, sourceURL: sourceURL)
                 return
             }
             self.log("shortcut:no-selected-text")
@@ -2865,6 +2885,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         return selectedText
+    }
+
+    private func sourceWebPageURL() -> String? {
+        let script = """
+        tell application "System Events" to set frontApp to name of first application process whose frontmost is true
+        set chromiumApps to {"Google Chrome", "Google Chrome Canary", "Brave Browser", "Microsoft Edge", "Arc", "Chromium"}
+        if frontApp is "Safari" then
+            tell application "Safari"
+                if (count of windows) > 0 then return URL of current tab of front window
+            end tell
+        else if chromiumApps contains frontApp then
+            using terms from application "Google Chrome"
+                tell application frontApp
+                    if (count of windows) > 0 then return URL of active tab of front window
+                end tell
+            end using terms from
+        end if
+        return ""
+        """
+        guard let output = shell(["/usr/bin/osascript", "-e", script])?.trimmingCharacters(in: .whitespacesAndNewlines),
+              isWebURL(output) else {
+            return nil
+        }
+        log("source-url:\(output)")
+        return output
     }
 
     private func waitForCopiedText(
@@ -2929,11 +2974,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
-    private func sendTodo(_ todoText: String, shortcutSlot: ShortcutSlot? = nil) {
+    private func sendTodo(_ todoText: String, shortcutSlot: ShortcutSlot? = nil, sourceURL: String? = nil) {
         let tagSource = shortcutSlot?.tags ?? Settings.taskTag
         guard let content = normalizedTaskContent(expandedVariables(todoText), tags: tagSource) else { return }
         log("sendTodo:\(content)")
-        let task = formattedTask(from: content, tags: tagSource)
+        let task = formattedTask(from: content, tags: tagSource, sourceURL: sourceURL)
         let openNoteValue = Settings.openNote ? "yes" : "no"
         let noteTarget = notePlanTarget(for: shortcutSlot)
         log("sendTodoTarget:\(noteTarget)")
@@ -2980,7 +3025,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return "\(cleanFolder)/\(cleanNote)"
     }
 
-    private func formattedTask(from content: String, tags: String) -> String {
+    private func formattedTask(from content: String, tags: String, sourceURL: String? = nil) -> String {
         let tag = normalizedTags(expandedVariables(tags))
         var lines = content.components(separatedBy: .newlines)
         while lines.first?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true {
@@ -2995,11 +3040,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let firstLine = first.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        let continuation = lines.dropFirst().map { line in
+        var continuation = lines.dropFirst().map { line in
             line.isEmpty ? ">" : "> \(line)"
+        }
+        if let sourceLine = sourceContinuationLine(sourceURL, content: content) {
+            continuation.append(sourceLine)
         }
         let suffix = tag.isEmpty ? "" : " \(tag)"
         return (["- [ ] \(firstLine)\(suffix)"] + continuation).joined(separator: "\n")
+    }
+
+    private func sourceContinuationLine(_ sourceURL: String?, content: String) -> String? {
+        guard let sourceURL = sourceURL?.trimmingCharacters(in: .whitespacesAndNewlines),
+              isWebURL(sourceURL),
+              !content.contains(sourceURL),
+              let link = markdownLinkForWebURL(sourceURL) else {
+            return nil
+        }
+        return "> Source : \(link)"
     }
 
     private func normalizedTaskContent(_ value: String, tags: String) -> String? {
