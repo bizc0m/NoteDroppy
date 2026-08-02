@@ -779,16 +779,6 @@ final class ShortcutTargetField: NSTextField {
         super.mouseDown(with: event)
     }
 
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if acceptsDrop,
-           event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command),
-           event.charactersIgnoringModifiers?.lowercased() == "v" {
-            pasteTargetFromField(nil)
-            return true
-        }
-        return super.performKeyEquivalent(with: event)
-    }
-
     override func keyDown(with event: NSEvent) {
         if acceptsDrop,
            event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command),
@@ -1807,7 +1797,7 @@ final class SettingsWindowController: NSWindowController {
                 self?.applyDroppedTarget(target, to: row) ?? false
             }
             row.onPasteTarget = { [weak self] row in
-                self?.pasteTarget(for: row)
+                self?.pasteTarget(for: self?.activeShortcutRow(defaultingTo: row) ?? row)
             }
             row.onChange = { [weak self] _ in
                 self?.autosaveSettings(message: "Réglages enregistrés.")
@@ -1936,6 +1926,19 @@ final class SettingsWindowController: NSWindowController {
             return
         }
         _ = applyDroppedTarget(target, to: row)
+    }
+
+    private func activeShortcutRow(defaultingTo fallback: ShortcutSlotRow) -> ShortcutSlotRow {
+        guard let firstResponder = window?.firstResponder else { return fallback }
+        for row in shortcutRows {
+            if firstResponder === row.targetField {
+                return row
+            }
+            if let editor = row.targetField.currentEditor(), firstResponder === editor {
+                return row
+            }
+        }
+        return fallback
     }
 
     private func copyCurrentNotePlanURLToPasteboard() -> Bool {
