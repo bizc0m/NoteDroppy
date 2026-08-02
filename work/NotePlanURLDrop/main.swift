@@ -2553,7 +2553,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         log("openFiles:\(filenames.joined(separator: " | "))")
         for filename in filenames {
             let fileURL = URL(fileURLWithPath: filename)
-            let droppedText = extractTodoText(from: fileURL) ?? markdownFileLink(for: fileURL)
+            let droppedText = extractTodoText(from: fileURL) ?? filePathText(for: fileURL)
             log("openFiles:extracted:\(droppedText)")
             sendTodo(droppedText)
         }
@@ -2570,7 +2570,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         log("openURLs:\(urls.map { $0.absoluteString }.joined(separator: " | "))")
         for url in urls {
             if url.isFileURL {
-                let droppedText = extractTodoText(from: url) ?? markdownFileLink(for: url)
+                let droppedText = extractTodoText(from: url) ?? filePathText(for: url)
                 log("openURLs:file-extracted:\(droppedText)")
                 sendTodo(droppedText)
             } else {
@@ -2618,15 +2618,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return normalized
         }
 
-        return markdownFileLink(for: fileURL)
+        return filePathText(for: fileURL)
     }
 
-    private func markdownFileLink(for fileURL: URL) -> String {
-        let label = fileURL.lastPathComponent
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "[", with: "\\[")
-            .replacingOccurrences(of: "]", with: "\\]")
-        return "[\(label)](<\(fileURL.absoluteString)>)"
+    private func filePathText(for fileURL: URL) -> String {
+        fileURL.path
     }
 
     private func isPlainTextFile(_ fileURL: URL) -> Bool {
