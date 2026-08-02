@@ -114,6 +114,7 @@ private enum Settings {
         let keyCodeKey = "shortcutSlot\(index).keyCode"
         let modifiersKey = "shortcutSlot\(index).modifiers"
         let destinationKey = "shortcutSlot\(index).destination"
+        let engineKey = "shortcutSlot\(index).engine"
         let noteKey = "shortcutSlot\(index).note"
         let folderKey = "shortcutSlot\(index).folder"
         let tagsKey = "shortcutSlot\(index).tags"
@@ -138,11 +139,14 @@ private enum Settings {
         let savedDestination = UserDefaults.standard.string(forKey: destinationKey)
             .flatMap { ShortcutDestination(rawValue: $0) }
         let destination = Settings.validDestination(savedDestination ?? (index == 1 ? .today : .standard), for: index)
+        let engine = UserDefaults.standard.string(forKey: engineKey)
+            .flatMap { ShortcutEngine(rawValue: $0) } ?? .notePlan
 
         return ShortcutSlot(
             index: index,
             enabled: enabled,
             combo: KeyCombo(keyCode: keyCode, carbonModifiers: normalizedCarbonModifiers(rawModifiers)),
+            engine: engine,
             destination: destination,
             noteReference: note.trimmingCharacters(in: .whitespacesAndNewlines),
             folder: folder.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -154,6 +158,7 @@ private enum Settings {
         UserDefaults.standard.set(slot.enabled, forKey: "shortcutSlot\(slot.index).enabled")
         UserDefaults.standard.set(Int(slot.combo.keyCode), forKey: "shortcutSlot\(slot.index).keyCode")
         UserDefaults.standard.set(Int(slot.combo.carbonModifiers), forKey: "shortcutSlot\(slot.index).modifiers")
+        UserDefaults.standard.set(slot.engine.rawValue, forKey: "shortcutSlot\(slot.index).engine")
         let destination = Settings.validDestination(slot.destination, for: slot.index)
         UserDefaults.standard.set(destination.rawValue, forKey: "shortcutSlot\(slot.index).destination")
         UserDefaults.standard.set(slot.noteReference, forKey: "shortcutSlot\(slot.index).note")
@@ -227,6 +232,7 @@ struct ShortcutSlot {
     let index: Int
     var enabled: Bool
     var combo: KeyCombo
+    var engine: ShortcutEngine
     var destination: ShortcutDestination
     var noteReference: String
     var folder: String
@@ -274,10 +280,15 @@ struct ShortcutSlotFile: Codable {
     var shortcut: String
     var keyCode: UInt32
     var modifiers: UInt32
+    var engine: ShortcutEngine
     var destination: ShortcutDestination
     var folder: String
     var notePath: String
     var tags: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case index, enabled, shortcut, keyCode, modifiers, engine, destination, folder, notePath, tags
+    }
 
     init(slot: ShortcutSlot) {
         index = slot.index
@@ -285,10 +296,25 @@ struct ShortcutSlotFile: Codable {
         shortcut = shortcutString(from: slot.combo)
         keyCode = slot.combo.keyCode
         modifiers = slot.combo.carbonModifiers
+        engine = slot.engine
         destination = slot.destination
         folder = slot.folder
         notePath = slot.noteReference
         tags = normalizedPreferenceTags(slot.tags)
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        index = try container.decode(Int.self, forKey: .index)
+        enabled = try container.decode(Bool.self, forKey: .enabled)
+        shortcut = (try? container.decode(String.self, forKey: .shortcut)) ?? ""
+        keyCode = try container.decode(UInt32.self, forKey: .keyCode)
+        modifiers = try container.decode(UInt32.self, forKey: .modifiers)
+        engine = (try? container.decode(ShortcutEngine.self, forKey: .engine)) ?? .notePlan
+        destination = try container.decode(ShortcutDestination.self, forKey: .destination)
+        folder = (try? container.decode(String.self, forKey: .folder)) ?? ""
+        notePath = (try? container.decode(String.self, forKey: .notePath)) ?? ""
+        tags = (try? container.decode([String].self, forKey: .tags)) ?? []
     }
 
     var slot: ShortcutSlot {
@@ -296,11 +322,24 @@ struct ShortcutSlotFile: Codable {
             index: max(1, min(index, Settings.shortcutSlotCount)),
             enabled: enabled,
             combo: KeyCombo(keyCode: keyCode, carbonModifiers: normalizedCarbonModifiers(modifiers)),
+            engine: engine,
             destination: destination,
             noteReference: notePath,
             folder: folder,
             tags: tags.joined(separator: ", ")
         )
+    }
+}
+
+enum ShortcutEngine: String, CaseIterable, Codable {
+    case notePlan
+    case obsidian
+
+    var title: String {
+        switch self {
+        case .notePlan: return "NotePlan"
+        case .obsidian: return "Obsidian beta"
+        }
     }
 }
 
@@ -1158,6 +1197,7 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
     let index: Int
     let enabledCheckbox: NSButton
     let recorder: ShortcutRecorderButton
+    let enginePopup = NSPopUpButton()
     let destinationPopup = NSPopUpButton()
     let folderField: NSTextField
     let noteField: NSTextField
@@ -1185,6 +1225,10 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         enabledCheckbox.state = slot.enabled ? .on : .off
         enabledCheckbox.target = self
         enabledCheckbox.action = #selector(rowChanged)
+        ShortcutEngine.allCases.forEach { enginePopup.addItem(withTitle: $0.title) }
+        enginePopup.selectItem(withTitle: slot.engine.title)
+        enginePopup.target = self
+        enginePopup.action = #selector(engineChanged)
         Settings.destinations(forShortcut: slot.index).forEach { destinationPopup.addItem(withTitle: $0.title) }
         destinationPopup.selectItem(withTitle: Settings.validDestination(slot.destination, for: slot.index).title)
         destinationPopup.target = self
@@ -1215,20 +1259,21 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         tagsField.action = #selector(rowChanged)
         [folderField, noteField, tagsField].forEach(styleFillableField)
 
-        [enabledCheckbox, recorder, destinationPopup, folderField, noteField, searchButton, targetField, tagsField].forEach {
+        [enabledCheckbox, recorder, enginePopup, destinationPopup, folderField, noteField, searchButton, targetField, tagsField].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
         }
         enabledCheckbox.widthAnchor.constraint(equalToConstant: Self.columnWidths[0]).isActive = true
         recorder.widthAnchor.constraint(equalToConstant: Self.columnWidths[1]).isActive = true
-        destinationPopup.widthAnchor.constraint(equalToConstant: 180).isActive = true
-        targetField.widthAnchor.constraint(equalToConstant: 326).isActive = true
+        enginePopup.widthAnchor.constraint(equalToConstant: 112).isActive = true
+        destinationPopup.widthAnchor.constraint(equalToConstant: 142).isActive = true
+        targetField.widthAnchor.constraint(equalToConstant: 286).isActive = true
         tagsField.widthAnchor.constraint(equalToConstant: Self.columnWidths[3]).isActive = true
         refreshNoteFieldState()
     }
 
     static let columnSpacing: CGFloat = 12
-    static let columnTitles = ["Actif", "Raccourci", "Cible", "Tags"]
-    static let columnWidths: [CGFloat] = [44, 92, 518, 240]
+    static let columnTitles = ["Actif", "Raccourci", "App / Cible", "Tags"]
+    static let columnWidths: [CGFloat] = [44, 92, 560, 240]
 
     static func headerView() -> NSView {
         let row = NSStackView()
@@ -1252,9 +1297,10 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
             index: index,
             enabled: enabledCheckbox.state == .on,
             combo: storedCombo,
+            engine: selectedEngine(),
             destination: destination,
-            noteReference: destination.acceptsTarget ? noteField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines) : "",
-            folder: destination.acceptsTarget ? folderField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines) : "",
+            noteReference: selectedEngine() == .obsidian || destination.acceptsTarget ? noteField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines) : "",
+            folder: selectedEngine() == .obsidian || destination.acceptsTarget ? folderField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines) : "",
             tags: tagsField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         )
     }
@@ -1285,6 +1331,7 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         }
         targetStack.translatesAutoresizingMaskIntoConstraints = false
         targetStack.widthAnchor.constraint(equalToConstant: Self.columnWidths[2]).isActive = true
+        targetStack.addArrangedSubview(enginePopup)
         targetStack.addArrangedSubview(destinationPopup)
         targetStack.addArrangedSubview(targetField)
         row.addArrangedSubview(enabledCheckbox)
@@ -1310,6 +1357,7 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         enabledCheckbox.state = slot.enabled ? .on : .off
         enabledCheckbox.title = displayIndex
         setCombo(slot.combo)
+        enginePopup.selectItem(withTitle: slot.engine.title)
         destinationPopup.removeAllItems()
         Settings.destinations(forShortcut: index).forEach { destinationPopup.addItem(withTitle: $0.title) }
         destinationPopup.selectItem(withTitle: destination.title)
@@ -1319,6 +1367,11 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         tagsField.stringValue = slot.tags
         noteField.placeholderString = placeholder(for: destination)
         refreshNoteFieldState()
+    }
+
+    @objc private func engineChanged() {
+        refreshNoteFieldState()
+        rowChanged()
     }
 
     @objc private func destinationChanged() {
@@ -1343,20 +1396,33 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         onChange?(self)
     }
 
+    private func selectedEngine() -> ShortcutEngine {
+        ShortcutEngine.allCases.first { $0.title == enginePopup.titleOfSelectedItem } ?? .notePlan
+    }
+
     private func selectedDestination() -> ShortcutDestination {
         let selected = ShortcutDestination.allCases.first { $0.title == destinationPopup.titleOfSelectedItem } ?? (index == 1 ? .today : .standard)
         return Settings.validDestination(selected, for: index)
     }
 
     private func refreshNoteFieldState() {
+        let engine = selectedEngine()
         let destination = selectedDestination()
-        let acceptsTarget = destination.acceptsTarget
+        let acceptsTarget = engine == .obsidian || destination.acceptsTarget
+        destinationPopup.isEnabled = engine == .notePlan
         folderField.isEnabled = acceptsTarget
         noteField.isEnabled = acceptsTarget
         targetField.isEditable = acceptsTarget
         targetField.acceptsDrop = true
         searchButton.isEnabled = true
-        if !acceptsTarget {
+        if engine == .obsidian {
+            folderField.placeholderString = "Vault Obsidian"
+            noteField.placeholderString = "Inbox/Captures.md"
+            if targetField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || targetField.stringValue == "Raccourci standard" || targetField.stringValue == "Aujourd'hui NotePlan" {
+                targetField.stringValue = targetDisplay(for: destination, folder: folderField.stringValue, note: noteField.stringValue)
+            }
+        } else if !acceptsTarget {
+            folderField.placeholderString = "Dossier"
             folderField.stringValue = ""
             noteField.stringValue = ""
             targetField.stringValue = targetDisplay(for: destination, folder: "", note: "")
@@ -1366,8 +1432,9 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
     }
 
     private func syncTargetTextIfNeeded() {
+        let engine = selectedEngine()
         let destination = selectedDestination()
-        guard destination.acceptsTarget else { return }
+        guard engine == .obsidian || destination.acceptsTarget else { return }
         let value = targetField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else {
             folderField.stringValue = ""
@@ -1375,7 +1442,7 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
             return
         }
 
-        if destination == .noteTitle {
+        if engine == .notePlan && destination == .noteTitle {
             folderField.stringValue = ""
             noteField.stringValue = value
             return
@@ -1411,6 +1478,13 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
     }
 
     private func targetDisplay(for destination: ShortcutDestination, folder: String, note: String) -> String {
+        if selectedEngine() == .obsidian {
+            let cleanVault = folder.trimmingCharacters(in: .whitespacesAndNewlines)
+            let cleanNote = note.trimmingCharacters(in: CharacterSet(charactersIn: " /"))
+            if cleanVault.isEmpty && cleanNote.isEmpty { return "Vault Obsidian + note .md" }
+            if cleanNote.isEmpty { return cleanVault }
+            return cleanNote
+        }
         if destination == .standard { return "Raccourci standard" }
         if destination == .today { return "Aujourd'hui NotePlan" }
         let cleanFolder = folder.trimmingCharacters(in: CharacterSet(charactersIn: " /"))
@@ -3042,6 +3116,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let content = normalizedTaskContent(expandedVariables(todoText), tags: tagSource) else { return }
         log("sendTodo:\(content)")
         let task = formattedTask(from: content, tags: tagSource, sourceURL: sourceURL)
+        if shortcutSlot?.engine == .obsidian {
+            writeObsidianTask(task, shortcutSlot: shortcutSlot)
+            return
+        }
         let openNoteValue = Settings.openNote ? "yes" : "no"
         let noteTarget = notePlanTarget(for: shortcutSlot)
         log("sendTodoTarget:\(noteTarget)")
@@ -3049,6 +3127,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let target = "noteplan://x-callback-url/addText?\(targetPrefix)text=\(encode(task))&mode=append&openNote=\(openNoteValue)"
         if let url = URL(string: target) {
             NSWorkspace.shared.open(url)
+        }
+    }
+
+    private func writeObsidianTask(_ task: String, shortcutSlot: ShortcutSlot?) {
+        guard let shortcutSlot else { return }
+        let note = expandedVariables(shortcutSlot.noteReference).trimmingCharacters(in: .whitespacesAndNewlines)
+        let folder = expandedVariables(shortcutSlot.folder).trimmingCharacters(in: .whitespacesAndNewlines)
+        let fileURL: URL
+        if note.hasPrefix("/") {
+            fileURL = URL(fileURLWithPath: note)
+        } else if folder.hasPrefix("/") {
+            fileURL = URL(fileURLWithPath: folder).appendingPathComponent(note)
+        } else {
+            log("obsidian:error:no-absolute-target")
+            NSSound.beep()
+            return
+        }
+
+        let finalURL = fileURL.pathExtension.isEmpty ? fileURL.appendingPathExtension("md") : fileURL
+        do {
+            try FileManager.default.createDirectory(at: finalURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let prefix: String
+            if FileManager.default.fileExists(atPath: finalURL.path),
+               let data = try? Data(contentsOf: finalURL),
+               !data.isEmpty,
+               data.last != 10 {
+                prefix = "\n"
+            } else {
+                prefix = ""
+            }
+            let payload = "\(prefix)\(task)\n"
+            if FileManager.default.fileExists(atPath: finalURL.path) {
+                let handle = try FileHandle(forWritingTo: finalURL)
+                defer { try? handle.close() }
+                try handle.seekToEnd()
+                try handle.write(contentsOf: Data(payload.utf8))
+            } else {
+                try Data(payload.utf8).write(to: finalURL, options: .atomic)
+            }
+            log("obsidian:write:\(finalURL.path)")
+            if Settings.openNote {
+                NSWorkspace.shared.open(finalURL)
+            }
+        } catch {
+            log("obsidian:error:\(error.localizedDescription)")
+            NSSound.beep()
         }
     }
 
