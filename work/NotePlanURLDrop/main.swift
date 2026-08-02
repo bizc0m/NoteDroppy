@@ -745,7 +745,7 @@ final class ShortcutTargetField: NSTextField {
     init() {
         super.init(frame: .zero)
         wantsLayer = true
-        isEditable = false
+        isEditable = true
         isSelectable = true
         lineBreakMode = .byTruncatingMiddle
         registerForDraggedTypes(shortcutDropPasteboardTypes)
@@ -755,7 +755,7 @@ final class ShortcutTargetField: NSTextField {
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         wantsLayer = true
-        isEditable = false
+        isEditable = true
         isSelectable = true
         lineBreakMode = .byTruncatingMiddle
         registerForDraggedTypes(shortcutDropPasteboardTypes)
@@ -787,6 +787,12 @@ final class ShortcutTargetField: NSTextField {
             return
         }
         super.keyDown(with: event)
+    }
+
+    @objc func paste(_ sender: Any?) {
+        if acceptsDrop {
+            pasteTargetFromField(sender)
+        }
     }
 
     @objc private func pasteTargetFromField(_ sender: Any?) {
@@ -1197,6 +1203,9 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
             guard let self else { return }
             self.onPasteTarget?(self)
         }
+        targetField.delegate = self
+        targetField.target = self
+        targetField.action = #selector(rowChanged)
         searchButton.target = self
         searchButton.action = #selector(searchNote)
         searchButton.bezelStyle = .rounded
@@ -1320,10 +1329,14 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
     }
 
     @objc private func rowChanged() {
+        syncTargetTextIfNeeded()
         onChange?(self)
     }
 
     func controlTextDidEndEditing(_ obj: Notification) {
+        if let field = obj.object as? NSTextField, field === targetField {
+            syncTargetTextIfNeeded()
+        }
         onChange?(self)
     }
 
@@ -1336,6 +1349,7 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         let acceptsTarget = destination.acceptsTarget
         folderField.isEnabled = acceptsTarget
         noteField.isEnabled = acceptsTarget
+        targetField.isEditable = acceptsTarget
         targetField.acceptsDrop = true
         searchButton.isEnabled = true
         if !acceptsTarget {
@@ -1345,6 +1359,35 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         } else if targetField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             targetField.stringValue = targetDisplay(for: destination, folder: folderField.stringValue, note: noteField.stringValue)
         }
+    }
+
+    private func syncTargetTextIfNeeded() {
+        let destination = selectedDestination()
+        guard destination.acceptsTarget else { return }
+        let value = targetField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else {
+            folderField.stringValue = ""
+            noteField.stringValue = ""
+            return
+        }
+
+        if destination == .noteTitle {
+            folderField.stringValue = ""
+            noteField.stringValue = value
+            return
+        }
+
+        let clean = value.trimmingCharacters(in: CharacterSet(charactersIn: " "))
+        if clean.hasSuffix("/") {
+            folderField.stringValue = clean.trimmingCharacters(in: CharacterSet(charactersIn: " /"))
+            noteField.stringValue = ""
+            return
+        }
+
+        let url = URL(fileURLWithPath: clean)
+        let folder = url.deletingLastPathComponent().relativePath
+        folderField.stringValue = folder == "." ? "" : folder
+        noteField.stringValue = url.lastPathComponent
     }
 
     func applyDroppedPath(relativePath: String, isDirectory: Bool) {
