@@ -713,6 +713,7 @@ final class ShortcutTargetField: NSTextField {
 
     init() {
         super.init(frame: .zero)
+        wantsLayer = true
         isEditable = false
         isSelectable = true
         lineBreakMode = .byTruncatingMiddle
@@ -721,6 +722,7 @@ final class ShortcutTargetField: NSTextField {
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
+        wantsLayer = true
         isEditable = false
         isSelectable = true
         lineBreakMode = .byTruncatingMiddle
@@ -729,16 +731,40 @@ final class ShortcutTargetField: NSTextField {
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
         writeDebugLog("shortcut-drop:field:entered:\(pasteboardDebugDescription(sender.draggingPasteboard))")
-        return acceptsDrop && shortcutTarget(from: sender.draggingPasteboard) != nil ? NSDragOperation.copy : NSDragOperation()
+        return dragOperation(for: sender)
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        dragOperation(for: sender)
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        layer?.borderWidth = 0
+    }
+
+    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        acceptsDrop && shortcutTarget(from: sender.draggingPasteboard) != nil
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         writeDebugLog("shortcut-drop:field:perform:\(pasteboardDebugDescription(sender.draggingPasteboard))")
+        layer?.borderWidth = 0
         guard acceptsDrop, let target = shortcutTarget(from: sender.draggingPasteboard) else {
             NSSound.beep()
             return false
         }
         return onDropTarget?(target) ?? false
+    }
+
+    private func dragOperation(for sender: NSDraggingInfo) -> NSDragOperation {
+        guard acceptsDrop, shortcutTarget(from: sender.draggingPasteboard) != nil else {
+            layer?.borderWidth = 0
+            return NSDragOperation()
+        }
+        layer?.cornerRadius = 5
+        layer?.borderWidth = 2
+        layer?.borderColor = NSColor.controlAccentColor.cgColor
+        return preferredDragOperation(from: sender.draggingSourceOperationMask)
     }
 }
 
@@ -758,7 +784,19 @@ final class ShortcutSlotDropStack: NSStackView {
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
         writeDebugLog("shortcut-drop:row:entered:\(pasteboardDebugDescription(sender.draggingPasteboard))")
-        return acceptsDrop && shortcutTarget(from: sender.draggingPasteboard) != nil ? NSDragOperation.copy : NSDragOperation()
+        return acceptsDrop && shortcutTarget(from: sender.draggingPasteboard) != nil
+            ? preferredDragOperation(from: sender.draggingSourceOperationMask)
+            : NSDragOperation()
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        acceptsDrop && shortcutTarget(from: sender.draggingPasteboard) != nil
+            ? preferredDragOperation(from: sender.draggingSourceOperationMask)
+            : NSDragOperation()
+    }
+
+    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        acceptsDrop && shortcutTarget(from: sender.draggingPasteboard) != nil
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
@@ -784,11 +822,23 @@ private let shortcutDropPasteboardTypes: [NSPasteboard.PasteboardType] = [
     NSPasteboard.PasteboardType("public.content"),
     NSPasteboard.PasteboardType("co.noteplan.notecard"),
     NSPasteboard.PasteboardType("NSFilesPromisePboardType"),
+    NSPasteboard.PasteboardType("com.apple.NSFilesPromisePboardType"),
     NSPasteboard.PasteboardType("com.apple.pasteboard.promised-file-url"),
+    NSPasteboard.PasteboardType("com.apple.pasteboard.promised-file-content-type"),
     NSPasteboard.PasteboardType("com.apple.NSFilePromiseItemMetaData"),
+    NSPasteboard.PasteboardType("com.apple.finder.node"),
     NSPasteboard.PasteboardType("net.daringfireball.markdown"),
     NSPasteboard.PasteboardType("com.apple.traditional-mac-plain-text")
 ]
+
+private func preferredDragOperation(from mask: NSDragOperation) -> NSDragOperation {
+    for operation in [NSDragOperation.copy, .link, .generic, .move] {
+        if mask.contains(operation) {
+            return operation
+        }
+    }
+    return .copy
+}
 
 private func shortcutTarget(from pasteboard: NSPasteboard) -> ShortcutTarget? {
     let strings = pasteboardStrings(from: pasteboard)
