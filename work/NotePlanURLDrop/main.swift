@@ -2752,32 +2752,76 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func firstWebURL(in text: String) -> String? {
-        let pattern = #"https?://[^\s<>"']+"#
+        let pattern = #"(?:https?://)?(?:www\.)?[A-Za-z0-9][A-Za-z0-9.-]+\.[A-Za-z]{2,}(?:/[^\s<>"']*)?"#
         guard let range = text.range(of: pattern, options: .regularExpression) else {
             return nil
         }
-        return String(text[range])
+        return normalizedWebURL(String(text[range]))
     }
 
     private func isWebURL(_ value: String) -> Bool {
-        value.lowercased().hasPrefix("http://") || value.lowercased().hasPrefix("https://")
+        normalizedWebURL(value) != nil
+    }
+
+    private func normalizedWebURL(_ value: String) -> String? {
+        let trimmed = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "<>()[]{}\"'.,;"))
+        guard !trimmed.isEmpty, !trimmed.contains(" ") else { return nil }
+
+        let withScheme = trimmed.lowercased().hasPrefix("http://") || trimmed.lowercased().hasPrefix("https://")
+            ? trimmed
+            : "https://\(trimmed)"
+        guard var components = URLComponents(string: withScheme),
+              components.scheme?.hasPrefix("http") == true,
+              components.host?.contains(".") == true else {
+            return nil
+        }
+
+        let trackingNames = Set(["_gl", "_gs", "gclid", "gbraid", "wbraid", "fbclid", "msclkid", "yclid"])
+        components.queryItems = components.queryItems?.filter { item in
+            let name = item.name.lowercased()
+            return !name.hasPrefix("utm_") && !trackingNames.contains(name)
+        }
+        if components.queryItems?.isEmpty == true {
+            components.queryItems = nil
+        }
+        components.fragment = nil
+        return components.url?.absoluteString
     }
 
     private func markdownLinkForWebURL(_ value: String) -> String? {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isWebURL(trimmed), let url = URL(string: trimmed), let host = url.host else {
+        guard let normalized = normalizedWebURL(value),
+              let url = URL(string: normalized),
+              let host = url.host else {
             return nil
         }
-        let title = host
-            .replacingOccurrences(of: #"^www\."#, with: "", options: .regularExpression)
-            .split(separator: ".")
-            .first
-            .map { String($0).prefix(1).uppercased() + String($0.dropFirst()) } ?? host
+        let title = webLinkTitle(for: url, host: host)
         let escapedTitle = title
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "[", with: "\\[")
             .replacingOccurrences(of: "]", with: "\\]")
-        return "[\(escapedTitle)](\(trimmed))"
+        return "[\(escapedTitle)](\(normalized))"
+    }
+
+    private func webLinkTitle(for url: URL, host: String) -> String {
+        let pathTitle = url.deletingPathExtension().lastPathComponent.removingPercentEncoding ?? ""
+        let cleanPathTitle = pathTitle
+            .replacingOccurrences(of: "-", with: " ")
+            .replacingOccurrences(of: "_", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanPathTitle.isEmpty, cleanPathTitle != "/" {
+            return cleanPathTitle
+                .split(separator: " ")
+                .map { word in word.prefix(1).uppercased() + word.dropFirst().lowercased() }
+                .joined(separator: " ")
+        }
+
+        return host
+            .replacingOccurrences(of: #"^www\."#, with: "", options: .regularExpression)
+            .split(separator: ".")
+            .first
+            .map { String($0).prefix(1).uppercased() + String($0.dropFirst()) } ?? host
     }
 
     private func normalizedTodoText(_ value: String) -> String? {
