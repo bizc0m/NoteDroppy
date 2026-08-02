@@ -2551,18 +2551,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func application(_ sender: NSApplication, openFiles filenames: [String]) {
         didReceiveOpenEvent = true
         log("openFiles:\(filenames.joined(separator: " | "))")
-        var handled = false
         for filename in filenames {
             let fileURL = URL(fileURLWithPath: filename)
-            if let droppedText = extractTodoText(from: fileURL) {
-                log("openFiles:extracted:\(droppedText)")
-                sendTodo(droppedText)
-                handled = true
-            } else {
-                log("openFiles:failed-extract:\(filename)")
-            }
+            let droppedText = extractTodoText(from: fileURL) ?? markdownFileLink(for: fileURL)
+            log("openFiles:extracted:\(droppedText)")
+            sendTodo(droppedText)
         }
-        NSApp.reply(toOpenOrPrint: handled ? .success : .failure)
+        NSApp.reply(toOpenOrPrint: .success)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
             if NSApp.windows.isEmpty {
                 NSApp.terminate(nil)
