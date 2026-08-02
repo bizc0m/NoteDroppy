@@ -2553,7 +2553,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         log("openFiles:\(filenames.joined(separator: " | "))")
         for filename in filenames {
             let fileURL = URL(fileURLWithPath: filename)
-            let droppedText = extractTodoText(from: fileURL) ?? filePathText(for: fileURL)
+            let droppedText = extractTodoText(from: fileURL) ?? fileMarkdownLink(for: fileURL)
             log("openFiles:extracted:\(droppedText)")
             sendTodo(droppedText)
         }
@@ -2570,7 +2570,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         log("openURLs:\(urls.map { $0.absoluteString }.joined(separator: " | "))")
         for url in urls {
             if url.isFileURL {
-                let droppedText = extractTodoText(from: url) ?? filePathText(for: url)
+                let droppedText = extractTodoText(from: url) ?? fileMarkdownLink(for: url)
                 log("openURLs:file-extracted:\(droppedText)")
                 sendTodo(droppedText)
             } else {
@@ -2618,11 +2618,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return normalized
         }
 
-        return filePathText(for: fileURL)
+        return fileMarkdownLink(for: fileURL)
     }
 
-    private func filePathText(for fileURL: URL) -> String {
-        fileURL.path
+    private func fileMarkdownLink(for fileURL: URL) -> String {
+        let label = fileURL.lastPathComponent.isEmpty ? fileURL.path : fileURL.lastPathComponent
+        let escapedLabel = label
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "[", with: "\\[")
+            .replacingOccurrences(of: "]", with: "\\]")
+        return "[\(escapedLabel)](\(fileURL.absoluteString))"
     }
 
     private func isPlainTextFile(_ fileURL: URL) -> Bool {
