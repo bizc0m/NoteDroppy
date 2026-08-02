@@ -135,31 +135,27 @@ private enum Settings {
         let note = UserDefaults.standard.string(forKey: noteKey) ?? ""
         let folder = UserDefaults.standard.string(forKey: folderKey) ?? ""
         let tags = UserDefaults.standard.string(forKey: tagsKey) ?? (index == 1 ? taskTag : "#capture")
-        let storedDestination = UserDefaults.standard.string(forKey: destinationKey)
+        let destination = UserDefaults.standard.string(forKey: destinationKey)
             .flatMap(ShortcutDestination.init(rawValue:)) ?? .today
-        let destination: ShortcutDestination = index == 1 ? .today : storedDestination
 
         return ShortcutSlot(
             index: index,
             enabled: enabled,
             combo: KeyCombo(keyCode: keyCode, carbonModifiers: normalizedCarbonModifiers(rawModifiers)),
             destination: destination,
-            noteReference: index == 1 ? "" : note.trimmingCharacters(in: .whitespacesAndNewlines),
-            folder: index == 1 ? "" : folder.trimmingCharacters(in: .whitespacesAndNewlines),
+            noteReference: note.trimmingCharacters(in: .whitespacesAndNewlines),
+            folder: folder.trimmingCharacters(in: .whitespacesAndNewlines),
             tags: tags.trimmingCharacters(in: .whitespacesAndNewlines)
         )
     }
 
     static func setShortcutSlot(_ slot: ShortcutSlot) {
-        let destination: ShortcutDestination = slot.index == 1 ? .today : slot.destination
-        let noteReference = slot.index == 1 ? "" : slot.noteReference
-        let folder = slot.index == 1 ? "" : slot.folder
         UserDefaults.standard.set(slot.enabled, forKey: "shortcutSlot\(slot.index).enabled")
         UserDefaults.standard.set(Int(slot.combo.keyCode), forKey: "shortcutSlot\(slot.index).keyCode")
         UserDefaults.standard.set(Int(slot.combo.carbonModifiers), forKey: "shortcutSlot\(slot.index).modifiers")
-        UserDefaults.standard.set(destination.rawValue, forKey: "shortcutSlot\(slot.index).destination")
-        UserDefaults.standard.set(noteReference, forKey: "shortcutSlot\(slot.index).note")
-        UserDefaults.standard.set(folder, forKey: "shortcutSlot\(slot.index).folder")
+        UserDefaults.standard.set(slot.destination.rawValue, forKey: "shortcutSlot\(slot.index).destination")
+        UserDefaults.standard.set(slot.noteReference, forKey: "shortcutSlot\(slot.index).note")
+        UserDefaults.standard.set(slot.folder, forKey: "shortcutSlot\(slot.index).folder")
         UserDefaults.standard.set(slot.tags, forKey: "shortcutSlot\(slot.index).tags")
         if slot.index == 1 {
             UserDefaults.standard.set(slot.enabled, forKey: shortcutEnabledKey)
@@ -299,15 +295,26 @@ struct ShortcutSlotFile: Codable {
 }
 
 enum ShortcutDestination: String, CaseIterable {
+    case standard
     case today
     case noteTitle
     case notePath
 
     var title: String {
         switch self {
-        case .today: return "Aujourd'hui"
+        case .standard: return "Standard"
+        case .today: return "Aujourd'hui (NotePlan)"
         case .noteTitle: return "Note nommée"
         case .notePath: return "Chemin de note"
+        }
+    }
+
+    var acceptsTarget: Bool {
+        switch self {
+        case .noteTitle, .notePath:
+            return true
+        case .standard, .today:
+            return false
         }
     }
 }
@@ -1156,7 +1163,6 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
     var onPasteTarget: ((ShortcutSlotRow) -> Void)?
     var onChange: ((ShortcutSlotRow) -> Void)?
     private var storedCombo: KeyCombo
-    private var isTodaySlot: Bool { index == 1 }
     private var displayIndex: String { index == 10 ? "0" : "\(index)" }
 
     init(slot: ShortcutSlot) {
@@ -1164,8 +1170,8 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         self.storedCombo = slot.combo
         self.enabledCheckbox = NSButton(checkboxWithTitle: slot.index == 10 ? "0" : "\(slot.index)", target: nil, action: nil)
         self.recorder = ShortcutRecorderButton(combo: slot.combo)
-        self.folderField = NSTextField(string: slot.index == 1 ? "" : slot.folder)
-        self.noteField = NSTextField(string: slot.index == 1 ? "" : slot.noteReference)
+        self.folderField = NSTextField(string: slot.folder)
+        self.noteField = NSTextField(string: slot.noteReference)
         self.tagsField = NSTextField(string: slot.tags)
 
         super.init()
@@ -1174,15 +1180,15 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         enabledCheckbox.target = self
         enabledCheckbox.action = #selector(rowChanged)
         ShortcutDestination.allCases.forEach { destinationPopup.addItem(withTitle: $0.title) }
-        destinationPopup.selectItem(withTitle: (slot.index == 1 ? ShortcutDestination.today : slot.destination).title)
+        destinationPopup.selectItem(withTitle: slot.destination.title)
         destinationPopup.target = self
         destinationPopup.action = #selector(destinationChanged)
         folderField.placeholderString = "Dossier"
-        noteField.placeholderString = placeholder(for: slot.index == 1 ? .today : slot.destination)
-        targetField.placeholderString = slot.index == 1 ? "Aujourd'hui" : "Déposer ou coller une note ici"
-        targetField.stringValue = targetDisplay(for: slot.index == 1 ? .today : slot.destination, folder: slot.folder, note: slot.noteReference)
+        noteField.placeholderString = placeholder(for: slot.destination)
+        targetField.placeholderString = "Déposer depuis Finder une note .md ou coller un lien NotePlan"
+        targetField.stringValue = targetDisplay(for: slot.destination, folder: slot.folder, note: slot.noteReference)
         styleFillableField(targetField)
-        targetField.acceptsDrop = slot.index != 1
+        targetField.acceptsDrop = slot.destination.acceptsTarget
         targetField.onDropTarget = { [weak self] target in
             guard let self else { return false }
             return self.onTargetDrop?(self, target) ?? false
@@ -1205,7 +1211,8 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         }
         enabledCheckbox.widthAnchor.constraint(equalToConstant: Self.columnWidths[0]).isActive = true
         recorder.widthAnchor.constraint(equalToConstant: Self.columnWidths[1]).isActive = true
-        targetField.widthAnchor.constraint(equalToConstant: Self.columnWidths[2]).isActive = true
+        destinationPopup.widthAnchor.constraint(equalToConstant: 180).isActive = true
+        targetField.widthAnchor.constraint(equalToConstant: 326).isActive = true
         tagsField.widthAnchor.constraint(equalToConstant: Self.columnWidths[3]).isActive = true
         refreshNoteFieldState()
     }
@@ -1231,14 +1238,14 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
     }
 
     var slot: ShortcutSlot {
-        let destination: ShortcutDestination = isTodaySlot ? .today : selectedDestination()
+        let destination = selectedDestination()
         return ShortcutSlot(
             index: index,
             enabled: enabledCheckbox.state == .on,
             combo: storedCombo,
             destination: destination,
-            noteReference: destination == .today ? "" : noteField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines),
-            folder: destination == .today ? "" : folderField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines),
+            noteReference: destination.acceptsTarget ? noteField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines) : "",
+            folder: destination.acceptsTarget ? folderField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines) : "",
             tags: tagsField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         )
     }
@@ -1253,20 +1260,27 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         row.orientation = .horizontal
         row.spacing = Self.columnSpacing
         row.alignment = .centerY
-        row.acceptsDrop = !isTodaySlot
+        row.acceptsDrop = selectedDestination().acceptsTarget
         row.onDropTarget = { [weak self] target in
             guard let self else { return false }
             return self.onTargetDrop?(self, target) ?? false
         }
+        let targetStack = NSStackView()
+        targetStack.orientation = .horizontal
+        targetStack.spacing = 8
+        targetStack.alignment = .centerY
+        targetStack.translatesAutoresizingMaskIntoConstraints = false
+        targetStack.widthAnchor.constraint(equalToConstant: Self.columnWidths[2]).isActive = true
+        targetStack.addArrangedSubview(destinationPopup)
+        targetStack.addArrangedSubview(targetField)
         row.addArrangedSubview(enabledCheckbox)
         row.addArrangedSubview(recorder)
-        row.addArrangedSubview(targetField)
+        row.addArrangedSubview(targetStack)
         row.addArrangedSubview(tagsField)
         return row
     }
 
     func applySelectedNote(_ result: NoteSearchResult) {
-        guard !isTodaySlot else { return }
         destinationPopup.selectItem(withTitle: ShortcutDestination.notePath.title)
         folderField.stringValue = result.folder
         noteField.stringValue = URL(fileURLWithPath: result.relativePath).lastPathComponent
@@ -1281,13 +1295,12 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         enabledCheckbox.state = slot.enabled ? .on : .off
         enabledCheckbox.title = displayIndex
         setCombo(slot.combo)
-        let destination: ShortcutDestination = isTodaySlot ? .today : slot.destination
-        destinationPopup.selectItem(withTitle: destination.title)
-        folderField.stringValue = isTodaySlot ? "" : slot.folder
-        noteField.stringValue = isTodaySlot ? "" : slot.noteReference
-        targetField.stringValue = targetDisplay(for: destination, folder: slot.folder, note: slot.noteReference)
+        destinationPopup.selectItem(withTitle: slot.destination.title)
+        folderField.stringValue = slot.folder
+        noteField.stringValue = slot.noteReference
+        targetField.stringValue = targetDisplay(for: slot.destination, folder: slot.folder, note: slot.noteReference)
         tagsField.stringValue = slot.tags
-        noteField.placeholderString = placeholder(for: destination)
+        noteField.placeholderString = placeholder(for: slot.destination)
         refreshNoteFieldState()
     }
 
@@ -1298,7 +1311,6 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
     }
 
     @objc private func searchNote() {
-        guard !isTodaySlot else { return }
         onSearch?(self)
     }
 
@@ -1315,26 +1327,22 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
     }
 
     private func refreshNoteFieldState() {
-        let destination: ShortcutDestination = isTodaySlot ? .today : selectedDestination()
-        if isTodaySlot {
-            destinationPopup.selectItem(withTitle: ShortcutDestination.today.title)
-        }
-        destinationPopup.isEnabled = !isTodaySlot
-        folderField.isEnabled = destination != .today
-        noteField.isEnabled = destination != .today
-        targetField.acceptsDrop = !isTodaySlot
-        searchButton.isEnabled = !isTodaySlot
-        if destination == .today {
+        let destination = selectedDestination()
+        let acceptsTarget = destination.acceptsTarget
+        folderField.isEnabled = acceptsTarget
+        noteField.isEnabled = acceptsTarget
+        targetField.acceptsDrop = acceptsTarget
+        searchButton.isEnabled = acceptsTarget
+        if !acceptsTarget {
             folderField.stringValue = ""
             noteField.stringValue = ""
-            targetField.stringValue = "Aujourd'hui"
+            targetField.stringValue = targetDisplay(for: destination, folder: "", note: "")
         } else if targetField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             targetField.stringValue = targetDisplay(for: destination, folder: folderField.stringValue, note: noteField.stringValue)
         }
     }
 
     func applyDroppedPath(relativePath: String, isDirectory: Bool) {
-        guard !isTodaySlot else { return }
         destinationPopup.selectItem(withTitle: ShortcutDestination.notePath.title)
         if isDirectory {
             folderField.stringValue = relativePath
@@ -1351,10 +1359,11 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
     }
 
     private func targetDisplay(for destination: ShortcutDestination, folder: String, note: String) -> String {
-        if destination == .today { return "Aujourd'hui" }
+        if destination == .standard { return "Raccourci standard" }
+        if destination == .today { return "Aujourd'hui NotePlan" }
         let cleanFolder = folder.trimmingCharacters(in: CharacterSet(charactersIn: " /"))
         let cleanNote = note.trimmingCharacters(in: CharacterSet(charactersIn: " /"))
-        if cleanFolder.isEmpty && cleanNote.isEmpty { return "Déposer une note .md ici" }
+        if cleanFolder.isEmpty && cleanNote.isEmpty { return "Déposer depuis Finder une note .md, ou coller un lien NotePlan" }
         if cleanFolder.isEmpty { return cleanNote }
         if cleanNote.isEmpty { return "\(cleanFolder)/" }
         return "\(cleanFolder)/\(cleanNote)"
@@ -1362,6 +1371,7 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
 
     private func placeholder(for destination: ShortcutDestination) -> String {
         switch destination {
+        case .standard: return "Raccourci standard"
         case .today: return "noteDate=today"
         case .noteTitle: return "Titre NotePlan"
         case .notePath: return "Note.md ou Sous-dossier/Note.md"
@@ -1592,7 +1602,7 @@ final class SettingsWindowController: NSWindowController {
     private let chooseNotesRootButton = NSButton(title: "Choisir dossier Notes", target: nil, action: nil)
     private let openNoteCheckbox = NSButton(checkboxWithTitle: "Ouvrir NotePlan après l'ajout", target: nil, action: nil)
     private var shortcutRows: [ShortcutSlotRow] = []
-    private let shortcutHelpLabel = NSTextField(labelWithString: "Actif | Raccourci | Cible | Tags. Sur Cible: déposer ou cliquer puis Cmd+V depuis Finder/NotePlan. Variables: $date, $day, $time, $datetime, $month, $year")
+    private let shortcutHelpLabel = NSTextField(labelWithString: "Cible : choisir Standard, Aujourd'hui (NotePlan), ou déposer depuis Finder une note .md / coller un lien NotePlan. Variables : $date, $day, $time, $datetime, $month, $year")
     private let helpButton = NSButton(title: "Aide", target: nil, action: nil)
     private let accessibilityButton = NSButton(title: "Autoriser Accessibilité", target: nil, action: nil)
     private let exportButton = NSButton(title: "Exporter JSON", target: nil, action: nil)
@@ -1754,6 +1764,11 @@ final class SettingsWindowController: NSWindowController {
             stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -24),
             stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 22)
         ])
+        contentView.layoutSubtreeIfNeeded()
+        let fitting = stack.fittingSize
+        let contentSize = NSSize(width: max(980, fitting.width + 48), height: max(620, fitting.height + 44))
+        window?.setContentSize(contentSize)
+        window?.minSize = NSSize(width: 980, height: 560)
         refreshAccessibilityStatus()
     }
 
@@ -2884,6 +2899,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let shortcutSlot else { return "noteDate=today" }
 
         switch shortcutSlot.destination {
+        case .standard:
+            return "noteDate=today"
         case .today:
             return "noteDate=today"
         case .noteTitle:
