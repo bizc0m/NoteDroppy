@@ -1188,7 +1188,7 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         targetField.placeholderString = "Déposer depuis Finder une note .md ou coller un lien NotePlan"
         targetField.stringValue = targetDisplay(for: slot.destination, folder: slot.folder, note: slot.noteReference)
         styleFillableField(targetField)
-        targetField.acceptsDrop = slot.destination.acceptsTarget
+        targetField.acceptsDrop = true
         targetField.onDropTarget = { [weak self] target in
             guard let self else { return false }
             return self.onTargetDrop?(self, target) ?? false
@@ -1260,15 +1260,20 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         row.orientation = .horizontal
         row.spacing = Self.columnSpacing
         row.alignment = .centerY
-        row.acceptsDrop = selectedDestination().acceptsTarget
+        row.acceptsDrop = true
         row.onDropTarget = { [weak self] target in
             guard let self else { return false }
             return self.onTargetDrop?(self, target) ?? false
         }
-        let targetStack = NSStackView()
+        let targetStack = ShortcutSlotDropStack()
         targetStack.orientation = .horizontal
         targetStack.spacing = 8
         targetStack.alignment = .centerY
+        targetStack.acceptsDrop = true
+        targetStack.onDropTarget = { [weak self] target in
+            guard let self else { return false }
+            return self.onTargetDrop?(self, target) ?? false
+        }
         targetStack.translatesAutoresizingMaskIntoConstraints = false
         targetStack.widthAnchor.constraint(equalToConstant: Self.columnWidths[2]).isActive = true
         targetStack.addArrangedSubview(destinationPopup)
@@ -1331,8 +1336,8 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         let acceptsTarget = destination.acceptsTarget
         folderField.isEnabled = acceptsTarget
         noteField.isEnabled = acceptsTarget
-        targetField.acceptsDrop = acceptsTarget
-        searchButton.isEnabled = acceptsTarget
+        targetField.acceptsDrop = true
+        searchButton.isEnabled = true
         if !acceptsTarget {
             folderField.stringValue = ""
             noteField.stringValue = ""
@@ -2889,7 +2894,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let openNoteValue = Settings.openNote ? "yes" : "no"
         let noteTarget = notePlanTarget(for: shortcutSlot)
         log("sendTodoTarget:\(noteTarget)")
-        let target = "noteplan://x-callback-url/addText?\(noteTarget)&text=\(encode(task))&mode=append&openNote=\(openNoteValue)"
+        let targetPrefix = noteTarget.isEmpty ? "" : "\(noteTarget)&"
+        let target = "noteplan://x-callback-url/addText?\(targetPrefix)text=\(encode(task))&mode=append&openNote=\(openNoteValue)"
         if let url = URL(string: target) {
             NSWorkspace.shared.open(url)
         }
@@ -2900,7 +2906,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         switch shortcutSlot.destination {
         case .standard:
-            return "noteDate=today"
+            return ""
         case .today:
             return "noteDate=today"
         case .noteTitle:
