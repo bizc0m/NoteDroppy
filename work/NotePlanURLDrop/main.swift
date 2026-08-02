@@ -1771,8 +1771,17 @@ final class SettingsWindowController: NSWindowController {
             let filePath = fileURL.path
             let rootPath = rootURL.path.hasSuffix("/") ? rootURL.path : rootURL.path + "/"
 
+            var isDirectory: ObjCBool = false
+            FileManager.default.fileExists(atPath: filePath, isDirectory: &isDirectory)
+
             guard filePath == rootURL.path || filePath.hasPrefix(rootPath) else {
-                statusLabel.stringValue = "La cible doit être dans le dossier Notes choisi."
+                if isDirectory.boolValue {
+                    return commitDroppedPath(relativePath: fileURL.lastPathComponent, isDirectory: true, row: row)
+                }
+                if fileURL.pathExtension.lowercased() == "md" {
+                    return commitDroppedPath(relativePath: fileURL.lastPathComponent, isDirectory: false, row: row)
+                }
+                statusLabel.stringValue = "Pour Cible, dépose un dossier Finder ou une note .md."
                 NSSound.beep()
                 return false
             }
@@ -1780,8 +1789,6 @@ final class SettingsWindowController: NSWindowController {
             let relativePath = filePath == rootURL.path
                 ? ""
                 : String(filePath.dropFirst(rootPath.count))
-            var isDirectory: ObjCBool = false
-            FileManager.default.fileExists(atPath: filePath, isDirectory: &isDirectory)
             if !isDirectory.boolValue, fileURL.pathExtension.lowercased() != "md" {
                 statusLabel.stringValue = "Dépose une note .md ou un dossier NotePlan."
                 NSSound.beep()
@@ -2567,7 +2574,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         didReceiveOpenEvent = true
         log("openURLs:\(urls.map { $0.absoluteString }.joined(separator: " | "))")
         for url in urls {
-            if url.isFileURL, let droppedText = extractTodoText(from: url) {
+            if url.isFileURL {
+                let droppedText = extractTodoText(from: url) ?? markdownFileLink(for: url)
                 log("openURLs:file-extracted:\(droppedText)")
                 sendTodo(droppedText)
             } else {
@@ -2610,8 +2618,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         if isPlainTextFile(fileURL),
-           let text = try? String(contentsOf: fileURL, encoding: .utf8) {
-            return normalizedTodoText(text)
+           let text = try? String(contentsOf: fileURL, encoding: .utf8),
+           let normalized = normalizedTodoText(text) {
+            return normalized
         }
 
         return markdownFileLink(for: fileURL)
