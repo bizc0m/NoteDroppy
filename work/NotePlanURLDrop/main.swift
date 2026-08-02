@@ -2798,7 +2798,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         log("service:text:\(text)")
-        sendTodo(text, sourceURL: sourceWebPageURL(for: NSWorkspace.shared.frontmostApplication) ?? sourceWebURL(from: pasteboard))
+        sendTodo(text, sourceURL: sourceWebURL(from: pasteboard))
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
             if NSApp.windows.isEmpty {
                 NSApp.terminate(nil)
@@ -2825,7 +2825,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let sourceURL = sourceWebPageURL(for: NSWorkspace.shared.frontmostApplication)
         let pasteboard = NSPasteboard.general
         let snapshot = ClipboardSnapshot(pasteboard: pasteboard)
         let previousChangeCount = pasteboard.changeCount
@@ -2841,7 +2840,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let axText = self.selectedTextFromAccessibility().flatMap { self.normalizedTodoText($0) }
             if let normalized = self.bestShortcutText(clipboardText: clipboardText, axText: axText) {
                 self.log("shortcut:text:\(normalized)")
-                self.sendTodo(normalized, shortcutSlot: slot, sourceURL: sourceURL ?? pastedSourceURL)
+                self.sendTodo(normalized, shortcutSlot: slot, sourceURL: pastedSourceURL)
                 return
             }
             self.log("shortcut:no-selected-text")
