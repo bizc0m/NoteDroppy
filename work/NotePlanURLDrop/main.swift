@@ -794,12 +794,26 @@ private func shortcutTarget(from pasteboard: NSPasteboard) -> ShortcutTarget? {
     let strings = pasteboardStrings(from: pasteboard)
     writeDebugLog("shortcut-target:types:\((pasteboard.types ?? []).map { $0.rawValue }.joined(separator: ","))")
 
-    if let value = pasteboard.string(forType: .fileURL), let url = URL(string: value) {
-        return ShortcutTarget(url: url)
-    }
-
     if let notePlanText = strings.first(where: { $0.range(of: "noteplan://", options: .caseInsensitive) != nil }) {
         return ShortcutTarget(rawText: notePlanText)
+    }
+
+    if let embeddedPath = strings.lazy.compactMap({ embeddedMarkdownPath(from: $0) }).first {
+        return ShortcutTarget(rawText: embeddedPath)
+    }
+
+    if let pathLike = strings.first(where: { value in
+        let lower = value.lowercased()
+        return lower.hasPrefix("file://") || lower.hasSuffix(".md") || lower.contains(".md)") || lower.contains("/")
+    }) {
+        if let url = URL(string: pathLike), url.scheme?.lowercased() == "file", !url.path.hasPrefix("/.file/id=") {
+            return ShortcutTarget(url: url)
+        }
+        return ShortcutTarget(rawText: pathLike)
+    }
+
+    if let value = pasteboard.string(forType: .fileURL), let url = URL(string: value), !url.path.hasPrefix("/.file/id=") {
+        return ShortcutTarget(url: url)
     }
 
     if let value = pasteboard.string(forType: .URL)?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
@@ -809,19 +823,9 @@ private func shortcutTarget(from pasteboard: NSPasteboard) -> ShortcutTarget? {
     }
 
     if let objects = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL] {
-        if let url = objects.first(where: { $0.isFileURL || $0.scheme?.lowercased() == "noteplan" }) {
+        if let url = objects.first(where: { ($0.isFileURL && !$0.path.hasPrefix("/.file/id=")) || $0.scheme?.lowercased() == "noteplan" }) {
             return ShortcutTarget(url: url)
         }
-    }
-
-    if let pathLike = strings.first(where: { value in
-        let lower = value.lowercased()
-        return lower.hasPrefix("file://") || lower.hasSuffix(".md") || lower.contains(".md)") || lower.contains("/")
-    }) {
-        if let url = URL(string: pathLike), url.scheme?.lowercased() == "file" {
-            return ShortcutTarget(url: url)
-        }
-        return ShortcutTarget(rawText: pathLike)
     }
 
     if let title = strings.first(where: { !$0.isEmpty }) {
@@ -838,6 +842,9 @@ private func pasteboardStrings(from pasteboard: NSPasteboard) -> [String] {
             values.append(value)
         }
         if let data = pasteboard.data(forType: type) {
+            if let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) {
+                values.append(contentsOf: strings(fromPropertyList: plist))
+            }
             values.append(contentsOf: strings(fromPasteboardData: data))
         }
     }
@@ -854,6 +861,21 @@ private func pasteboardStrings(from pasteboard: NSPasteboard) -> [String] {
             return true
         }
     }
+}
+
+private func strings(fromPropertyList value: Any) -> [String] {
+    if let string = value as? String {
+        return [string.trimmingCharacters(in: .whitespacesAndNewlines)].filter { !$0.isEmpty }
+    }
+    if let array = value as? [Any] {
+        return array.flatMap { strings(fromPropertyList: $0) }
+    }
+    if let dictionary = value as? [AnyHashable: Any] {
+        return dictionary.flatMap { key, value in
+            strings(fromPropertyList: key).filter { !$0.isEmpty } + strings(fromPropertyList: value)
+        }
+    }
+    return []
 }
 
 private func strings(fromPasteboardData data: Data) -> [String] {
@@ -883,6 +905,34 @@ private func strings(fromPasteboardData data: Data) -> [String] {
             })
     }
     return values
+}
+
+private func embeddedMarkdownPath(from text: String) -> String? {
+    let cleaned = text
+        .replacingOccurrences(of: "<string>", with: "")
+        .replacingOccurrences(of: "</string>", with: "")
+        .replacingOccurrences(of: "&amp;", with: "&")
+
+    let patterns = [
+        #"file:///(?:Users|Volumes)/[^\s<>"']+?\.md"#,
+        #"/(?:Users|Volumes)/[^\n\r<>"']+?\.md"#,
+        #"[A-Za-z0-9_@ .-]+/[^\n\r<>"']+?\.md"#
+    ]
+
+    for pattern in patterns {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
+        let range = NSRange(cleaned.startIndex..<cleaned.endIndex, in: cleaned)
+        for match in regex.matches(in: cleaned, range: range) {
+            guard let matchRange = Range(match.range, in: cleaned) else { continue }
+            let candidate = String(cleaned[matchRange])
+                .removingPercentEncoding?
+                .trimmingCharacters(in: CharacterSet(charactersIn: " \t\r\n\"'")) ?? ""
+            if !candidate.isEmpty {
+                return candidate
+            }
+        }
+    }
+    return nil
 }
 
 private func pasteboardPreview(from pasteboard: NSPasteboard) -> String {
@@ -1613,12 +1663,55 @@ final class SettingsWindowController: NSWindowController {
 
     private func pasteTarget(for row: ShortcutSlotRow) {
         writeDebugLog("shortcut-paste:slot:\(row.index):\(pasteboardPreview(from: NSPasteboard.general))")
-        guard let target = shortcutTarget(from: NSPasteboard.general) else {
-            statusLabel.stringValue = "Copie un lien NotePlan, un titre, ou un chemin .md puis clique Coller cible."
+        var target = shortcutTarget(from: NSPasteboard.general)
+        if target == nil {
+            writeDebugLog("shortcut-paste:fallback-noteplan-url:start")
+            if copyCurrentNotePlanURLToPasteboard() {
+                writeDebugLog("shortcut-paste:fallback-noteplan-url:clipboard:\(pasteboardPreview(from: NSPasteboard.general))")
+                target = shortcutTarget(from: NSPasteboard.general)
+            } else {
+                writeDebugLog("shortcut-paste:fallback-noteplan-url:failed")
+            }
+        }
+
+        guard let target else {
+            statusLabel.stringValue = "Depuis NotePlan, ouvre une note puis utilise Note > Copier l'URL vers la note, ou copie un titre/chemin .md."
             NSSound.beep()
             return
         }
         _ = applyDroppedTarget(target, to: row)
+    }
+
+    private func copyCurrentNotePlanURLToPasteboard() -> Bool {
+        let script = """
+        set copied to false
+        tell application "NotePlan" to activate
+        delay 0.15
+        tell application "System Events"
+          if exists process "NotePlan" then
+            tell process "NotePlan"
+              repeat with itemName in {"Copier l'URL vers la note", "Copy Note URL", "Copy URL to Note", "Copy URL to note"}
+                try
+                  click menu item itemName of menu "Note" of menu bar 1
+                  set copied to true
+                  exit repeat
+                end try
+              end repeat
+            end tell
+          end if
+        end tell
+        delay 0.2
+        tell application "NoteDroppy" to activate
+        return copied
+        """
+
+        var error: NSDictionary?
+        guard let appleScript = NSAppleScript(source: script) else { return false }
+        let result = appleScript.executeAndReturnError(&error)
+        if let error {
+            writeDebugLog("shortcut-paste:fallback-noteplan-url:error:\(error)")
+        }
+        return result.booleanValue
     }
 
     private func commitDroppedPath(relativePath: String, isDirectory: Bool, row: ShortcutSlotRow) -> Bool {
