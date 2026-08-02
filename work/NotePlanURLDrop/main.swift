@@ -2648,6 +2648,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         value.lowercased().hasPrefix("http://") || value.lowercased().hasPrefix("https://")
     }
 
+    private func markdownLinkForWebURL(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isWebURL(trimmed), let url = URL(string: trimmed), let host = url.host else {
+            return nil
+        }
+        let title = host
+            .replacingOccurrences(of: #"^www\."#, with: "", options: .regularExpression)
+            .split(separator: ".")
+            .first
+            .map { String($0).prefix(1).uppercased() + String($0.dropFirst()) } ?? host
+        let escapedTitle = title
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "[", with: "\\[")
+            .replacingOccurrences(of: "]", with: "\\]")
+        return "[\(escapedTitle)](\(trimmed))"
+    }
+
     private func normalizedTodoText(_ value: String) -> String? {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed != "(null)" else { return nil }
@@ -2910,6 +2927,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         guard !content.isEmpty, content != "(null)" else { return nil }
+        if let markdownLink = markdownLinkForWebURL(content) {
+            return markdownLink
+        }
         return content
     }
 
