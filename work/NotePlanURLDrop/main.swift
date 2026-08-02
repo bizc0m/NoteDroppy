@@ -710,6 +710,7 @@ private func isReservedMenuShortcut(keyCode: UInt32, modifiers: UInt32) -> Bool 
 final class ShortcutTargetField: NSTextField {
     var acceptsDrop = true
     var onDropTarget: ((ShortcutTarget) -> Bool)?
+    var onPasteTarget: (() -> Void)?
 
     init() {
         super.init(frame: .zero)
@@ -718,6 +719,7 @@ final class ShortcutTargetField: NSTextField {
         isSelectable = true
         lineBreakMode = .byTruncatingMiddle
         registerForDraggedTypes(shortcutDropPasteboardTypes)
+        configurePasteMenu()
     }
 
     required init?(coder: NSCoder) {
@@ -727,6 +729,43 @@ final class ShortcutTargetField: NSTextField {
         isSelectable = true
         lineBreakMode = .byTruncatingMiddle
         registerForDraggedTypes(shortcutDropPasteboardTypes)
+        configurePasteMenu()
+    }
+
+    override var acceptsFirstResponder: Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        super.mouseDown(with: event)
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if acceptsDrop,
+           event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command),
+           event.charactersIgnoringModifiers?.lowercased() == "v" {
+            pasteTargetFromField(nil)
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if acceptsDrop,
+           event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command),
+           event.charactersIgnoringModifiers?.lowercased() == "v" {
+            pasteTargetFromField(nil)
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    @objc private func pasteTargetFromField(_ sender: Any?) {
+        guard acceptsDrop else {
+            NSSound.beep()
+            return
+        }
+        writeDebugLog("shortcut-target:paste-field:\(pasteboardPreview(from: NSPasteboard.general))")
+        onPasteTarget?()
     }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
@@ -754,6 +793,15 @@ final class ShortcutTargetField: NSTextField {
             return false
         }
         return onDropTarget?(target) ?? false
+    }
+
+    private func configurePasteMenu() {
+        let menu = NSMenu()
+        let item = NSMenuItem(title: "Coller cible", action: #selector(pasteTargetFromField(_:)), keyEquivalent: "")
+        item.target = self
+        menu.addItem(item)
+        self.menu = menu
+        toolTip = "Déposer une note .md, ou cliquer ici puis Cmd+V depuis Finder/NotePlan"
     }
 
     private func dragOperation(for sender: NSDraggingInfo) -> NSDragOperation {
@@ -1029,7 +1077,6 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
     let noteField: NSTextField
     let searchButton = NSButton(title: "Rechercher", target: nil, action: nil)
     let targetField = ShortcutTargetField()
-    let pasteButton = NSButton(title: "Coller cible", target: nil, action: nil)
     let tagsField: NSTextField
     var onSearch: ((ShortcutSlotRow) -> Void)?
     var onTargetDrop: ((ShortcutSlotRow, ShortcutTarget) -> Bool)?
@@ -1059,39 +1106,38 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         destinationPopup.action = #selector(destinationChanged)
         folderField.placeholderString = "Dossier"
         noteField.placeholderString = placeholder(for: slot.index == 1 ? .today : slot.destination)
-        targetField.placeholderString = slot.index == 1 ? "Aujourd'hui" : "Déposer une note .md ici"
+        targetField.placeholderString = slot.index == 1 ? "Aujourd'hui" : "Déposer ou coller une note ici"
         targetField.stringValue = targetDisplay(for: slot.index == 1 ? .today : slot.destination, folder: slot.folder, note: slot.noteReference)
         targetField.acceptsDrop = slot.index != 1
         targetField.onDropTarget = { [weak self] target in
             guard let self else { return false }
             return self.onTargetDrop?(self, target) ?? false
         }
+        targetField.onPasteTarget = { [weak self] in
+            guard let self else { return }
+            self.onPasteTarget?(self)
+        }
         searchButton.target = self
         searchButton.action = #selector(searchNote)
         searchButton.bezelStyle = .rounded
-        pasteButton.target = self
-        pasteButton.action = #selector(pasteTarget)
-        pasteButton.bezelStyle = .rounded
-        pasteButton.isEnabled = slot.index != 1
         tagsField.placeholderString = "capture, $year, #projet"
         tagsField.delegate = self
         tagsField.target = self
         tagsField.action = #selector(rowChanged)
 
-        [enabledCheckbox, recorder, destinationPopup, folderField, noteField, searchButton, targetField, pasteButton, tagsField].forEach {
+        [enabledCheckbox, recorder, destinationPopup, folderField, noteField, searchButton, targetField, tagsField].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
         }
         enabledCheckbox.widthAnchor.constraint(equalToConstant: Self.columnWidths[0]).isActive = true
         recorder.widthAnchor.constraint(equalToConstant: Self.columnWidths[1]).isActive = true
         targetField.widthAnchor.constraint(equalToConstant: Self.columnWidths[2]).isActive = true
-        pasteButton.widthAnchor.constraint(equalToConstant: Self.columnWidths[3]).isActive = true
-        tagsField.widthAnchor.constraint(equalToConstant: Self.columnWidths[4]).isActive = true
+        tagsField.widthAnchor.constraint(equalToConstant: Self.columnWidths[3]).isActive = true
         refreshNoteFieldState()
     }
 
     static let columnSpacing: CGFloat = 12
-    static let columnTitles = ["Actif", "Raccourci", "Cible", "", "Tags"]
-    static let columnWidths: [CGFloat] = [44, 92, 410, 96, 240]
+    static let columnTitles = ["Actif", "Raccourci", "Cible", "Tags"]
+    static let columnWidths: [CGFloat] = [44, 92, 518, 240]
 
     static func headerView() -> NSView {
         let row = NSStackView()
@@ -1140,7 +1186,6 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         row.addArrangedSubview(enabledCheckbox)
         row.addArrangedSubview(recorder)
         row.addArrangedSubview(targetField)
-        row.addArrangedSubview(pasteButton)
         row.addArrangedSubview(tagsField)
         return row
     }
@@ -1182,11 +1227,6 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         onSearch?(self)
     }
 
-    @objc private func pasteTarget() {
-        guard !isTodaySlot else { return }
-        onPasteTarget?(self)
-    }
-
     @objc private func rowChanged() {
         onChange?(self)
     }
@@ -1209,7 +1249,6 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         noteField.isEnabled = destination != .today
         targetField.acceptsDrop = !isTodaySlot
         searchButton.isEnabled = !isTodaySlot
-        pasteButton.isEnabled = !isTodaySlot
         if destination == .today {
             folderField.stringValue = ""
             noteField.stringValue = ""
@@ -1478,7 +1517,7 @@ final class SettingsWindowController: NSWindowController {
     private let chooseNotesRootButton = NSButton(title: "Choisir dossier Notes", target: nil, action: nil)
     private let openNoteCheckbox = NSButton(checkboxWithTitle: "Ouvrir NotePlan après l'ajout", target: nil, action: nil)
     private var shortcutRows: [ShortcutSlotRow] = []
-    private let shortcutHelpLabel = NSTextField(labelWithString: "Actif | Raccourci | Cible | Tags. Dépose une note .md ou utilise Coller cible sur les slots 2-10. Variables: $date, $day, $time, $datetime, $month, $year")
+    private let shortcutHelpLabel = NSTextField(labelWithString: "Actif | Raccourci | Cible | Tags. Sur Cible: déposer ou cliquer puis Cmd+V depuis Finder/NotePlan. Variables: $date, $day, $time, $datetime, $month, $year")
     private let helpButton = NSButton(title: "Aide", target: nil, action: nil)
     private let accessibilityButton = NSButton(title: "Autoriser Accessibilité", target: nil, action: nil)
     private let exportButton = NSButton(title: "Exporter JSON", target: nil, action: nil)
