@@ -13,7 +13,7 @@ Help: [HELP.md](HELP.md) / [HELP.en.md](HELP.en.md)
 Repository: [https://github.com/bizc0m/NoteDroppy](https://github.com/bizc0m/NoteDroppy)
 
 Verified stable download:
-[NoteDroppy v1.25.1 new icon](https://github.com/bizc0m/NoteDroppy-page/releases/tag/notedroppy-v1.25.1-new-icon)
+[NoteDroppy v1.25.2 gatekeeper fix](https://github.com/bizc0m/NoteDroppy-page/releases/tag/notedroppy-v1.25.2-gatekeeper-fix)
 
 GitHub download page:
 [https://bizc0m.github.io/NoteDroppy-page/](https://bizc0m.github.io/NoteDroppy-page/)
@@ -42,7 +42,7 @@ Validated on 2026-08-03:
 - real write into today's NotePlan note through `noteDate=today`;
 - validation test line removed afterwards.
 
-Note: the package is locally/ad-hoc signed and is not Apple-notarized. macOS may require Gatekeeper approval on first launch. The `docs/index.html` page is ready in the repository, but GitHub Pages is not enabled for this repository.
+Note: the package is locally signed and is not Apple-notarized. macOS may require Gatekeeper approval on first launch. The `docs/index.html` page is ready in the repository, but GitHub Pages is not enabled for this repository.
 
 ## New Icon v1.25.1
 
@@ -64,6 +64,28 @@ Verified:
 - macOS Service `NotePlan : ajouter en tâche`;
 - real write into today's NotePlan note;
 - validation test line removed afterwards.
+
+## Gatekeeper Local Fix v1.25.2
+
+This variant keeps the new icon and replaces the ad-hoc signature with the local signing identity:
+
+```text
+NoteDroppy Local Code Signing
+```
+
+Public package:
+
+```text
+https://github.com/bizc0m/NoteDroppy-page/releases/tag/notedroppy-v1.25.2-gatekeeper-fix
+```
+
+SHA-256:
+
+```text
+9717c521a9373d161655744488e86535555123a7f5d176ebc3e1d69de3a89467
+```
+
+Limit: this is still not Apple Developer ID notarization. On another Mac or after a browser download, macOS may still require manual approval. On this machine, the local `NoteDroppy 2.app` copy was replaced with a clean signed bundle without quarantine.
 
 ## What It Does
 

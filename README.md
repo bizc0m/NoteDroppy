@@ -13,7 +13,7 @@ Aide: [HELP.md](HELP.md) / [HELP.en.md](HELP.en.md)
 Repo: [https://github.com/bizc0m/NoteDroppy](https://github.com/bizc0m/NoteDroppy)
 
 Téléchargement stable vérifié:
-[NoteDroppy v1.25.1 new icon](https://github.com/bizc0m/NoteDroppy-page/releases/tag/notedroppy-v1.25.1-new-icon)
+[NoteDroppy v1.25.2 gatekeeper fix](https://github.com/bizc0m/NoteDroppy-page/releases/tag/notedroppy-v1.25.2-gatekeeper-fix)
 
 Page de téléchargement GitHub:
 [https://bizc0m.github.io/NoteDroppy-page/](https://bizc0m.github.io/NoteDroppy-page/)
@@ -42,7 +42,7 @@ Cette version a été vérifiée le 2026-08-03 avec:
 - ajout réel dans la note du jour NotePlan via `noteDate=today`;
 - nettoyage de la ligne de test après validation.
 
-Note: le paquet est signé localement/ad hoc et n'est pas notarise Apple. macOS peut demander une validation Gatekeeper au premier lancement. La page HTML `docs/index.html` est prête dans le repo, mais GitHub Pages n'est pas activé sur ce dépôt.
+Note: le paquet est signé localement et n'est pas notarise Apple. macOS peut demander une validation Gatekeeper au premier lancement. La page HTML `docs/index.html` est prête dans le repo, mais GitHub Pages n'est pas activé sur ce dépôt.
 
 ## Version v1.25.1 nouvelle icône
 
@@ -64,6 +64,28 @@ Vérifications:
 - Service macOS `NotePlan : ajouter en tâche`;
 - ajout réel dans la note du jour NotePlan;
 - ligne de test supprimée après validation.
+
+## Version v1.25.2 correction Gatekeeper locale
+
+Cette variante garde la nouvelle icône et remplace la signature ad hoc par l'identité locale:
+
+```text
+NoteDroppy Local Code Signing
+```
+
+Paquet public:
+
+```text
+https://github.com/bizc0m/NoteDroppy-page/releases/tag/notedroppy-v1.25.2-gatekeeper-fix
+```
+
+SHA-256:
+
+```text
+9717c521a9373d161655744488e86535555123a7f5d176ebc3e1d69de3a89467
+```
+
+Limite: ce n'est toujours pas une notarisation Apple Developer ID. Sur un autre Mac ou après téléchargement navigateur, macOS peut encore demander une validation manuelle. Sur cette machine, la copie locale `NoteDroppy 2.app` a été remplacée par un bundle signé propre sans quarantine.
 
 ## Ce que ça fait
 
