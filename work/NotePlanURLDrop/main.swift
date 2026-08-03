@@ -135,7 +135,7 @@ private enum Settings {
             : UInt32(UserDefaults.standard.integer(forKey: modifiersKey))
         let note = UserDefaults.standard.string(forKey: noteKey) ?? ""
         let folder = UserDefaults.standard.string(forKey: folderKey) ?? ""
-        let tags = UserDefaults.standard.string(forKey: tagsKey) ?? "\(index == 1 ? taskTag : "#capture") #slot\(index)"
+        let tags = UserDefaults.standard.string(forKey: tagsKey) ?? (index == 1 ? taskTag : "#capture")
         let savedDestination = UserDefaults.standard.string(forKey: destinationKey)
             .flatMap { ShortcutDestination(rawValue: $0) }
         let destination = Settings.validDestination(savedDestination ?? (index == 1 ? .today : .standard), for: index)
@@ -657,6 +657,42 @@ struct KeyCombo {
         case kVK_Return: return "Retour"
         case kVK_Tab: return "Tab"
         case kVK_Escape: return "Esc"
+        case kVK_ANSI_Keypad0: return "Num0"
+        case kVK_ANSI_Keypad1: return "Num1"
+        case kVK_ANSI_Keypad2: return "Num2"
+        case kVK_ANSI_Keypad3: return "Num3"
+        case kVK_ANSI_Keypad4: return "Num4"
+        case kVK_ANSI_Keypad5: return "Num5"
+        case kVK_ANSI_Keypad6: return "Num6"
+        case kVK_ANSI_Keypad7: return "Num7"
+        case kVK_ANSI_Keypad8: return "Num8"
+        case kVK_ANSI_Keypad9: return "Num9"
+        case kVK_ANSI_KeypadDecimal: return "Num."
+        case kVK_ANSI_KeypadMultiply: return "Num*"
+        case kVK_ANSI_KeypadPlus: return "Num+"
+        case kVK_ANSI_KeypadMinus: return "Num-"
+        case kVK_ANSI_KeypadDivide: return "Num/"
+        case kVK_ANSI_KeypadEquals: return "Num="
+        case kVK_ANSI_KeypadEnter: return "NumRetour"
+        case kVK_ANSI_KeypadClear: return "NumEffacer"
+        case kVK_LeftArrow: return "←"
+        case kVK_RightArrow: return "→"
+        case kVK_UpArrow: return "↑"
+        case kVK_DownArrow: return "↓"
+        case kVK_ForwardDelete: return "Suppr"
+        case kVK_Delete: return "Effacer"
+        case kVK_F1: return "F1"
+        case kVK_F2: return "F2"
+        case kVK_F3: return "F3"
+        case kVK_F4: return "F4"
+        case kVK_F5: return "F5"
+        case kVK_F6: return "F6"
+        case kVK_F7: return "F7"
+        case kVK_F8: return "F8"
+        case kVK_F9: return "F9"
+        case kVK_F10: return "F10"
+        case kVK_F11: return "F11"
+        case kVK_F12: return "F12"
         default: return "#\(keyCode)"
         }
     }
@@ -796,7 +832,7 @@ final class ShortcutTargetField: NSTextField {
         wantsLayer = true
         isEditable = true
         isSelectable = true
-        lineBreakMode = .byTruncatingMiddle
+        lineBreakMode = .byTruncatingHead
         registerForDraggedTypes(shortcutDropPasteboardTypes)
         configurePasteMenu()
     }
@@ -806,7 +842,7 @@ final class ShortcutTargetField: NSTextField {
         wantsLayer = true
         isEditable = true
         isSelectable = true
-        lineBreakMode = .byTruncatingMiddle
+        lineBreakMode = .byTruncatingHead
         registerForDraggedTypes(shortcutDropPasteboardTypes)
         configurePasteMenu()
     }
@@ -1236,7 +1272,7 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         folderField.placeholderString = "Dossier"
         noteField.placeholderString = placeholder(for: slot.destination)
         targetField.placeholderString = "Déposer depuis Finder une note .md ou coller un lien NotePlan"
-        targetField.stringValue = targetDisplay(for: slot.destination, folder: slot.folder, note: slot.noteReference)
+        applyTargetDisplay(targetDisplay(for: slot.destination, folder: slot.folder, note: slot.noteReference))
         styleFillableField(targetField)
         targetField.acceptsDrop = true
         targetField.onDropTarget = { [weak self] target in
@@ -1274,7 +1310,7 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
 
     static let columnSpacing: CGFloat = 12
     static let columnTitles = ["Actif", "Raccourci", "App / Cible", "Tags"]
-    static let columnWidths: [CGFloat] = [44, 92, 656, 240]
+    static let columnWidths: [CGFloat] = [44, 92, 560, 240]
 
     static func headerView() -> NSView {
         let row = NSStackView()
@@ -1335,7 +1371,6 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         targetStack.addArrangedSubview(enginePopup)
         targetStack.addArrangedSubview(destinationPopup)
         targetStack.addArrangedSubview(targetField)
-        targetStack.addArrangedSubview(searchButton)
         row.addArrangedSubview(enabledCheckbox)
         row.addArrangedSubview(recorder)
         row.addArrangedSubview(targetStack)
@@ -1347,7 +1382,7 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         destinationPopup.selectItem(withTitle: ShortcutDestination.notePath.title)
         folderField.stringValue = result.folder
         noteField.stringValue = URL(fileURLWithPath: result.relativePath).lastPathComponent
-        targetField.stringValue = targetDisplay(for: .notePath, folder: result.folder, note: URL(fileURLWithPath: result.relativePath).lastPathComponent)
+        applyTargetDisplay(targetDisplay(for: .notePath, folder: result.folder, note: URL(fileURLWithPath: result.relativePath).lastPathComponent))
         if tagsField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             tagsField.stringValue = result.tags.prefix(4).joined(separator: ", ")
         }
@@ -1365,7 +1400,7 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         destinationPopup.selectItem(withTitle: destination.title)
         folderField.stringValue = slot.folder
         noteField.stringValue = slot.noteReference
-        targetField.stringValue = targetDisplay(for: destination, folder: slot.folder, note: slot.noteReference)
+        applyTargetDisplay(targetDisplay(for: destination, folder: slot.folder, note: slot.noteReference))
         tagsField.stringValue = slot.tags
         noteField.placeholderString = placeholder(for: destination)
         refreshNoteFieldState()
@@ -1394,6 +1429,7 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
     func controlTextDidEndEditing(_ obj: Notification) {
         if let field = obj.object as? NSTextField, field === targetField {
             syncTargetTextIfNeeded()
+            applyTargetDisplay(targetDisplay(for: selectedDestination(), folder: folderField.stringValue, note: noteField.stringValue))
         }
         onChange?(self)
     }
@@ -1421,15 +1457,15 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
             folderField.placeholderString = "Vault Obsidian"
             noteField.placeholderString = "Inbox/Captures.md"
             if targetField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || targetField.stringValue == "Raccourci standard" || targetField.stringValue == "Aujourd'hui NotePlan" {
-                targetField.stringValue = targetDisplay(for: destination, folder: folderField.stringValue, note: noteField.stringValue)
+                applyTargetDisplay(targetDisplay(for: destination, folder: folderField.stringValue, note: noteField.stringValue))
             }
         } else if !acceptsTarget {
             folderField.placeholderString = "Dossier"
             folderField.stringValue = ""
             noteField.stringValue = ""
-            targetField.stringValue = targetDisplay(for: destination, folder: "", note: "")
+            applyTargetDisplay(targetDisplay(for: destination, folder: "", note: ""))
         } else if targetField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            targetField.stringValue = targetDisplay(for: destination, folder: folderField.stringValue, note: noteField.stringValue)
+            applyTargetDisplay(targetDisplay(for: destination, folder: folderField.stringValue, note: noteField.stringValue))
         }
     }
 
@@ -1437,7 +1473,12 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         let engine = selectedEngine()
         let destination = selectedDestination()
         guard engine == .obsidian || destination.acceptsTarget else { return }
-        let value = targetField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let placeholderLabels: Set<String> = ["Raccourci standard", "Aujourd'hui NotePlan", "Vault Obsidian + note .md"]
+        var value = targetField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if placeholderLabels.contains(value) {
+            value = ""
+            targetField.stringValue = ""
+        }
         guard !value.isEmpty else {
             folderField.stringValue = ""
             noteField.stringValue = ""
@@ -1474,9 +1515,14 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
             let folder = url.deletingLastPathComponent().relativePath
             folderField.stringValue = folder == "." ? "" : folder
             noteField.stringValue = url.lastPathComponent
-            targetField.stringValue = relativePath
+            applyTargetDisplay(relativePath)
         }
         refreshNoteFieldState()
+    }
+
+    private func applyTargetDisplay(_ fullText: String) {
+        targetField.toolTip = fullText.contains("/") ? fullText : nil
+        targetField.stringValue = fullText
     }
 
     private func targetDisplay(for destination: ShortcutDestination, folder: String, note: String) -> String {
@@ -1737,6 +1783,8 @@ final class SettingsWindowController: NSWindowController {
     private let exportButton = NSButton(title: "Exporter JSON", target: nil, action: nil)
     private let importButton = NSButton(title: "Importer JSON", target: nil, action: nil)
     private let statusLabel = NSTextField(labelWithString: "")
+    private let saveButton = NSButton(title: "Enregistrer", target: nil, action: nil)
+    private var hasPendingChanges = false
 
     convenience init() {
         let window = centeredWindow("Préférences NoteDroppy", width: 980, height: 800, style: [.titled, .closable, .miniaturizable, .resizable])
@@ -1757,6 +1805,12 @@ final class SettingsWindowController: NSWindowController {
         let title = NSTextField(labelWithString: "NoteDroppy")
         title.font = .boldSystemFont(ofSize: 18)
 
+        let tagline = NSTextField(labelWithString: "Time is precious.\nSpend it with those you love")
+        tagline.font = .systemFont(ofSize: 11)
+        tagline.textColor = .secondaryLabelColor
+        tagline.maximumNumberOfLines = 2
+        tagline.lineBreakMode = .byWordWrapping
+
         let logo = NSImageView()
         logo.image = NSApplication.shared.applicationIconImage
         logo.imageScaling = .scaleProportionallyUpOrDown
@@ -1770,6 +1824,7 @@ final class SettingsWindowController: NSWindowController {
         titleStack.alignment = .centerY
         titleStack.addArrangedSubview(logo)
         titleStack.addArrangedSubview(title)
+        titleStack.addArrangedSubview(tagline)
 
         serviceNameField.placeholderString = "NotePlan : ajouter en tâche"
         serviceNameField.lineBreakMode = .byTruncatingTail
@@ -1813,7 +1868,8 @@ final class SettingsWindowController: NSWindowController {
         buttons.spacing = 8
         buttons.alignment = .centerY
 
-        let saveButton = NSButton(title: "Enregistrer", target: self, action: #selector(saveSettings))
+        saveButton.target = self
+        saveButton.action = #selector(saveSettings)
         saveButton.bezelStyle = .rounded
         saveButton.keyEquivalent = "\r"
 
@@ -1903,6 +1959,7 @@ final class SettingsWindowController: NSWindowController {
         window?.setContentSize(contentSize)
         window?.minSize = NSSize(width: 980, height: 560)
         refreshAccessibilityStatus()
+        markPendingChanges(false)
     }
 
     private func showNoteSearch(for row: ShortcutSlotRow) {
@@ -2242,6 +2299,7 @@ final class SettingsWindowController: NSWindowController {
             statusLabel.stringValue = "Réglages enregistrés. Nom du Service gardé pour l'app, mais macOS n'a pas pu être rafraîchi."
         }
         refreshAccessibilityStatus(append: true)
+        markPendingChanges(false)
     }
 
     @objc private func exportPreferencesJSON() {
@@ -2296,6 +2354,12 @@ final class SettingsWindowController: NSWindowController {
         if let message {
             statusLabel.stringValue = message
         }
+        markPendingChanges(true)
+    }
+
+    private func markPendingChanges(_ pending: Bool) {
+        hasPendingChanges = pending
+        saveButton.bezelColor = pending ? .systemOrange : .systemGreen
     }
 
     private func reloadControlsFromSettings() {
@@ -3053,10 +3117,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 log("source-url:pasteboard:\(candidate)")
                 return candidate
             }
-            if let url = firstWebURL(in: candidate), URL(string: url)?.host != nil {
-                log("source-url:pasteboard:\(url)")
-                return url
-            }
         }
         return nil
     }
@@ -3224,6 +3284,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return "\(cleanFolder)/\(cleanNote)"
     }
 
+    private func stripLeadingCheckbox(_ value: String) -> String {
+        var content = value
+        let taskPrefixPattern = #"^[-*]\s+\[[ xX]\]\s+"#
+        while let range = content.range(of: taskPrefixPattern, options: .regularExpression) {
+            content.removeSubrange(range)
+            content = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return content
+    }
+
     private func formattedTask(from content: String, tags: String, sourceURL: String? = nil) -> String {
         let tag = normalizedTags(expandedVariables(tags))
         var lines = content.components(separatedBy: .newlines)
@@ -3239,8 +3309,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let firstLine = first.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        var continuation = lines.dropFirst().map { line in
-            line.isEmpty ? ">" : "> \(line)"
+        var continuation = lines.dropFirst().map { line -> String in
+            line.isEmpty ? ">" : "> \(stripLeadingCheckbox(line))"
         }
         if let sourceLine = sourceContinuationLine(sourceURL, content: content) {
             continuation.append(sourceLine)
@@ -3260,14 +3330,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func normalizedTaskContent(_ value: String, tags: String) -> String? {
-        var content = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        var content = stripLeadingCheckbox(value.trimmingCharacters(in: .whitespacesAndNewlines))
         guard !content.isEmpty, content != "(null)" else { return nil }
-
-        let taskPrefixPattern = #"^[-*]\s+\[[ xX]\]\s+"#
-        while let range = content.range(of: taskPrefixPattern, options: .regularExpression) {
-            content.removeSubrange(range)
-            content = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
 
         for tag in normalizedPreferenceTags(expandedVariables(tags)) {
             if content == tag {
