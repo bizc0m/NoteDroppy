@@ -12,8 +12,80 @@ Help: [HELP.md](HELP.md) / [HELP.en.md](HELP.en.md)
 
 Repository: [https://github.com/bizc0m/NoteDroppy](https://github.com/bizc0m/NoteDroppy)
 
+Verified stable download:
+[NoteDroppy v1.25.2 gatekeeper fix](https://github.com/bizc0m/NoteDroppy-page/releases/tag/notedroppy-v1.25.2-gatekeeper-fix)
+
+GitHub download page:
+[https://bizc0m.github.io/NoteDroppy-page/](https://bizc0m.github.io/NoteDroppy-page/)
+
 Multilingual docs:
 [FR](docs/README.fr.md) · [EN](docs/README.en.md) · [ES](docs/README.es.md) · [DE](docs/README.de.md) · [IT](docs/README.it.md) · [PT](docs/README.pt.md)
+
+## Stable Blue v1.25
+
+Use this package when you need the stable blue-icon build:
+
+```text
+NoteDroppy v1.25 build 35
+```
+
+GitHub package:
+
+```text
+releases/NoteDroppy-v1.25-blue-service.zip
+```
+
+Validated on 2026-08-03:
+
+- historical blue `URL -> NP` icon;
+- macOS Service `NotePlan : ajouter en tâche`;
+- real write into today's NotePlan note through `noteDate=today`;
+- validation test line removed afterwards.
+
+Note: the package is locally signed and is not Apple-notarized. macOS may require Gatekeeper approval on first launch. The `docs/index.html` page is ready in the repository, but GitHub Pages is not enabled for this repository.
+
+## New Icon v1.25.1
+
+The current installable variant with the provided new icon is:
+
+```text
+NoteDroppy v1.25.1 build 36
+```
+
+Public package:
+
+```text
+https://github.com/bizc0m/NoteDroppy-page/releases/tag/notedroppy-v1.25.1-new-icon
+```
+
+Verified:
+
+- macOS icon applied to the installed bundle;
+- macOS Service `NotePlan : ajouter en tâche`;
+- real write into today's NotePlan note;
+- validation test line removed afterwards.
+
+## Gatekeeper Local Fix v1.25.2
+
+This variant keeps the new icon and replaces the ad-hoc signature with the local signing identity:
+
+```text
+NoteDroppy Local Code Signing
+```
+
+Public package:
+
+```text
+https://github.com/bizc0m/NoteDroppy-page/releases/tag/notedroppy-v1.25.2-gatekeeper-fix
+```
+
+SHA-256:
+
+```text
+9717c521a9373d161655744488e86535555123a7f5d176ebc3e1d69de3a89467
+```
+
+Limit: this is still not Apple Developer ID notarization. On another Mac or after a browser download, macOS may still require manual approval. On this machine, the local `NoteDroppy 2.app` copy was replaced with a clean signed bundle without quarantine.
 
 ## What It Does
 

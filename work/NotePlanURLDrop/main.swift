@@ -2822,7 +2822,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let data = try? Data(contentsOf: fileURL, options: [.mappedIfSafe]) else {
             return false
         }
-        return !data.prefix(4096).contains(0)
+        return looksLikePlainText(data.prefix(4096))
+    }
+
+    private func looksLikePlainText(_ bytes: Data.SubSequence) -> Bool {
+        guard !bytes.isEmpty else { return false }
+        for byte in bytes {
+            if byte == 0 { return false }
+            if byte < 0x09 { return false }
+            if byte > 0x0D && byte < 0x20 { return false }
+        }
+        return true
     }
 
     private func firstWebURL(in text: String) -> String? {
