@@ -13,10 +13,10 @@ Aide: [HELP.md](HELP.md) / [HELP.en.md](HELP.en.md)
 Repo: [https://github.com/bizc0m/NoteDroppy](https://github.com/bizc0m/NoteDroppy)
 
 Téléchargement stable vérifié:
-[NoteDroppy v1.25 blue service](https://github.com/bizc0m/NoteDroppy/releases/tag/notedroppy-v1.25-blue-service)
+[NoteDroppy v1.25.1 new icon](https://github.com/bizc0m/NoteDroppy-page/releases/tag/notedroppy-v1.25.1-new-icon)
 
 Page de téléchargement GitHub:
-[https://github.com/bizc0m/NoteDroppy/releases/tag/notedroppy-v1.25-blue-service](https://github.com/bizc0m/NoteDroppy/releases/tag/notedroppy-v1.25-blue-service)
+[https://bizc0m.github.io/NoteDroppy-page/](https://bizc0m.github.io/NoteDroppy-page/)
 
 Docs multilingues:
 [FR](docs/README.fr.md) · [EN](docs/README.en.md) · [ES](docs/README.es.md) · [DE](docs/README.de.md) · [IT](docs/README.it.md) · [PT](docs/README.pt.md)
@@ -43,6 +43,27 @@ Cette version a été vérifiée le 2026-08-03 avec:
 - nettoyage de la ligne de test après validation.
 
 Note: le paquet est signé localement/ad hoc et n'est pas notarise Apple. macOS peut demander une validation Gatekeeper au premier lancement. La page HTML `docs/index.html` est prête dans le repo, mais GitHub Pages n'est pas activé sur ce dépôt.
+
+## Version v1.25.1 nouvelle icône
+
+La variante installable actuelle avec la nouvelle icône fournie est:
+
+```text
+NoteDroppy v1.25.1 build 36
+```
+
+Paquet public:
+
+```text
+https://github.com/bizc0m/NoteDroppy-page/releases/tag/notedroppy-v1.25.1-new-icon
+```
+
+Vérifications:
+
+- icône macOS appliquée au bundle installé;
+- Service macOS `NotePlan : ajouter en tâche`;
+- ajout réel dans la note du jour NotePlan;
+- ligne de test supprimée après validation.
 
 ## Ce que ça fait
 
