@@ -64,8 +64,11 @@ Réglages disponibles :
 - Tag ajouté à la tâche.
 - Ouverture de NotePlan après ajout.
 - 10 raccourcis globaux configurables.
-- Pour chaque raccourci : Actif, Raccourci, Destination, Note/Path, Tags.
-- Destinations : Aujourd'hui, Note nommée, Chemin de note.
+- Ligne 1 par défaut : App `NotePlan`, destination `Aujourd'hui (NotePlan)`.
+- Pour chaque raccourci : Actif, Raccourci, App, Destination, Note/Path, Tags.
+- Apps : `NotePlan` ou `Obsidian beta`.
+- Destinations NotePlan : Aujourd'hui, Note nommée, Chemin de note.
+- Obsidian beta : écrire directement dans une note `.md` du vault.
 - Le bouton `Rechercher` liste les notes NotePlan, filtre par titre, chemin, `#tag` ou `@contexte`, puis valide le chemin dans `Note/Path`.
 - Tags séparés par virgule, automatiquement normalisés en tags NotePlan.
 - Export JSON et import JSON des préférences.

@@ -114,8 +114,11 @@ Ce paquet n'est pas notarise par Apple. Sur un autre Mac, macOS peut demander un
 - Tag ajouté à la tâche, par défaut `#capture`.
 - Ouverture de NotePlan après ajout.
 - 10 raccourcis globaux configurables.
-- Pour chaque raccourci : Actif, combinaison clavier, destination, Note/Path, tags séparés par virgule.
-- Destinations : Aujourd'hui (`noteDate=today`), Note nommée (`noteTitle=<titre>`), Chemin de note (`notePath=<chemin>` avec compatibilité NotePlan `fileName`).
+- Ligne 1 par défaut : App `NotePlan`, destination `Aujourd'hui (NotePlan)` (`noteDate=today`).
+- Pour chaque raccourci : Actif, combinaison clavier, App, destination, Note/Path, tags séparés par virgule.
+- Apps : `NotePlan` ou `Obsidian beta`.
+- Destinations NotePlan : Aujourd'hui (`noteDate=today`), Note nommée (`noteTitle=<titre>`), Chemin de note (`notePath=<chemin>` avec compatibilité NotePlan `fileName`).
+- Obsidian beta : écriture directe dans une note `.md` du vault configuré.
 - Recherche directe dans les notes NotePlan depuis chaque ligne de raccourci, avec filtre par titre, chemin, `#tag` ou `#contexte`, puis validation du chemin dans `Note/Path`.
 - Bouton vers le panneau Accessibilité macOS.
 - Aide intégrée avec lien vers le repo GitHub.

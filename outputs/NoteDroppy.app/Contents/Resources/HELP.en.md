@@ -64,8 +64,11 @@ Available settings:
 - Task tag.
 - Open NotePlan after adding.
 - 10 configurable global shortcuts.
-- For each shortcut: Enabled, Shortcut, Destination, Note/Path, Tags.
-- Destinations: Today, Named note, Note path.
+- Row 1 default: App `NotePlan`, destination `Today (NotePlan)`.
+- For each shortcut: Enabled, Shortcut, App, Destination, Note/Path, Tags.
+- Apps: `NotePlan` or `Obsidian beta`.
+- NotePlan destinations: Today, Named note, Note path.
+- Obsidian beta: write directly to a `.md` note in the vault.
 - The `Rechercher` button lists NotePlan notes, filters by title, path, `#tag`, or `@context`, then validates the path into `Note/Path`.
 - Comma-separated tags, automatically normalized as NotePlan tags.
 - JSON export and JSON import for preferences.

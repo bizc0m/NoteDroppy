@@ -1728,7 +1728,7 @@ final class SettingsWindowController: NSWindowController {
     private let chooseNotesRootButton = NSButton(title: "Choisir dossier Notes", target: nil, action: nil)
     private let openNoteCheckbox = NSButton(checkboxWithTitle: "Ouvrir NotePlan après l'ajout", target: nil, action: nil)
     private var shortcutRows: [ShortcutSlotRow] = []
-    private let shortcutHelpLabel = NSTextField(labelWithString: "Cible : slot 1 peut utiliser Aujourd'hui (NotePlan). Sinon choisir Standard, déposer depuis Finder une note .md, ou coller un lien NotePlan.")
+    private let shortcutHelpLabel = NSTextField(labelWithString: "Ligne 1 par défaut : NotePlan + Aujourd'hui (NotePlan). Sinon choisir Standard, déposer depuis Finder une note .md, ou coller un lien NotePlan.")
     private let variablesHelpLabel = NSTextField(labelWithString: "Variables : $date, $day, $time, $datetime, $month, $year")
     private let helpButton = NSButton(title: "Aide", target: nil, action: nil)
     private let accessibilityButton = NSButton(title: "Autoriser Accessibilité", target: nil, action: nil)
