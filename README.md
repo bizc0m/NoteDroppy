@@ -15,8 +15,8 @@ Repo: [https://github.com/bizc0m/NoteDroppy](https://github.com/bizc0m/NoteDropp
 Téléchargement stable vérifié:
 [NoteDroppy v1.25 blue service](https://github.com/bizc0m/NoteDroppy/releases/tag/notedroppy-v1.25-blue-service)
 
-Page de téléchargement:
-[https://bizc0m.github.io/NoteDroppy/](https://bizc0m.github.io/NoteDroppy/)
+Page de téléchargement GitHub:
+[https://github.com/bizc0m/NoteDroppy/releases/tag/notedroppy-v1.25-blue-service](https://github.com/bizc0m/NoteDroppy/releases/tag/notedroppy-v1.25-blue-service)
 
 Docs multilingues:
 [FR](docs/README.fr.md) · [EN](docs/README.en.md) · [ES](docs/README.es.md) · [DE](docs/README.de.md) · [IT](docs/README.it.md) · [PT](docs/README.pt.md)
@@ -42,7 +42,7 @@ Cette version a été vérifiée le 2026-08-03 avec:
 - ajout réel dans la note du jour NotePlan via `noteDate=today`;
 - nettoyage de la ligne de test après validation.
 
-Note: le paquet est signé localement/ad hoc et n'est pas notarise Apple. macOS peut demander une validation Gatekeeper au premier lancement.
+Note: le paquet est signé localement/ad hoc et n'est pas notarise Apple. macOS peut demander une validation Gatekeeper au premier lancement. La page HTML `docs/index.html` est prête dans le repo, mais GitHub Pages n'est pas activé sur ce dépôt.
 
 ## Ce que ça fait
 
