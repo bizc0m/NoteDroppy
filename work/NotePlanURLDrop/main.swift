@@ -1473,9 +1473,8 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         let engine = selectedEngine()
         let destination = selectedDestination()
         guard engine == .obsidian || destination.acceptsTarget else { return }
-        let placeholderLabels: Set<String> = ["Raccourci standard", "Aujourd'hui NotePlan", "Vault Obsidian + note .md"]
         var value = targetField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        if placeholderLabels.contains(value) {
+        if value == targetDisplay(for: destination, folder: "", note: "") {
             value = ""
             targetField.stringValue = ""
         }
@@ -3008,7 +3007,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func normalizedTodoText(_ value: String) -> String? {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed != "(null)" else { return nil }
-        return firstWebURL(in: trimmed) ?? trimmed
+        return trimmed
     }
 
     @objc func addSelectionAsTodo(_ pasteboard: NSPasteboard, userData: String, error: AutoreleasingUnsafeMutablePointer<NSString>) {
