@@ -12,8 +12,37 @@ Help: [HELP.md](HELP.md) / [HELP.en.md](HELP.en.md)
 
 Repository: [https://github.com/bizc0m/NoteDroppy](https://github.com/bizc0m/NoteDroppy)
 
+Verified stable download:
+[NoteDroppy v1.25 blue service](https://github.com/bizc0m/NoteDroppy/releases/tag/notedroppy-v1.25-blue-service)
+
+Download page:
+[https://bizc0m.github.io/NoteDroppy/](https://bizc0m.github.io/NoteDroppy/)
+
 Multilingual docs:
 [FR](docs/README.fr.md) · [EN](docs/README.en.md) · [ES](docs/README.es.md) · [DE](docs/README.de.md) · [IT](docs/README.it.md) · [PT](docs/README.pt.md)
+
+## Stable Blue v1.25
+
+Use this package when you need the stable blue-icon build:
+
+```text
+NoteDroppy v1.25 build 35
+```
+
+GitHub package:
+
+```text
+releases/NoteDroppy-v1.25-blue-service.zip
+```
+
+Validated on 2026-08-03:
+
+- historical blue `URL -> NP` icon;
+- macOS Service `NotePlan : ajouter en tâche`;
+- real write into today's NotePlan note through `noteDate=today`;
+- validation test line removed afterwards.
+
+Note: the package is locally/ad-hoc signed and is not Apple-notarized. macOS may require Gatekeeper approval on first launch.
 
 ## What It Does
 

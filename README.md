@@ -12,8 +12,37 @@ Aide: [HELP.md](HELP.md) / [HELP.en.md](HELP.en.md)
 
 Repo: [https://github.com/bizc0m/NoteDroppy](https://github.com/bizc0m/NoteDroppy)
 
+Téléchargement stable vérifié:
+[NoteDroppy v1.25 blue service](https://github.com/bizc0m/NoteDroppy/releases/tag/notedroppy-v1.25-blue-service)
+
+Page de téléchargement:
+[https://bizc0m.github.io/NoteDroppy/](https://bizc0m.github.io/NoteDroppy/)
+
 Docs multilingues:
 [FR](docs/README.fr.md) · [EN](docs/README.en.md) · [ES](docs/README.es.md) · [DE](docs/README.de.md) · [IT](docs/README.it.md) · [PT](docs/README.pt.md)
+
+## Version stable v1.25 bleue
+
+La version recommandée pour revenir à la base stable avec icône bleue est:
+
+```text
+NoteDroppy v1.25 build 35
+```
+
+Paquet GitHub:
+
+```text
+releases/NoteDroppy-v1.25-blue-service.zip
+```
+
+Cette version a été vérifiée le 2026-08-03 avec:
+
+- icône bleue historique `URL -> NP`;
+- Service macOS `NotePlan : ajouter en tâche`;
+- ajout réel dans la note du jour NotePlan via `noteDate=today`;
+- nettoyage de la ligne de test après validation.
+
+Note: le paquet est signé localement/ad hoc et n'est pas notarise Apple. macOS peut demander une validation Gatekeeper au premier lancement.
 
 ## Ce que ça fait
 
