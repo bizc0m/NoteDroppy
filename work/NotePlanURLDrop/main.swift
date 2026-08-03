@@ -135,7 +135,7 @@ private enum Settings {
             : UInt32(UserDefaults.standard.integer(forKey: modifiersKey))
         let note = UserDefaults.standard.string(forKey: noteKey) ?? ""
         let folder = UserDefaults.standard.string(forKey: folderKey) ?? ""
-        let tags = UserDefaults.standard.string(forKey: tagsKey) ?? (index == 1 ? taskTag : "#capture")
+        let tags = UserDefaults.standard.string(forKey: tagsKey) ?? "\(index == 1 ? taskTag : "#capture") #slot\(index)"
         let savedDestination = UserDefaults.standard.string(forKey: destinationKey)
             .flatMap { ShortcutDestination(rawValue: $0) }
         let destination = Settings.validDestination(savedDestination ?? (index == 1 ? .today : .standard), for: index)
@@ -1267,13 +1267,14 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         enginePopup.widthAnchor.constraint(equalToConstant: 112).isActive = true
         destinationPopup.widthAnchor.constraint(equalToConstant: 142).isActive = true
         targetField.widthAnchor.constraint(equalToConstant: 286).isActive = true
+        searchButton.widthAnchor.constraint(equalToConstant: 88).isActive = true
         tagsField.widthAnchor.constraint(equalToConstant: Self.columnWidths[3]).isActive = true
         refreshNoteFieldState()
     }
 
     static let columnSpacing: CGFloat = 12
     static let columnTitles = ["Actif", "Raccourci", "App / Cible", "Tags"]
-    static let columnWidths: [CGFloat] = [44, 92, 560, 240]
+    static let columnWidths: [CGFloat] = [44, 92, 656, 240]
 
     static func headerView() -> NSView {
         let row = NSStackView()
@@ -1334,6 +1335,7 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         targetStack.addArrangedSubview(enginePopup)
         targetStack.addArrangedSubview(destinationPopup)
         targetStack.addArrangedSubview(targetField)
+        targetStack.addArrangedSubview(searchButton)
         row.addArrangedSubview(enabledCheckbox)
         row.addArrangedSubview(recorder)
         row.addArrangedSubview(targetStack)
