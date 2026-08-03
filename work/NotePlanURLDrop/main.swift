@@ -1978,6 +1978,10 @@ final class SettingsWindowController: NSWindowController {
     }
 
     private func applyDroppedTarget(_ target: ShortcutTarget, to row: ShortcutSlotRow) -> Bool {
+        if row.slot.engine == .obsidian {
+            return applyDroppedObsidianTarget(target, to: row)
+        }
+
         guard let root = Settings.selectedNotesRoot() else {
             statusLabel.stringValue = "Choisis d'abord le dossier Notes NotePlan, puis dépose une note .md."
             NSSound.beep()
@@ -2038,6 +2042,33 @@ final class SettingsWindowController: NSWindowController {
         statusLabel.stringValue = "Dépose une note .md depuis Finder."
         NSSound.beep()
         return false
+    }
+
+    private func applyDroppedObsidianTarget(_ target: ShortcutTarget, to row: ShortcutSlotRow) -> Bool {
+        guard let url = target.url, url.isFileURL else {
+            statusLabel.stringValue = "Pour Obsidian, dépose une note .md ou un dossier depuis Finder."
+            NSSound.beep()
+            return false
+        }
+
+        let fileURL = url.standardizedFileURL
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: fileURL.path, isDirectory: &isDirectory) else {
+            statusLabel.stringValue = "Fichier introuvable : \(fileURL.path)"
+            NSSound.beep()
+            return false
+        }
+
+        if !isDirectory.boolValue, fileURL.pathExtension.lowercased() != "md" {
+            statusLabel.stringValue = "Pour Obsidian, dépose une note .md ou un dossier."
+            NSSound.beep()
+            return false
+        }
+
+        row.applyDroppedPath(relativePath: fileURL.path, isDirectory: isDirectory.boolValue)
+        autosaveSettings()
+        statusLabel.stringValue = "Cible Obsidian enregistrée : \(fileURL.path)"
+        return true
     }
 
     private func pasteTarget(for row: ShortcutSlotRow) {
