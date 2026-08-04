@@ -10,6 +10,7 @@ private enum Settings {
     static let repositoryURL = "https://github.com/bizc0m/NoteDroppy"
     static let taskTagKey = "taskTag"
     static let openNoteKey = "openNote"
+    static let includeSourceKey = "includeSource"
     static let serviceNameKey = "serviceName"
     static let notesRootPathKey = "notesRootPath"
     static let notesRootBookmarkKey = "notesRootBookmark"
@@ -32,6 +33,13 @@ private enum Settings {
             return true
         }
         return UserDefaults.standard.bool(forKey: openNoteKey)
+    }
+
+    static var includeSource: Bool {
+        if UserDefaults.standard.object(forKey: includeSourceKey) == nil {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: includeSourceKey)
     }
 
     static var serviceName: String {
@@ -242,6 +250,7 @@ struct ShortcutSlot {
 struct PreferencesFile: Codable {
     var version: Int
     var openNote: Bool
+    var includeSource: Bool?
     var serviceName: String
     var defaultTags: String
     var notesRootPath: String?
@@ -251,6 +260,7 @@ struct PreferencesFile: Codable {
         PreferencesFile(
             version: 1,
             openNote: Settings.openNote,
+            includeSource: Settings.includeSource,
             serviceName: Settings.serviceName,
             defaultTags: Settings.taskTag,
             notesRootPath: Settings.notesRootPath,
@@ -260,6 +270,7 @@ struct PreferencesFile: Codable {
 
     func apply() {
         UserDefaults.standard.set(openNote, forKey: Settings.openNoteKey)
+        UserDefaults.standard.set(includeSource ?? true, forKey: Settings.includeSourceKey)
         UserDefaults.standard.set(serviceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "NotePlan : ajouter en tâche" : serviceName, forKey: Settings.serviceNameKey)
         UserDefaults.standard.set(defaultTags.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "#capture" : defaultTags, forKey: Settings.taskTagKey)
         let trimmedNotesRoot = (notesRootPath ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1774,6 +1785,7 @@ final class SettingsWindowController: NSWindowController {
     private let notesRootField = NSTextField(string: Settings.notesRootPath)
     private let chooseNotesRootButton = NSButton(title: "Choisir dossier Notes", target: nil, action: nil)
     private let openNoteCheckbox = NSButton(checkboxWithTitle: "Ouvrir NotePlan après l'ajout", target: nil, action: nil)
+    private let includeSourceCheckbox = NSButton(checkboxWithTitle: "Ajouter la source (lien capturé)", target: nil, action: nil)
     private var shortcutRows: [ShortcutSlotRow] = []
     private let shortcutHelpLabel = NSTextField(labelWithString: "Ligne 1 par défaut : NotePlan + Aujourd'hui (NotePlan). Sinon choisir Standard, déposer depuis Finder une note .md, ou coller un lien NotePlan.")
     private let variablesHelpLabel = NSTextField(labelWithString: "Variables : $date, $day, $time, $datetime, $month, $year")
@@ -1851,6 +1863,7 @@ final class SettingsWindowController: NSWindowController {
         notesRootRow.addArrangedSubview(chooseNotesRootButton)
 
         openNoteCheckbox.state = Settings.openNote ? .on : .off
+        includeSourceCheckbox.state = Settings.includeSource ? .on : .off
         shortcutHelpLabel.textColor = .secondaryLabelColor
         shortcutHelpLabel.lineBreakMode = .byWordWrapping
         shortcutHelpLabel.maximumNumberOfLines = 2
@@ -1941,6 +1954,7 @@ final class SettingsWindowController: NSWindowController {
         stack.addArrangedSubview(serviceTagRow)
         stack.addArrangedSubview(notesRootRow)
         stack.addArrangedSubview(openNoteCheckbox)
+        stack.addArrangedSubview(includeSourceCheckbox)
         stack.addArrangedSubview(shortcutHelpLabel)
         stack.addArrangedSubview(variablesHelpLabel)
         stack.addArrangedSubview(slotsStack)
@@ -2319,6 +2333,7 @@ final class SettingsWindowController: NSWindowController {
         UserDefaults.standard.set(serviceName.isEmpty ? "NotePlan : ajouter en tâche" : serviceName, forKey: Settings.serviceNameKey)
         UserDefaults.standard.set(tag.isEmpty ? "#capture" : tag, forKey: Settings.taskTagKey)
         UserDefaults.standard.set(openNoteCheckbox.state == .on, forKey: Settings.openNoteKey)
+        UserDefaults.standard.set(includeSourceCheckbox.state == .on, forKey: Settings.includeSourceKey)
         shortcutRows.forEach { Settings.setShortcutSlot($0.slot) }
         UserDefaults.standard.synchronize()
         NotificationCenter.default.post(name: .settingsDidChange, object: nil)
@@ -2374,6 +2389,7 @@ final class SettingsWindowController: NSWindowController {
         UserDefaults.standard.set(serviceName.isEmpty ? "NotePlan : ajouter en tâche" : serviceName, forKey: Settings.serviceNameKey)
         UserDefaults.standard.set(tag.isEmpty ? "#capture" : tag, forKey: Settings.taskTagKey)
         UserDefaults.standard.set(openNoteCheckbox.state == .on, forKey: Settings.openNoteKey)
+        UserDefaults.standard.set(includeSourceCheckbox.state == .on, forKey: Settings.includeSourceKey)
         shortcutRows.forEach { Settings.setShortcutSlot($0.slot) }
         UserDefaults.standard.synchronize()
     }
@@ -2397,6 +2413,7 @@ final class SettingsWindowController: NSWindowController {
         tagField.stringValue = Settings.taskTag
         notesRootField.stringValue = Settings.notesRootPath
         openNoteCheckbox.state = Settings.openNote ? .on : .off
+        includeSourceCheckbox.state = Settings.includeSource ? .on : .off
         let slots = Settings.allShortcutSlots()
         for (row, slot) in zip(shortcutRows, slots) {
             row.apply(slot: slot)
@@ -3350,7 +3367,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func sourceContinuationLine(_ sourceURL: String?, content: String) -> String? {
-        guard let sourceURL = sourceURL?.trimmingCharacters(in: .whitespacesAndNewlines),
+        guard Settings.includeSource,
+              let sourceURL = sourceURL?.trimmingCharacters(in: .whitespacesAndNewlines),
               isWebURL(sourceURL),
               !content.contains(sourceURL),
               let link = markdownLinkForWebURL(sourceURL) else {
