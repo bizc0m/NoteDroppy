@@ -20,10 +20,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     private let scrollView = NSScrollView()
     private let saveButton = NSButton(title: "Sauvegarder", target: nil, action: nil)
     private let reloadButton = NSButton(title: "Recharger", target: nil, action: nil)
+    private var functionsWindow: NSWindow?
 
     private var rootURL: URL
     private var currentFileURL: URL?
     private var loadedContent = ""
+
+    private struct LoadedFile {
+        let relativePath: String
+        let fileURL: URL
+        let content: String
+    }
 
     override init() {
         let defaultRoot = FileManager.default.homeDirectoryForCurrentUser
@@ -35,10 +42,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         buildMenu()
         buildUI()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            self.showMainWindow()
+            self.loadTodayAsync()
+            self.window.makeFirstResponder(self.textView)
+        }
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showMainWindow()
+        return true
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
+    }
+
+    private func showMainWindow() {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-        loadToday()
-        window.makeFirstResponder(textView)
     }
 
     private func buildMenu() {
@@ -79,6 +101,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
 
     private func buildUI() {
         window.title = "NoteDroppy V3"
+        window.isReleasedWhenClosed = false
+        window.isRestorable = false
         let content = NSView()
         content.translatesAutoresizingMaskIntoConstraints = false
         window.contentView = content
@@ -137,7 +161,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         rangeStartField.placeholderString = "YYYYMMDD"
         rangeEndField.placeholderString = "YYYYMMDD"
         let flattenRangeButton = NSButton(title: "Aplatir plage", target: self, action: #selector(flattenDateRange))
-        let functionsButton = NSButton(title: "Fonctions", target: self, action: #selector(showFunctionsWindow))
+        let functionsButton = NSButton(title: "FONCTIONS", target: self, action: #selector(showFunctionsWindow))
+        functionsButton.bezelStyle = .rounded
+        functionsButton.isBordered = false
+        functionsButton.font = .systemFont(ofSize: 13, weight: .bold)
+        functionsButton.wantsLayer = true
+        functionsButton.layer?.backgroundColor = NSColor.systemGreen.cgColor
+        functionsButton.layer?.cornerRadius = 6
+        functionsButton.attributedTitle = NSAttributedString(
+            string: "FONCTIONS",
+            attributes: [
+                .foregroundColor: NSColor.white,
+                .font: NSFont.systemFont(ofSize: 13, weight: .bold)
+            ]
+        )
 
         statusLabel.textColor = .secondaryLabelColor
         statusLabel.font = .systemFont(ofSize: 12)
@@ -223,6 +260,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
             searchField.widthAnchor.constraint(greaterThanOrEqualToConstant: 360),
             rangeStartField.widthAnchor.constraint(equalToConstant: 110),
             rangeEndField.widthAnchor.constraint(equalToConstant: 110),
+            functionsButton.widthAnchor.constraint(equalToConstant: 112),
+            functionsButton.heightAnchor.constraint(equalToConstant: 28),
             scrollView.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 12),
             scrollView.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 14),
             scrollView.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -14),
@@ -290,42 +329,82 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         open(pathString: path, createIfMissing: true)
     }
 
+    private func loadTodayAsync() {
+        let path = todayPath()
+        let root = rootURL
+        fileField.stringValue = path
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let loaded = try Self.readFile(pathString: path, rootURL: root, createIfMissing: true)
+                DispatchQueue.main.async {
+                    guard self.rootURL.path == root.path else { return }
+                    self.applyLoadedFile(loaded)
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.status("Erreur ouverture: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
     @objc private func loadFileFromField() {
         open(pathString: fileField.stringValue, createIfMissing: false)
     }
 
     private func open(pathString: String, createIfMissing: Bool) {
         do {
-            try validateRoot(rootURL)
-            let relativePath: String
-            let fileURL: URL
-            if pathString.hasPrefix("/") {
-                fileURL = URL(fileURLWithPath: pathString)
-                guard fileURL.path.hasPrefix(rootURL.path + "/") else {
-                    throw NSError(domain: "NotePlanText", code: 3, userInfo: [NSLocalizedDescriptionKey: "Fichier hors dossier NotePlan"])
-                }
-                relativePath = fileURL.path.replacingOccurrences(of: rootURL.path + "/", with: "")
-            } else {
-                relativePath = pathString.trimmingCharacters(in: .whitespacesAndNewlines)
-                fileURL = rootURL.appendingPathComponent(relativePath)
-            }
-            if createIfMissing && !FileManager.default.fileExists(atPath: fileURL.path) {
-                try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try "".write(to: fileURL, atomically: true, encoding: .utf8)
-            }
-            let content = try String(contentsOf: fileURL, encoding: .utf8)
-            currentFileURL = fileURL
-            loadedContent = content
-            textView.string = content
-            pathLabel.stringValue = relativePath
-            fileField.stringValue = relativePath
-            window.title = "NoteDroppy V3 - \(relativePath)"
-            window.makeFirstResponder(textView)
-            saveButton.isEnabled = false
-            status("Fichier chargé et éditable")
+            let loaded = try Self.readFile(pathString: pathString, rootURL: rootURL, createIfMissing: createIfMissing)
+            applyLoadedFile(loaded)
         } catch {
             status("Erreur ouverture: \(error.localizedDescription)")
         }
+    }
+
+    private static func readFile(pathString: String, rootURL: URL, createIfMissing: Bool) throws -> LoadedFile {
+        try validateRoot(rootURL)
+        let relativePath: String
+        let fileURL: URL
+        if pathString.hasPrefix("/") {
+            fileURL = URL(fileURLWithPath: pathString)
+            guard fileURL.path.hasPrefix(rootURL.path + "/") else {
+                throw NSError(domain: "NotePlanText", code: 3, userInfo: [NSLocalizedDescriptionKey: "Fichier hors dossier NotePlan"])
+            }
+            relativePath = fileURL.path.replacingOccurrences(of: rootURL.path + "/", with: "")
+        } else {
+            relativePath = pathString.trimmingCharacters(in: .whitespacesAndNewlines)
+            fileURL = rootURL.appendingPathComponent(relativePath)
+        }
+        if createIfMissing && !FileManager.default.fileExists(atPath: fileURL.path) {
+            try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "".write(to: fileURL, atomically: true, encoding: .utf8)
+        }
+        let content = try String(contentsOf: fileURL, encoding: .utf8)
+        return LoadedFile(relativePath: relativePath, fileURL: fileURL, content: content)
+    }
+
+    private static func validateRoot(_ url: URL) throws {
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue else {
+            throw NSError(domain: "NotePlanText", code: 1, userInfo: [NSLocalizedDescriptionKey: "Dossier introuvable"])
+        }
+        let hasCalendar = FileManager.default.fileExists(atPath: url.appendingPathComponent("Calendar").path)
+        let hasNotes = FileManager.default.fileExists(atPath: url.appendingPathComponent("Notes").path)
+        guard hasCalendar || hasNotes else {
+            throw NSError(domain: "NotePlanText", code: 2, userInfo: [NSLocalizedDescriptionKey: "Calendar ou Notes introuvable"])
+        }
+    }
+
+    private func applyLoadedFile(_ loaded: LoadedFile) {
+        currentFileURL = loaded.fileURL
+        loadedContent = loaded.content
+        textView.string = loaded.content
+        pathLabel.stringValue = loaded.relativePath
+        fileField.stringValue = loaded.relativePath
+        window.title = "NoteDroppy V3 - \(loaded.relativePath)"
+        window.makeFirstResponder(textView)
+        saveButton.isEnabled = false
+        status("Fichier chargé et éditable")
     }
 
     @objc private func reloadFile() {
@@ -413,12 +492,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     }
 
     @objc private func showFunctionsWindow() {
+        if let functionsWindow {
+            functionsWindow.makeKeyAndOrderFront(nil)
+            functionsWindow.orderFrontRegardless()
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
         let infoWindow = NSWindow(
             contentRect: NSRect(x: 220, y: 160, width: 760, height: 620),
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
         )
+        infoWindow.isReleasedWhenClosed = false
         infoWindow.title = "Fonctions NoteDroppy / NoteplanShorty"
 
         let textView = NSTextView()
@@ -443,7 +530,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
             scrollView.bottomAnchor.constraint(equalTo: infoWindow.contentView!.bottomAnchor)
         ])
 
+        functionsWindow = infoWindow
         infoWindow.makeKeyAndOrderFront(nil)
+        infoWindow.orderFrontRegardless()
         NSApp.activate(ignoringOtherApps: true)
     }
 
@@ -1184,8 +1273,14 @@ enum URLLineFormatter {
     }
 }
 
-let app = NSApplication.shared
-let delegate = AppDelegate()
-app.delegate = delegate
-app.setActivationPolicy(.regular)
-app.run()
+@main
+enum NoteDroppyV3App {
+    static func main() {
+        let app = NSApplication.shared
+        app.setActivationPolicy(.regular)
+        let delegate = AppDelegate()
+        app.delegate = delegate
+        app.run()
+        withExtendedLifetime(delegate) {}
+    }
+}

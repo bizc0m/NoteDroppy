@@ -21,7 +21,7 @@ fi
 mkdir -p "$RELEASE_DIR"
 rm -rf "$PACKAGE_DIR" "$ZIP" "$RELEASE_DIR/NoteDroppy-v${VERSION}.sha256"
 xattr -cr "$APP" 2>/dev/null || true
-codesign --force --deep --options runtime -s "$SIGN_IDENTITY" "$APP"
+codesign --force --deep -s "$SIGN_IDENTITY" "$APP"
 
 mkdir -p "$PACKAGE_DIR"
 ditto --norsrc --noextattr "$APP" "$PACKAGE_DIR/NoteDroppy V3.app"
@@ -51,7 +51,7 @@ fi
 
 ditto --norsrc --noextattr "$APP_SRC" "$APP_DST"
 xattr -cr "$APP_DST" 2>/dev/null || true
-codesign --force --deep --options runtime -s "$SIGN_IDENTITY" "$APP_DST"
+codesign --force --deep -s "$SIGN_IDENTITY" "$APP_DST"
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$APP_DST"
 /System/Library/CoreServices/pbs -flush 2>/dev/null || true
 /System/Library/CoreServices/pbs -update 2>/dev/null || true
