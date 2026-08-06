@@ -12,6 +12,7 @@
 - Ajoute les tranches de recherche `<=15`, `<=30`, `<=60`, `>60`.
 - Limite la recherche texte normale a l'agenda `Calendar`.
 - Recherche les taches par tranche dans `Calendar` et `Notes`.
+- Formate les URL avec le nom du serveur avant le lien.
 - Ajoute `Undo`, `About` et `Changelog`.
 - Cree un backup local avant chaque sauvegarde de note.
 

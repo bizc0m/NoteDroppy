@@ -43,6 +43,7 @@ Fonctions principales:
 - tri par duree utilisateur `-- minutes`;
 - recherche agenda uniquement pour la recherche texte;
 - recherche de taches par tranches `<=15`, `<=30`, `<=60`, `>60` dans `Calendar` et `Notes`.
+- formatage des URL avec le nom du serveur avant le lien, par exemple `poney.com https://poney.com/page`.
 
 Build local:
 

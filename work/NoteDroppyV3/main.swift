@@ -516,7 +516,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     }
 
     private func showSearchResults(_ results: [TaskSearch.Result], title: String) {
-        let lines = results.map { "- \($0.text) [\($0.path):\($0.line)]" }
+        let lines = results.map { "- \(URLLineFormatter.withHostPrefix($0.text)) [\($0.path):\($0.line)]" }
         let output = "# \(title)\n\n" + (lines.isEmpty ? "Aucun résultat\n" : lines.joined(separator: "\n") + "\n")
         replaceEditorText(output)
         currentFileURL = nil
@@ -955,7 +955,7 @@ enum ChapterFlattener {
             }
 
             let detectedPriority = priority(line)
-            let item = cleanedItem(line)
+            let item = URLLineFormatter.withHostPrefix(cleanedItem(line))
             if item.isEmpty { continue }
             let chapter = currentChapter ?? "Sans chapitre"
             items.append(Item(text: item, chapter: chapter, priority: detectedPriority, index: index))
@@ -1004,6 +1004,24 @@ enum ChapterFlattener {
             return 0
         }
         return cleaned[range].filter { $0 == "!" }.count
+    }
+}
+
+enum URLLineFormatter {
+    static func withHostPrefix(_ text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let urlRange = trimmed.range(of: #"https?://[^\s)\]]+"#, options: .regularExpression) else {
+            return trimmed
+        }
+        let urlText = String(trimmed[urlRange]).trimmingCharacters(in: CharacterSet(charactersIn: ".,;:"))
+        guard let url = URL(string: urlText), let host = url.host, !host.isEmpty else {
+            return trimmed
+        }
+        let cleanHost = host.replacingOccurrences(of: #"^www\."#, with: "", options: .regularExpression)
+        if trimmed.hasPrefix(cleanHost + " ") || trimmed.hasPrefix(cleanHost + " - ") {
+            return trimmed
+        }
+        return "\(cleanHost) \(trimmed)"
     }
 }
 
