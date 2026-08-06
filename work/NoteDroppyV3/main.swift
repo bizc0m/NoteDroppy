@@ -48,6 +48,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         let appMenu = NSMenu(title: "NoteDroppy V3")
         appMenu.addItem(NSMenuItem(title: "About NoteDroppy V3", action: #selector(showAbout), keyEquivalent: ""))
         appMenu.addItem(NSMenuItem(title: "Changelog", action: #selector(showChangelog), keyEquivalent: ""))
+        appMenu.addItem(NSMenuItem(title: "Fonctions NoteDroppy / NoteplanShorty", action: #selector(showFunctionsWindow), keyEquivalent: ""))
         appMenu.addItem(.separator())
         appMenu.addItem(NSMenuItem(title: "Quitter NoteDroppy V3", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         appMenuItem.submenu = appMenu
@@ -136,6 +137,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         rangeStartField.placeholderString = "YYYYMMDD"
         rangeEndField.placeholderString = "YYYYMMDD"
         let flattenRangeButton = NSButton(title: "Aplatir plage", target: self, action: #selector(flattenDateRange))
+        let functionsButton = NSButton(title: "Fonctions", target: self, action: #selector(showFunctionsWindow))
 
         statusLabel.textColor = .secondaryLabelColor
         statusLabel.font = .systemFont(ofSize: 12)
@@ -172,7 +174,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         scrollView.backgroundColor = .textBackgroundColor
         scrollView.borderType = .bezelBorder
 
-        let topRow = NSStackView(views: [rootLabel, rootField, chooseButton, applyButton])
+        let topRow = NSStackView(views: [rootLabel, rootField, chooseButton, applyButton, functionsButton])
         topRow.orientation = .horizontal
         topRow.spacing = 8
         topRow.alignment = .centerY
@@ -408,6 +410,154 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         alert.informativeText = changelog
         alert.addButton(withTitle: "OK")
         alert.runModal()
+    }
+
+    @objc private func showFunctionsWindow() {
+        let infoWindow = NSWindow(
+            contentRect: NSRect(x: 220, y: 160, width: 760, height: 620),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        infoWindow.title = "Fonctions NoteDroppy / NoteplanShorty"
+
+        let textView = NSTextView()
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.isRichText = false
+        textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        textView.string = functionsSummaryText()
+
+        let scrollView = NSScrollView()
+        scrollView.documentView = textView
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = false
+        scrollView.borderType = .bezelBorder
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+
+        infoWindow.contentView = scrollView
+        NSLayoutConstraint.activate([
+            scrollView.topAnchor.constraint(equalTo: infoWindow.contentView!.topAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: infoWindow.contentView!.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: infoWindow.contentView!.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: infoWindow.contentView!.bottomAnchor)
+        ])
+
+        infoWindow.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func functionsSummaryText() -> String {
+        """
+        NOTE DROPPY
+        Repository:
+        https://github.com/bizc0m/NoteDroppy
+
+        Version integree:
+        - NoteDroppy V3
+        - version: 3.0
+        - build: 303
+        - bundle id: local.codex.notedroppy.v3
+        - source: work/NoteDroppyV3/main.swift
+        - commit integre: d7f1a2f puis correctifs V3
+
+        Fonctions historiques NoteDroppy conservees/documentees:
+        - App macOS AppKit locale.
+        - Ajout rapide de tache dans la note du jour NotePlan.
+        - Format d'envoi historique: - [ ] <contenu> #capture.
+        - URL NotePlan historique: noteplan://x-callback-url/addText?noteDate=today.
+        - Drag & drop Dock:
+          - URL web.
+          - fichier .webloc ou .url.
+          - fichier texte, .md, .rtf ou .textclipping.
+        - Texte selectionne:
+          - Service macOS NotePlan : ajouter en tache.
+          - raccourci global configurable.
+        - Reglages historiques:
+          - nom du Service macOS.
+          - tag ajoute a la tache.
+          - ouverture de NotePlan apres ajout.
+          - 10 raccourcis globaux configurables.
+          - destinations NotePlan: Aujourd'hui, note nommee, chemin de note.
+          - destination Obsidian beta par ecriture directe dans un vault.
+          - recherche directe dans les notes NotePlan depuis les lignes de raccourci.
+          - bouton vers Accessibilite macOS.
+
+        Fonctions NoteDroppy V3 ajoutees:
+        - Ouverture automatique de Calendar/YYYYMMDD.md.
+        - Choix du dossier NotePlan.
+        - Chargement manuel d'un fichier .md.
+        - Edition texte native.
+        - Sauvegarde avec backup local dans .codex-backups.
+        - Refresh / Recharger.
+        - Undo / Redo via menu Edition.
+        - About / Changelog.
+        - Aplatir chapitres.
+        - Aplatir plage de jours.
+        - Trier priorites: !!! puis !! puis !.
+        - Trier par contexte @.
+        - Trier par tag #.
+        - Trier par importance ^^ A/B/C ou ^^ 1/2/3.
+        - Trier par duree -- minutes.
+        - Recherche texte limitee a l'agenda Calendar.
+        - Recherche de taches par tranches dans Calendar + Notes:
+          <=15, <=30, <=60, >60.
+        - Format URL: nom du serveur puis lien.
+          Exemple: poney.com https://poney.com/page
+
+
+        NOTEPLANSHORTY
+        Repository:
+        https://github.com/bizc0m/NoteplanShorty
+
+        Versions detectees:
+        - main: d290111a67f24411be45bcb5a267cd5ae7c59a82
+        - v1 branch: d290111a67f24411be45bcb5a267cd5ae7c59a82
+        - v2 branch: a67d50adde5b0f5d6abbbeb2a807e2eb64f86186
+        - v3 branch: 18e188afe6e16aee4a46a608ec9744aa9cf5d930
+
+        Source active documentee:
+        - Sources/NotePlanShortcutMaker/main_v2.0.swift
+        - version source: v2.0
+        - fichier archive: main_v1.0.swift
+        - bundle genere: NotePlan Shortcut Maker.app
+        - bundle id: dev.local.noteplan-shortcut-maker
+
+        Fonctions NoteplanShorty v2.0:
+        - App macOS SwiftUI minimale.
+        - Cree un raccourci .app depuis une note NotePlan .md.
+        - Une note deposee cree un raccourci du meme nom.
+        - Exemple:
+          TODO Suisse.md -> DESTINATION/TODO Suisse.app
+        - URL generee:
+          noteplan://x-callback-url/openNote?noteTitle=<nom encode>
+        - La note .md n'est jamais modifiee, copiee ou deplacee.
+        - Choisir destination.
+        - Drop Finder robuste via NSView AppKit native.
+        - registerForDraggedTypes + NSPasteboard.readObjects.
+        - Evite SwiftUI .onDrop / NSItemProvider juge fragile.
+        - Bouton Choisir une note .md.
+        - Confirmation avant remplacement si Nom.app existe.
+        - Bouton Reveler le raccourci.
+        - Mode CLI cache:
+          --cli-generate note.md dest/
+        - Meme generateur pour drop, bouton et CLI.
+        - Gestion Unicode NFC pour noms accentues.
+        - Ecriture plist via PropertyListSerialization.
+        - Renommage final via syscall rename() pour conserver les octets NFC.
+
+        Verification NoteplanShorty documentee:
+        - swift build -c release OK.
+        - test-generation.sh OK.
+        - verifie TODO Suisse.app.
+        - verifie absence de TODO Suisse 2.app en regeneration.
+        - verifie CFBundleName.
+        - verifie CFBundleDisplayName.
+        - verifie NotePlanShortcutURL.
+        - verifie cas accentue: Ete & idees / Été & idées.
+        - drag Finder reel teste manuellement/GUI dans la version documentee.
+        - non verifie dans la source: ouverture finale dans NotePlan.app.
+        """
     }
 
     private func backup(fileURL: URL, content: String) throws {

@@ -36,6 +36,7 @@ Fonctions principales:
 - choix du dossier NotePlan;
 - sauvegarde avec backup local dans `.codex-backups`;
 - menu `Undo`, `About` et `Changelog`;
+- sous-fenetre `Fonctions` listant les versions et fonctions NoteDroppy / NoteplanShorty;
 - tri par priorite `!!!`;
 - tri par contexte `@contexte`;
 - tri par tag `#tag`;
