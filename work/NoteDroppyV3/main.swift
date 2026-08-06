@@ -113,6 +113,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         let sortImportanceButton = NSButton(title: "Trier ^^", target: self, action: #selector(sortImportance))
         let sortMinutesButton = NSButton(title: "Trier --", target: self, action: #selector(sortMinutes))
         let flattenButton = NSButton(title: "Aplatir chapitres", target: self, action: #selector(flattenChapters))
+        let fileActionsLabel = NSTextField(labelWithString: "Fichier")
+        fileActionsLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        let sortLabel = NSTextField(labelWithString: "Tris")
+        sortLabel.font = .systemFont(ofSize: 12, weight: .medium)
         let searchLabel = NSTextField(labelWithString: "Recherche")
         searchLabel.font = .systemFont(ofSize: 12, weight: .medium)
         searchField.placeholderString = "texte, @contexte ou #tag"
@@ -178,10 +182,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         fileRow.spacing = 8
         fileRow.alignment = .centerY
 
-        let actionRow = NSStackView(views: [todayButton, reloadButton, refreshButton, sortButton, sortAtButton, sortHashButton, sortImportanceButton, sortMinutesButton, flattenButton, saveButton])
-        actionRow.orientation = .horizontal
-        actionRow.spacing = 8
-        actionRow.alignment = .centerY
+        let fileActionRow = NSStackView(views: [fileActionsLabel, todayButton, reloadButton, refreshButton, saveButton])
+        fileActionRow.orientation = .horizontal
+        fileActionRow.spacing = 8
+        fileActionRow.alignment = .centerY
+
+        let sortRow = NSStackView(views: [sortLabel, sortButton, sortAtButton, sortHashButton, sortImportanceButton, sortMinutesButton, flattenButton])
+        sortRow.orientation = .horizontal
+        sortRow.spacing = 8
+        sortRow.alignment = .centerY
 
         let searchRow = NSStackView(views: [searchLabel, searchField, searchButton, time15Button, time30Button, time60Button, timeMoreButton])
         searchRow.orientation = .horizontal
@@ -193,7 +202,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         rangeRow.spacing = 8
         rangeRow.alignment = .centerY
 
-        let header = NSStackView(views: [topRow, fileRow, actionRow, searchRow, rangeRow, pathLabel, statusLabel])
+        let header = NSStackView(views: [topRow, fileRow, fileActionRow, sortRow, searchRow, rangeRow, pathLabel, statusLabel])
         header.orientation = .vertical
         header.spacing = 8
         header.alignment = .leading
