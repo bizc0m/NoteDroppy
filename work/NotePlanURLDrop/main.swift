@@ -1313,7 +1313,7 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         recorder.widthAnchor.constraint(equalToConstant: Self.columnWidths[1]).isActive = true
         enginePopup.widthAnchor.constraint(equalToConstant: 112).isActive = true
         destinationPopup.widthAnchor.constraint(equalToConstant: 142).isActive = true
-        targetField.widthAnchor.constraint(equalToConstant: 286).isActive = true
+        targetField.widthAnchor.constraint(equalToConstant: 190).isActive = true
         searchButton.widthAnchor.constraint(equalToConstant: 88).isActive = true
         tagsField.widthAnchor.constraint(equalToConstant: Self.columnWidths[3]).isActive = true
         refreshNoteFieldState()
@@ -1382,6 +1382,7 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         targetStack.addArrangedSubview(enginePopup)
         targetStack.addArrangedSubview(destinationPopup)
         targetStack.addArrangedSubview(targetField)
+        targetStack.addArrangedSubview(searchButton)
         row.addArrangedSubview(enabledCheckbox)
         row.addArrangedSubview(recorder)
         row.addArrangedSubview(targetStack)
@@ -1813,7 +1814,9 @@ final class SettingsWindowController: NSWindowController {
         stack.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(stack)
 
-        let title = NSTextField(labelWithString: "NoteDroppy")
+        let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
+        let appBuild = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "local"
+        let title = NSTextField(labelWithString: "NoteDroppy Integrated \(appVersion) (\(appBuild))")
         title.font = .boldSystemFont(ofSize: 18)
 
         let tagline = NSTextField(labelWithString: "Time is precious.\nSpend it with those you love")
@@ -2137,7 +2140,7 @@ final class SettingsWindowController: NSWindowController {
           end if
         end tell
         delay 0.2
-        tell application "NoteDroppy" to activate
+        tell application id "\(Bundle.main.bundleIdentifier ?? "local.codex.notedroppy.integrated")" to activate
         return copied
         """
 
