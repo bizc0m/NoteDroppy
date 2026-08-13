@@ -22,6 +22,12 @@ private enum Settings {
     static let shortcutSlotCount = 10
     static let currentShortcutLayoutVersion = 2
 
+    static var accessibilityPromptShownKey: String {
+        let bundleID = Bundle.main.bundleIdentifier ?? "local.codex.notedroppy"
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
+        return "accessibilityPromptShown.\(bundleID).\(version)"
+    }
+
     static var taskTag: String {
         let value = UserDefaults.standard.string(forKey: taskTagKey) ?? "#capture"
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2425,6 +2431,7 @@ final class SettingsWindowController: NSWindowController {
     }
 
     @objc private func openAccessibilitySettings() {
+        writeDebugLog("accessibility:settings:opened")
         _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(url)
@@ -2438,6 +2445,7 @@ final class SettingsWindowController: NSWindowController {
 
     private func refreshAccessibilityStatus(append: Bool = false) {
         let trusted = AXIsProcessTrusted()
+        writeDebugLog("accessibility:trusted:\(trusted ? "true" : "false")")
         accessibilityButton.isEnabled = !trusted
         let accessibilityText = trusted
             ? "Accessibilité OK. Le raccourci global peut copier la sélection."
@@ -2788,6 +2796,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         log("launch")
         Settings.migrateShortcutLayoutIfNeeded()
+        logAccessibilityState()
         shortcutMonitor = GlobalShortcutMonitor { [weak self] slotIndex in
             self?.captureSelectedTextWithShortcut(slotIndex: slotIndex)
         }
@@ -2802,6 +2811,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.log("hide-settings:normal-launch")
                 }
             }
+            self.showAccessibilityPromptOnceIfNeeded()
         }
     }
 
@@ -2812,6 +2822,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func showSettingsWindowFromMenu(_ sender: Any?) {
         showSettingsWindow()
+    }
+
+    private func logAccessibilityState() {
+        let trusted = AXIsProcessTrusted()
+        writeDebugLog("accessibility:trusted:\(trusted ? "true" : "false")")
+    }
+
+    private func showAccessibilityPromptOnceIfNeeded() {
+        let trusted = AXIsProcessTrusted()
+        writeDebugLog("accessibility:trusted:\(trusted ? "true" : "false")")
+        guard !trusted else { return }
+
+        let key = Settings.accessibilityPromptShownKey
+        guard !UserDefaults.standard.bool(forKey: key) else {
+            writeDebugLog("accessibility:prompt:skipped")
+            return
+        }
+
+        UserDefaults.standard.set(true, forKey: key)
+        UserDefaults.standard.synchronize()
+        writeDebugLog("accessibility:prompt:shown")
+
+        let alert = NSAlert()
+        alert.messageText = "Autoriser Accessibilité"
+        alert.informativeText = """
+        Les raccourcis globaux ont besoin de l'autorisation Accessibilité pour copier le texte sélectionné.
+
+        Les autres fonctions NoteDroppy restent utilisables sans cette autorisation.
+        """
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Autoriser Accessibilité")
+        alert.addButton(withTitle: "Plus tard")
+
+        NSApp.activate(ignoringOtherApps: true)
+        let response = alert.runModal()
+        guard response == .alertFirstButtonReturn else { return }
+
+        writeDebugLog("accessibility:settings:opened")
+        _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     @objc func showEditorWindowFromMenu(_ sender: Any?) {

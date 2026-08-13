@@ -5,16 +5,18 @@ Branche: agent/notedroppy-integrated-v4
 Bundle: local.codex.notedroppy.integrated
 App installee: /Applications/NoteDroppy Integrated.app
 DMG: releases/NoteDroppyIntegrated-v4.0.dmg
-SHA-256: 0891d680ca33f2b1578c7fe58d0700fedc89aa6c7a8291f04b403e9cb907d050
+SHA-256: 19643174938343cfcd751204451ce8e3ae34d853252938757d880630a9254897
 
 ## OK
 
-- Build swiftc OK via scripts/build-notedroppy-integrated.sh 4.0 400.
+- Build swiftc OK via scripts/build-notedroppy-integrated.sh 4.0 401.
 - plutil OK sur /Applications/NoteDroppy Integrated.app/Contents/Info.plist.
 - codesign OK sur /Applications/NoteDroppy Integrated.app.
 - Bundle separe OK: local.codex.notedroppy.integrated.
 - App lancee depuis /Applications: /Applications/NoteDroppy Integrated.app/Contents/MacOS/NoteDroppyIntegrated.
-- Fenetre Preferences OK: 10 slots visibles, touches 1 a 9 et 0, 10 boutons Rechercher, version visible "NoteDroppy Integrated 4.0 (400)".
+- Fenetre Preferences OK: 10 slots visibles, touches 1 a 9 et 0, 10 boutons Rechercher, version visible "NoteDroppy Integrated 4.0".
+- Invite Accessibilite non repetitive OK: premier lancement sans autorisation logue accessibility:prompt:shown, relance logue accessibility:prompt:skipped.
+- Bouton manuel Preferences OK: logue accessibility:settings:opened et ouvre Reglages Systeme.
 - Service macOS NSPerformService OK: "NotePlan : ajouter en tache (Integrated)".
 - Ecriture NotePlan reelle OK dans Calendar/20260813.md.
 - Une selection multi-ligne via Service cree une seule tache, avec continuations preservees.
@@ -24,6 +26,7 @@ SHA-256: 0891d680ca33f2b1578c7fe58d0700fedc89aa6c7a8291f04b403e9cb907d050
 - Variables OK: tag literal "#var-$date,#year-$year" ecrit "#var-2026-08-13 #year-2026".
 - Recherche locale OK: index 9076 notes, recherche titre/chemin/#tag/@contexte OK, validation remplit la cible du slot.
 - Export JSON OK: fichier JSON valide exporte depuis l'UI.
+- Service macOS reste OK sans Accessibilite apres ajout de l'invite non repetitive.
 - Nettoyage OK: lignes de test NotePlan et note temporaire supprimees, preferences restaurees.
 
 ## KO / bloque
