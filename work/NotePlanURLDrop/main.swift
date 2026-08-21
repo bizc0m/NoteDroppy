@@ -1009,6 +1009,51 @@ final class ShortcutSlotDropStack: NSStackView {
     }
 }
 
+final class ShortcutTargetPopUpButton: NSPopUpButton {
+    var acceptsDrop = true
+    var onDropTarget: ((ShortcutTarget) -> Bool)?
+
+    convenience init() {
+        self.init(frame: .zero, pullsDown: false)
+    }
+
+    override init(frame buttonFrame: NSRect, pullsDown flag: Bool) {
+        super.init(frame: buttonFrame, pullsDown: flag)
+        registerForDraggedTypes(shortcutDropPasteboardTypes)
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        registerForDraggedTypes(shortcutDropPasteboardTypes)
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        writeDebugLog("shortcut-drop:popup:entered:\(pasteboardDebugDescription(sender.draggingPasteboard))")
+        return acceptsDrop && shortcutTarget(from: sender.draggingPasteboard) != nil
+            ? preferredDragOperation(from: sender.draggingSourceOperationMask)
+            : NSDragOperation()
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        acceptsDrop && shortcutTarget(from: sender.draggingPasteboard) != nil
+            ? preferredDragOperation(from: sender.draggingSourceOperationMask)
+            : NSDragOperation()
+    }
+
+    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        acceptsDrop && shortcutTarget(from: sender.draggingPasteboard) != nil
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        writeDebugLog("shortcut-drop:popup:perform:\(pasteboardDebugDescription(sender.draggingPasteboard))")
+        guard acceptsDrop, let target = shortcutTarget(from: sender.draggingPasteboard) else {
+            NSSound.beep()
+            return false
+        }
+        return onDropTarget?(target) ?? false
+    }
+}
+
 private let shortcutDropPasteboardTypes: [NSPasteboard.PasteboardType] = [
     .fileURL,
     .URL,
@@ -1068,6 +1113,10 @@ private func shortcutTarget(from pasteboard: NSPasteboard) -> ShortcutTarget? {
         return ShortcutTarget(rawText: notePlanText)
     }
 
+    if let obsidianText = strings.first(where: { $0.range(of: "obsidian://", options: .caseInsensitive) != nil }) {
+        return ShortcutTarget(rawText: obsidianText)
+    }
+
     if let embeddedPath = strings.lazy.compactMap({ embeddedMarkdownPath(from: $0) }).first {
         return ShortcutTarget(rawText: embeddedPath)
     }
@@ -1083,13 +1132,13 @@ private func shortcutTarget(from pasteboard: NSPasteboard) -> ShortcutTarget? {
     }
 
     if let value = pasteboard.string(forType: .URL)?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
-        if let url = URL(string: value), url.scheme?.lowercased() == "file" || url.scheme?.lowercased() == "noteplan" {
+        if let url = URL(string: value), ["file", "noteplan", "obsidian"].contains(url.scheme?.lowercased() ?? "") {
             return ShortcutTarget(url: url)
         }
     }
 
     if let objects = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL],
-       let url = objects.first(where: { $0.scheme?.lowercased() == "noteplan" }) {
+       let url = objects.first(where: { ["noteplan", "obsidian"].contains($0.scheme?.lowercased() ?? "") }) {
         return ShortcutTarget(url: url)
     }
 
@@ -1198,6 +1247,7 @@ private func strings(fromPasteboardData data: Data) -> [String] {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { value in
                 value.range(of: "noteplan://", options: .caseInsensitive) != nil ||
+                value.range(of: "obsidian://", options: .caseInsensitive) != nil ||
                 value.lowercased().hasSuffix(".md") ||
                 value.lowercased().contains(".md") ||
                 value.range(of: "notePath=", options: .caseInsensitive) != nil ||
@@ -1274,8 +1324,8 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
     let index: Int
     let enabledCheckbox: NSButton
     let recorder: ShortcutRecorderButton
-    let enginePopup = NSPopUpButton()
-    let destinationPopup = NSPopUpButton()
+    let enginePopup = ShortcutTargetPopUpButton()
+    let destinationPopup = ShortcutTargetPopUpButton()
     let folderField: NSTextField
     let noteField: NSTextField
     let searchButton = NSButton(title: "Rechercher", target: nil, action: nil)
@@ -1310,6 +1360,13 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         destinationPopup.selectItem(withTitle: Settings.validDestination(slot.destination, for: slot.index).title)
         destinationPopup.target = self
         destinationPopup.action = #selector(destinationChanged)
+        [enginePopup, destinationPopup].forEach { (popup: ShortcutTargetPopUpButton) in
+            popup.acceptsDrop = true
+            popup.onDropTarget = { [weak self] target in
+                guard let self else { return false }
+                return self.onTargetDrop?(self, target) ?? false
+            }
+        }
         folderField.placeholderString = "Dossier"
         noteField.placeholderString = placeholder(for: slot.destination)
         targetField.placeholderString = "Déposer depuis Finder une note .md ou coller un lien NotePlan"
@@ -1386,6 +1443,11 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
     func setCombo(_ combo: KeyCombo) {
         storedCombo = combo
         recorder.setCombo(combo)
+    }
+
+    func setEngine(_ engine: ShortcutEngine) {
+        enginePopup.selectItem(withTitle: engine.title)
+        refreshNoteFieldState()
     }
 
     func view() -> NSView {
@@ -1557,6 +1619,21 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
             noteField.stringValue = url.lastPathComponent
             applyTargetDisplay(relativePath)
         }
+        refreshNoteFieldState()
+    }
+
+    func applyDroppedObsidianURI(vault: String?, note: String) {
+        setEngine(.obsidian)
+        let cleanNote = note.trimmingCharacters(in: CharacterSet(charactersIn: " /"))
+        if !cleanNote.isEmpty {
+            noteField.stringValue = cleanNote.hasSuffix(".md") ? cleanNote : "\(cleanNote).md"
+        }
+        if folderField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           let vault,
+           !vault.isEmpty {
+            folderField.stringValue = vault
+        }
+        applyTargetDisplay(targetDisplay(for: .notePath, folder: folderField.stringValue, note: noteField.stringValue))
         refreshNoteFieldState()
     }
 
@@ -2024,6 +2101,11 @@ final class SettingsWindowController: NSWindowController {
     }
 
     private func applyDroppedTarget(_ target: ShortcutTarget, to row: ShortcutSlotRow) -> Bool {
+        if obsidianURL(from: target) != nil {
+            row.setEngine(.obsidian)
+            return applyDroppedObsidianTarget(target, to: row)
+        }
+
         if row.slot.engine == .obsidian {
             return applyDroppedObsidianTarget(target, to: row)
         }
@@ -2091,8 +2173,16 @@ final class SettingsWindowController: NSWindowController {
     }
 
     private func applyDroppedObsidianTarget(_ target: ShortcutTarget, to row: ShortcutSlotRow) -> Bool {
+        if let obsidianURL = obsidianURL(from: target),
+           let parsed = obsidianTarget(from: obsidianURL) {
+            row.applyDroppedObsidianURI(vault: parsed.vault, note: parsed.note)
+            autosaveSettings()
+            statusLabel.stringValue = "Cible Obsidian enregistrée : \(parsed.note)"
+            return true
+        }
+
         guard let url = target.url, url.isFileURL else {
-            statusLabel.stringValue = "Pour Obsidian, dépose une note .md ou un dossier depuis Finder."
+            statusLabel.stringValue = "Pour Obsidian, dépose une note .md, un dossier, ou un lien obsidian://."
             NSSound.beep()
             return false
         }
@@ -2115,6 +2205,20 @@ final class SettingsWindowController: NSWindowController {
         autosaveSettings()
         statusLabel.stringValue = "Cible Obsidian enregistrée : \(fileURL.path)"
         return true
+    }
+
+    private func obsidianURL(from target: ShortcutTarget) -> URL? {
+        if let url = target.url, url.scheme?.lowercased() == "obsidian" {
+            return url
+        }
+        if let text = target.rawText {
+            for candidate in droppedObsidianURLCandidates(from: text) {
+                if let url = URL(string: candidate), url.scheme?.lowercased() == "obsidian" {
+                    return url
+                }
+            }
+        }
+        return nil
     }
 
     private func pasteTarget(for row: ShortcutSlotRow) {
@@ -2276,7 +2380,7 @@ final class SettingsWindowController: NSWindowController {
 
     private func droppedURLCandidates(from text: String) -> [String] {
         var candidates: [String] = [text]
-        let pattern = #"noteplan://[^\s\)\]>"]+"#
+        let pattern = #"(?:noteplan|obsidian)://[^\s\)\]>"]+"#
         if let regex = try? NSRegularExpression(pattern: pattern) {
             let range = NSRange(text.startIndex..<text.endIndex, in: text)
             for match in regex.matches(in: text, range: range) {
@@ -2286,6 +2390,23 @@ final class SettingsWindowController: NSWindowController {
             }
         }
         return Array(NSOrderedSet(array: candidates)) as? [String] ?? candidates
+    }
+
+    private func droppedObsidianURLCandidates(from text: String) -> [String] {
+        droppedURLCandidates(from: text).filter { $0.range(of: "obsidian://", options: .caseInsensitive) != nil }
+    }
+
+    private func obsidianTarget(from url: URL) -> (vault: String?, note: String)? {
+        guard url.scheme?.lowercased() == "obsidian" else { return nil }
+        let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        let items = components?.queryItems ?? []
+        let vault = items.first(where: { $0.name.caseInsensitiveCompare("vault") == .orderedSame })?.value
+        let file = items.first(where: { ["file", "path"].contains($0.name.lowercased()) })?.value
+            ?? components?.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard let file, !file.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        return (vault, file)
     }
 
     private func droppedTitleCandidates(from text: String) -> [String] {
