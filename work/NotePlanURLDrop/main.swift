@@ -11,6 +11,7 @@ private enum Settings {
     static let taskTagKey = "taskTag"
     static let openNoteKey = "openNote"
     static let includeSourceKey = "includeSource"
+    static let includeDocumentSourceKey = "includeDocumentSource"
     static let serviceNameKey = "serviceName"
     static let notesRootPathKey = "notesRootPath"
     static let notesRootBookmarkKey = "notesRootBookmark"
@@ -40,6 +41,13 @@ private enum Settings {
             return true
         }
         return UserDefaults.standard.bool(forKey: includeSourceKey)
+    }
+
+    static var includeDocumentSource: Bool {
+        if UserDefaults.standard.object(forKey: includeDocumentSourceKey) == nil {
+            return false
+        }
+        return UserDefaults.standard.bool(forKey: includeDocumentSourceKey)
     }
 
     static var serviceName: String {
@@ -247,10 +255,16 @@ struct ShortcutSlot {
     var tags: String
 }
 
+struct CaptureSource {
+    var url: String
+    var title: String?
+}
+
 struct PreferencesFile: Codable {
     var version: Int
     var openNote: Bool
     var includeSource: Bool?
+    var includeDocumentSource: Bool?
     var serviceName: String
     var defaultTags: String
     var notesRootPath: String?
@@ -261,6 +275,7 @@ struct PreferencesFile: Codable {
             version: 1,
             openNote: Settings.openNote,
             includeSource: Settings.includeSource,
+            includeDocumentSource: Settings.includeDocumentSource,
             serviceName: Settings.serviceName,
             defaultTags: Settings.taskTag,
             notesRootPath: Settings.notesRootPath,
@@ -271,6 +286,7 @@ struct PreferencesFile: Codable {
     func apply() {
         UserDefaults.standard.set(openNote, forKey: Settings.openNoteKey)
         UserDefaults.standard.set(includeSource ?? true, forKey: Settings.includeSourceKey)
+        UserDefaults.standard.set(includeDocumentSource ?? false, forKey: Settings.includeDocumentSourceKey)
         UserDefaults.standard.set(serviceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "NotePlan : ajouter en tâche" : serviceName, forKey: Settings.serviceNameKey)
         UserDefaults.standard.set(defaultTags.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "#capture" : defaultTags, forKey: Settings.taskTagKey)
         let trimmedNotesRoot = (notesRootPath ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1786,6 +1802,7 @@ final class SettingsWindowController: NSWindowController {
     private let chooseNotesRootButton = NSButton(title: "Choisir dossier Notes", target: nil, action: nil)
     private let openNoteCheckbox = NSButton(checkboxWithTitle: "Ouvrir NotePlan après l'ajout", target: nil, action: nil)
     private let includeSourceCheckbox = NSButton(checkboxWithTitle: "Ajouter la source (lien capturé)", target: nil, action: nil)
+    private let includeDocumentSourceCheckbox = NSButton(checkboxWithTitle: "Ajouter la source document (titre + lien fichier)", target: nil, action: nil)
     private var shortcutRows: [ShortcutSlotRow] = []
     private let shortcutHelpLabel = NSTextField(labelWithString: "Ligne 1 par défaut : NotePlan + Aujourd'hui (NotePlan). Sinon choisir Standard, déposer depuis Finder une note .md, ou coller un lien NotePlan.")
     private let variablesHelpLabel = NSTextField(labelWithString: "Variables : $date, $day, $time, $datetime, $month, $year")
@@ -1864,6 +1881,7 @@ final class SettingsWindowController: NSWindowController {
 
         openNoteCheckbox.state = Settings.openNote ? .on : .off
         includeSourceCheckbox.state = Settings.includeSource ? .on : .off
+        includeDocumentSourceCheckbox.state = Settings.includeDocumentSource ? .on : .off
         shortcutHelpLabel.textColor = .secondaryLabelColor
         shortcutHelpLabel.lineBreakMode = .byWordWrapping
         shortcutHelpLabel.maximumNumberOfLines = 2
@@ -1955,6 +1973,7 @@ final class SettingsWindowController: NSWindowController {
         stack.addArrangedSubview(notesRootRow)
         stack.addArrangedSubview(openNoteCheckbox)
         stack.addArrangedSubview(includeSourceCheckbox)
+        stack.addArrangedSubview(includeDocumentSourceCheckbox)
         stack.addArrangedSubview(shortcutHelpLabel)
         stack.addArrangedSubview(variablesHelpLabel)
         stack.addArrangedSubview(slotsStack)
@@ -2334,6 +2353,7 @@ final class SettingsWindowController: NSWindowController {
         UserDefaults.standard.set(tag.isEmpty ? "#capture" : tag, forKey: Settings.taskTagKey)
         UserDefaults.standard.set(openNoteCheckbox.state == .on, forKey: Settings.openNoteKey)
         UserDefaults.standard.set(includeSourceCheckbox.state == .on, forKey: Settings.includeSourceKey)
+        UserDefaults.standard.set(includeDocumentSourceCheckbox.state == .on, forKey: Settings.includeDocumentSourceKey)
         shortcutRows.forEach { Settings.setShortcutSlot($0.slot) }
         UserDefaults.standard.synchronize()
         NotificationCenter.default.post(name: .settingsDidChange, object: nil)
@@ -2390,6 +2410,7 @@ final class SettingsWindowController: NSWindowController {
         UserDefaults.standard.set(tag.isEmpty ? "#capture" : tag, forKey: Settings.taskTagKey)
         UserDefaults.standard.set(openNoteCheckbox.state == .on, forKey: Settings.openNoteKey)
         UserDefaults.standard.set(includeSourceCheckbox.state == .on, forKey: Settings.includeSourceKey)
+        UserDefaults.standard.set(includeDocumentSourceCheckbox.state == .on, forKey: Settings.includeDocumentSourceKey)
         shortcutRows.forEach { Settings.setShortcutSlot($0.slot) }
         UserDefaults.standard.synchronize()
     }
@@ -2414,6 +2435,7 @@ final class SettingsWindowController: NSWindowController {
         notesRootField.stringValue = Settings.notesRootPath
         openNoteCheckbox.state = Settings.openNote ? .on : .off
         includeSourceCheckbox.state = Settings.includeSource ? .on : .off
+        includeDocumentSourceCheckbox.state = Settings.includeDocumentSource ? .on : .off
         let slots = Settings.allShortcutSlots()
         for (row, slot) in zip(shortcutRows, slots) {
             row.apply(slot: slot)
@@ -2640,6 +2662,7 @@ final class ClipboardSnapshot {
 
 final class GlobalShortcutMonitor {
     private var hotKeyRefs: [UInt32: EventHotKeyRef] = [:]
+    private var hotKeySlotIDs: [UInt32: Int] = [:]
     private var eventHandlerRef: EventHandlerRef?
     private var lastFire = Date.distantPast
     private let handler: (Int) -> Void
@@ -2718,6 +2741,32 @@ final class GlobalShortcutMonitor {
             )
             if registerStatus == noErr, let ref {
                 hotKeyRefs[UInt32(slot.index)] = ref
+                hotKeySlotIDs[UInt32(slot.index)] = slot.index
+            }
+        }
+
+        let slot1 = Settings.shortcutSlot(1)
+        let legacySlot1ID: UInt32 = 101
+        let legacySlot1Key = UInt32(kVK_ANSI_Slash)
+        let legacySlot1Modifiers = UInt32(controlKey | optionKey | cmdKey)
+        if slot1.enabled,
+           (slot1.combo.keyCode != legacySlot1Key || slot1.combo.carbonModifiers != legacySlot1Modifiers) {
+            var ref: EventHotKeyRef?
+            let carbonHotKeyID = EventHotKeyID(signature: hotKeySignature, id: legacySlot1ID)
+            let registerStatus = RegisterEventHotKey(
+                legacySlot1Key,
+                legacySlot1Modifiers,
+                carbonHotKeyID,
+                GetApplicationEventTarget(),
+                0,
+                &ref
+            )
+            if registerStatus == noErr, let ref {
+                hotKeyRefs[legacySlot1ID] = ref
+                hotKeySlotIDs[legacySlot1ID] = 1
+                writeDebugLog("shortcut:legacy-slot1-slash:registered")
+            } else {
+                writeDebugLog("shortcut:legacy-slot1-slash:register-failed:\(registerStatus)")
             }
         }
     }
@@ -2727,6 +2776,7 @@ final class GlobalShortcutMonitor {
             UnregisterEventHotKey(ref)
         }
         hotKeyRefs.removeAll()
+        hotKeySlotIDs.removeAll()
         if let eventHandlerRef {
             RemoveEventHandler(eventHandlerRef)
             self.eventHandlerRef = nil
@@ -2734,13 +2784,13 @@ final class GlobalShortcutMonitor {
     }
 
     fileprivate func fireIfMatching(signature: UInt32, id: UInt32) -> OSStatus {
-        guard signature == hotKeySignature, hotKeyRefs[id] != nil else {
+        guard signature == hotKeySignature, hotKeyRefs[id] != nil, let slotIndex = hotKeySlotIDs[id] else {
             return OSStatus(eventNotHandledErr)
         }
         guard Date().timeIntervalSince(lastFire) > 0.8 else { return noErr }
         lastFire = Date()
         DispatchQueue.main.async {
-            self.handler(Int(id))
+            self.handler(slotIndex)
         }
         return noErr
     }
@@ -2781,10 +2831,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var didReceiveOpenEvent = false
     private var settingsWindowController: SettingsWindowController?
     private var shortcutMonitor: GlobalShortcutMonitor?
+    private var lastShortcutCaptureAt = Date.distantPast
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         log("launch")
         Settings.migrateShortcutLayoutIfNeeded()
+        if !isAccessibilityTrusted(prompt: false) {
+            log("accessibility:prompt-on-launch")
+            _ = isAccessibilityTrusted(prompt: true)
+        }
         shortcutMonitor = GlobalShortcutMonitor { [weak self] slotIndex in
             self?.captureSelectedTextWithShortcut(slotIndex: slotIndex)
         }
@@ -2923,12 +2978,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func fileMarkdownLink(for fileURL: URL) -> String {
+        let linkURL = URL(fileURLWithPath: fileURL.standardizedFileURL.path, isDirectory: isDirectory(fileURL))
         let label = fileURL.lastPathComponent.isEmpty ? fileURL.path : fileURL.lastPathComponent
         let escapedLabel = label
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "[", with: "\\[")
             .replacingOccurrences(of: "]", with: "\\]")
-        return "[\(escapedLabel)](\(fileURL.absoluteString))"
+        return "[\(escapedLabel)](\(linkURL.absoluteString))"
     }
 
     private func isPlainTextFile(_ fileURL: URL) -> Bool {
@@ -3052,6 +3108,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func captureSelectedTextWithShortcut(slotIndex: Int) {
+        guard Date().timeIntervalSince(lastShortcutCaptureAt) > 0.8 else {
+            log("shortcut:debounced:slot:\(slotIndex)")
+            return
+        }
+        lastShortcutCaptureAt = Date()
         let slot = Settings.shortcutSlot(slotIndex)
         guard slot.enabled else {
             log("shortcut:disabled-slot:\(slotIndex)")
@@ -3063,12 +3124,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSSound.beep()
             return
         }
-        guard isAccessibilityTrusted(prompt: false) else {
-            log("shortcut:accessibility-required:no-selection-capture")
-            NSSound.beep()
-            showSettingsWindow()
-            return
+        let accessibilityTrusted = isAccessibilityTrusted(prompt: false)
+        if !accessibilityTrusted {
+            log("shortcut:accessibility-not-trusted:clipboard-only")
         }
+        let documentSource = accessibilityTrusted ? sourceDocumentFileURL(for: NSWorkspace.shared.frontmostApplication) : nil
 
         let pasteboard = NSPasteboard.general
         let snapshot = ClipboardSnapshot(pasteboard: pasteboard)
@@ -3082,13 +3142,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         waitForCopiedText(pasteboard: pasteboard, previousChangeCount: previousChangeCount, attemptsRemaining: 12) { text, pastedSourceURL in
             defer { snapshot.restore(to: pasteboard) }
             let clipboardText = text.flatMap { self.normalizedTodoText($0) }
-            let axText = self.selectedTextFromAccessibility().flatMap { self.normalizedTodoText($0) }
+            let axText = accessibilityTrusted
+                ? self.selectedTextFromAccessibility().flatMap { self.normalizedTodoText($0) }
+                : nil
             if let normalized = self.bestShortcutText(clipboardText: clipboardText, axText: axText) {
                 self.log("shortcut:text:\(normalized)")
-                self.sendTodo(normalized, shortcutSlot: slot, sourceURL: pastedSourceURL)
+                let source = pastedSourceURL.map { CaptureSource(url: $0, title: nil) } ?? documentSource
+                self.sendTodo(normalized, shortcutSlot: slot, sourceURL: source?.url, sourceTitle: source?.title)
                 return
             }
             self.log("shortcut:no-selected-text")
+            if !accessibilityTrusted {
+                self.showSettingsWindow()
+            }
         }
     }
 
@@ -3172,6 +3238,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return nil
     }
 
+    private func sourceDocumentFileURL(for application: NSRunningApplication?) -> CaptureSource? {
+        guard Settings.includeDocumentSource,
+              let application,
+              let bundleIdentifier = application.bundleIdentifier else {
+            return nil
+        }
+        let blockedIdentifiers: Set<String> = [
+            Bundle.main.bundleIdentifier ?? "",
+            "com.apple.finder",
+            "com.apple.systempreferences",
+            "com.apple.systemsettings",
+            "com.apple.SecurityAgent",
+            "com.apple.loginwindow"
+        ]
+        guard !blockedIdentifiers.contains(bundleIdentifier) else { return nil }
+
+        let appElement = AXUIElementCreateApplication(application.processIdentifier)
+        let focusedWindow = axElementAttribute(appElement, kAXFocusedWindowAttribute)
+        let focusedElement = axElementAttribute(appElement, kAXFocusedUIElementAttribute)
+        let candidates = [focusedElement, focusedWindow, appElement].compactMap { $0 }
+        for element in candidates {
+            if let rawDocument = axStringAttribute(element, kAXDocumentAttribute),
+               let fileURL = standaloneFileURL(from: rawDocument) {
+                let title = axStringAttribute(element, kAXTitleAttribute)
+                    ?? focusedWindow.flatMap { axStringAttribute($0, kAXTitleAttribute) }
+                    ?? application.localizedName
+                log("source-document:\(fileURL.absoluteString)")
+                return CaptureSource(url: fileURL.absoluteString, title: title)
+            }
+        }
+        return nil
+    }
+
+    private func axElementAttribute(_ element: AXUIElement, _ attribute: String) -> AXUIElement? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success,
+              let value else {
+            return nil
+        }
+        return (value as! AXUIElement)
+    }
+
+    private func axStringAttribute(_ element: AXUIElement, _ attribute: String) -> String? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success,
+              let string = value as? String else {
+            return nil
+        }
+        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     private func waitForCopiedText(
         pasteboard: NSPasteboard,
         previousChangeCount: Int,
@@ -3234,11 +3352,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
-    private func sendTodo(_ todoText: String, shortcutSlot: ShortcutSlot? = nil, sourceURL: String? = nil) {
+    private func sendTodo(_ todoText: String, shortcutSlot: ShortcutSlot? = nil, sourceURL: String? = nil, sourceTitle: String? = nil) {
         let tagSource = shortcutSlot?.tags ?? Settings.taskTag
         guard let content = normalizedTaskContent(expandedVariables(todoText), tags: tagSource) else { return }
         log("sendTodo:\(content)")
-        let task = formattedTask(from: content, tags: tagSource, sourceURL: sourceURL)
+        let task = formattedTask(from: content, tags: tagSource, sourceURL: sourceURL, sourceTitle: sourceTitle)
+        log("sendTodoTask:\(task)")
         if shortcutSlot?.engine == .obsidian {
             writeObsidianTask(task, shortcutSlot: shortcutSlot)
             return
@@ -3345,7 +3464,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return content
     }
 
-    private func formattedTask(from content: String, tags: String, sourceURL: String? = nil) -> String {
+    private func formattedTask(from content: String, tags: String, sourceURL: String? = nil, sourceTitle: String? = nil) -> String {
         let tag = normalizedTags(expandedVariables(tags))
         var lines = content.components(separatedBy: .newlines)
         while lines.first?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true {
@@ -3363,22 +3482,88 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         var continuation = lines.dropFirst().map { line -> String in
             line.isEmpty ? ">" : "> \(stripLeadingCheckbox(line))"
         }
-        if let sourceLine = sourceContinuationLine(sourceURL, content: content) {
+        if let sourceLine = sourceContinuationLine(sourceURL, title: sourceTitle, content: content) {
             continuation.append(sourceLine)
         }
         let suffix = tag.isEmpty ? "" : " \(tag)"
         return (["- [ ] \(firstLine)\(suffix)"] + continuation).joined(separator: "\n")
     }
 
-    private func sourceContinuationLine(_ sourceURL: String?, content: String) -> String? {
+    private func sourceContinuationLine(_ sourceURL: String?, title: String? = nil, content: String) -> String? {
         guard Settings.includeSource,
               let sourceURL = sourceURL?.trimmingCharacters(in: .whitespacesAndNewlines),
-              isWebURL(sourceURL),
-              !content.contains(sourceURL),
-              let link = markdownLinkForWebURL(sourceURL) else {
+              !contentAlreadyReferencesSource(content, sourceURL: sourceURL),
+              let link = markdownLinkForSourceURL(sourceURL, title: title) else {
             return nil
         }
         return "> Source : \(link)"
+    }
+
+    private func markdownLinkForSourceURL(_ value: String, title: String?) -> String? {
+        if let webLink = markdownLinkForWebURL(value) {
+            if let title = cleanSourceTitle(title), let normalized = normalizedWebURL(value) {
+                return "[\(escapedMarkdownLinkTitle(title))](\(normalized))"
+            }
+            return webLink
+        }
+
+        guard Settings.includeDocumentSource,
+              let fileURL = standaloneFileURL(from: value) else {
+            return nil
+        }
+        let label = cleanSourceTitle(title) ?? fileURL.deletingPathExtension().lastPathComponent
+        return "[\(escapedMarkdownLinkTitle(label))](\(URL(fileURLWithPath: fileURL.standardizedFileURL.path, isDirectory: isDirectory(fileURL)).absoluteString))"
+    }
+
+    private func cleanSourceTitle(_ value: String?) -> String? {
+        let cleaned = value?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"(?i)\s+[-–—]\s+(TextEdit|Aperçu|Preview|Pages|Numbers|Keynote|Microsoft Word|Word|PDF Expert)$"#, with: "", options: .regularExpression)
+        guard let cleaned, !cleaned.isEmpty, cleaned != "(null)" else { return nil }
+        return cleaned
+    }
+
+    private func escapedMarkdownLinkTitle(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "[", with: "\\[")
+            .replacingOccurrences(of: "]", with: "\\]")
+    }
+
+    private func contentAlreadyReferencesSource(_ content: String, sourceURL: String) -> Bool {
+        if let fileURL = standaloneFileURL(from: sourceURL) {
+            let fileURLString = fileURL.absoluteString
+            return content.contains(fileURLString) || content.contains(fileURL.path)
+        }
+        guard let sourceKey = comparableWebURLKey(sourceURL) else {
+            return content.contains(sourceURL)
+        }
+        if content.contains(sourceURL) {
+            return true
+        }
+        return webURLs(in: content).contains { comparableWebURLKey($0) == sourceKey }
+    }
+
+    private func webURLs(in text: String) -> [String] {
+        let pattern = #"(?:https?://)?(?:www\.)?[A-Za-z0-9][A-Za-z0-9.-]+\.[A-Za-z]{2,}(?::\d+)?(?:/[^\s<>"'\)]*)?"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        return regex.matches(in: text, range: range).compactMap { match in
+            guard let matchRange = Range(match.range, in: text) else { return nil }
+            return String(text[matchRange])
+        }
+    }
+
+    private func comparableWebURLKey(_ value: String) -> String? {
+        guard let normalized = normalizedWebURL(value),
+              let components = URLComponents(string: normalized),
+              let host = components.host?.lowercased() else {
+            return nil
+        }
+        let port = components.port.map { ":\($0)" } ?? ""
+        let path = components.percentEncodedPath.isEmpty ? "/" : components.percentEncodedPath
+        let query = components.percentEncodedQuery.map { "?\($0)" } ?? ""
+        return "\(host)\(port)\(path)\(query)"
     }
 
     private func normalizedTaskContent(_ value: String, tags: String) -> String? {
@@ -3396,10 +3581,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         guard !content.isEmpty, content != "(null)" else { return nil }
+        if let fileURL = standaloneFileURL(from: content) {
+            return fileMarkdownLink(for: fileURL)
+        }
         if let markdownLink = markdownLinkForWebURL(content) {
             return markdownLink
         }
         return content
+    }
+
+    private func standaloneFileURL(from value: String) -> URL? {
+        let trimmed = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+        guard !trimmed.isEmpty, !trimmed.contains("\n") else { return nil }
+
+        let fileURL: URL
+        if trimmed.lowercased().hasPrefix("file://"),
+           let url = URL(string: trimmed),
+           url.isFileURL {
+            fileURL = url
+        } else if trimmed.hasPrefix("/") || trimmed.hasPrefix("~") {
+            fileURL = URL(fileURLWithPath: (trimmed as NSString).expandingTildeInPath)
+        } else {
+            return nil
+        }
+
+        return FileManager.default.fileExists(atPath: fileURL.path) ? fileURL : nil
+    }
+
+    private func isDirectory(_ url: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+        return isDirectory.boolValue
     }
 
     private func normalizedTags(_ value: String) -> String {
