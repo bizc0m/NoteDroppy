@@ -1184,6 +1184,31 @@ private func existingFinderPath(from text: String) -> String? {
     return nil
 }
 
+private func resolveObsidianVaultPath(named vaultName: String) -> String? {
+    let cleanVault = vaultName.removingPercentEncoding?
+        .trimmingCharacters(in: .whitespacesAndNewlines) ?? vaultName.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !cleanVault.isEmpty else { return nil }
+
+    let home = FileManager.default.homeDirectoryForCurrentUser
+    let roots = [
+        home.appendingPathComponent("Desktop"),
+        home.appendingPathComponent("Documents"),
+        home.appendingPathComponent("Library/Mobile Documents/iCloud~md~obsidian/Documents")
+    ]
+
+    for root in roots {
+        let candidate = root.appendingPathComponent(cleanVault)
+        let marker = candidate.appendingPathComponent(".obsidian")
+        var isDirectory: ObjCBool = false
+        if FileManager.default.fileExists(atPath: marker.path, isDirectory: &isDirectory),
+           isDirectory.boolValue {
+            return candidate.path
+        }
+    }
+
+    return nil
+}
+
 private func pasteboardStrings(from pasteboard: NSPasteboard) -> [String] {
     var values: [String] = []
     for type in pasteboard.types ?? [] {
@@ -1537,6 +1562,14 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         onChange?(self)
     }
 
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        guard control === targetField, commandSelector == #selector(NSText.paste(_:)) else {
+            return false
+        }
+        onPasteTarget?(self)
+        return true
+    }
+
     private func selectedEngine() -> ShortcutEngine {
         ShortcutEngine.allCases.first { $0.title == enginePopup.titleOfSelectedItem } ?? .notePlan
     }
@@ -1553,7 +1586,8 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         destinationPopup.isEnabled = engine == .notePlan
         folderField.isEnabled = acceptsTarget
         noteField.isEnabled = acceptsTarget
-        targetField.isEditable = acceptsTarget
+        targetField.isEditable = true
+        targetField.isSelectable = true
         targetField.acceptsDrop = true
         searchButton.isEnabled = true
         if engine == .obsidian {
@@ -1631,7 +1665,7 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         if folderField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
            let vault,
            !vault.isEmpty {
-            folderField.stringValue = vault
+            folderField.stringValue = resolveObsidianVaultPath(named: vault) ?? vault
         }
         applyTargetDisplay(targetDisplay(for: .notePath, folder: folderField.stringValue, note: noteField.stringValue))
         refreshNoteFieldState()
@@ -1904,6 +1938,7 @@ final class SettingsWindowController: NSWindowController {
     private let statusLabel = NSTextField(labelWithString: "")
     private let saveButton = NSButton(title: "Enregistrer", target: nil, action: nil)
     private var hasPendingChanges = false
+    private var pasteMonitor: Any?
 
     convenience init() {
         let window = centeredWindow("Préférences NoteDroppy", width: 980, height: 800, style: [.titled, .closable, .miniaturizable, .resizable])
@@ -2083,6 +2118,42 @@ final class SettingsWindowController: NSWindowController {
         window?.minSize = NSSize(width: 980, height: 560)
         refreshAccessibilityStatus()
         markPendingChanges(false)
+        installPasteMonitorIfNeeded()
+    }
+
+    deinit {
+        if let pasteMonitor {
+            NSEvent.removeMonitor(pasteMonitor)
+        }
+    }
+
+    private func installPasteMonitorIfNeeded() {
+        guard pasteMonitor == nil else { return }
+        pasteMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self,
+                  event.window === self.window,
+                  event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command),
+                  event.charactersIgnoringModifiers?.lowercased() == "v",
+                  let row = self.focusedTargetRow()
+            else {
+                return event
+            }
+            self.pasteTarget(for: row)
+            return nil
+        }
+    }
+
+    private func focusedTargetRow() -> ShortcutSlotRow? {
+        guard let firstResponder = window?.firstResponder else { return nil }
+        for row in shortcutRows {
+            if firstResponder === row.targetField {
+                return row
+            }
+            if let editor = row.targetField.currentEditor(), firstResponder === editor {
+                return row
+            }
+        }
+        return nil
     }
 
     private func showNoteSearch(for row: ShortcutSlotRow) {
