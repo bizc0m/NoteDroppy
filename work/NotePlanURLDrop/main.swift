@@ -968,6 +968,88 @@ final class ShortcutTargetField: NSTextField {
     }
 }
 
+final class ShortcutMakerDropView: NSView {
+    var onDropTarget: ((ShortcutTarget) -> Bool)?
+    private let titleLabel = NSTextField(labelWithString: "Déposer une note NotePlan ici")
+    private let detailLabel = NSTextField(labelWithString: "Glisser une note .md depuis Finder, ou un lien noteplan:// depuis NotePlan.")
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        configure()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        configure()
+    }
+
+    private func configure() {
+        wantsLayer = true
+        layer?.cornerRadius = 10
+        layer?.borderWidth = 2
+        layer?.borderColor = NSColor.separatorColor.cgColor
+        layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.55).cgColor
+        registerForDraggedTypes(shortcutDropPasteboardTypes)
+
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .centerX
+        stack.spacing = 8
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+
+        titleLabel.font = .boldSystemFont(ofSize: 18)
+        titleLabel.alignment = .center
+        detailLabel.textColor = .secondaryLabelColor
+        detailLabel.alignment = .center
+        detailLabel.lineBreakMode = .byWordWrapping
+        detailLabel.maximumNumberOfLines = 2
+
+        stack.addArrangedSubview(titleLabel)
+        stack.addArrangedSubview(detailLabel)
+
+        NSLayoutConstraint.activate([
+            heightAnchor.constraint(equalToConstant: 150),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 24),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -24),
+            stack.centerYAnchor.constraint(equalTo: centerYAnchor)
+        ])
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        writeDebugLog("shortcut-maker-drop:entered:\(pasteboardDebugDescription(sender.draggingPasteboard))")
+        guard shortcutTarget(from: sender.draggingPasteboard) != nil else { return NSDragOperation() }
+        layer?.borderColor = NSColor.controlAccentColor.cgColor
+        layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.12).cgColor
+        return preferredDragOperation(from: sender.draggingSourceOperationMask)
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        shortcutTarget(from: sender.draggingPasteboard) == nil
+            ? NSDragOperation()
+            : preferredDragOperation(from: sender.draggingSourceOperationMask)
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        resetDropStyle()
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        writeDebugLog("shortcut-maker-drop:perform:\(pasteboardDebugDescription(sender.draggingPasteboard))")
+        resetDropStyle()
+        guard let target = shortcutTarget(from: sender.draggingPasteboard) else {
+            NSSound.beep()
+            return false
+        }
+        return onDropTarget?(target) ?? false
+    }
+
+    private func resetDropStyle() {
+        layer?.borderColor = NSColor.separatorColor.cgColor
+        layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.55).cgColor
+    }
+}
+
 final class ShortcutSlotDropStack: NSStackView {
     var acceptsDrop = true
     var onDropTarget: ((ShortcutTarget) -> Bool)?
@@ -1939,7 +2021,14 @@ final class SettingsWindowController: NSWindowController {
     private let saveButton = NSButton(title: "Enregistrer", target: nil, action: nil)
     private let shortcutMakerNoteField = NSTextField(labelWithString: "")
     private let shortcutMakerDestinationField = NSTextField(labelWithString: "")
+    private let shortcutMakerDropView = ShortcutMakerDropView()
+    private let shortcutMakerRecentTextView = NSTextView()
     private var generatedShortcutURL: URL?
+    private let shortcutMakerNotePathKey = "noteplanShortcutMaker.notePath"
+    private let shortcutMakerNoteURLKey = "noteplanShortcutMaker.noteURL"
+    private let shortcutMakerNoteDisplayKey = "noteplanShortcutMaker.noteDisplay"
+    private let shortcutMakerDestinationPathKey = "noteplanShortcutMaker.destinationPath"
+    private let shortcutMakerRecentShortcutsKey = "noteplanShortcutMaker.recentShortcuts"
     private var hasPendingChanges = false
     private var pasteMonitor: Any?
 
@@ -2203,12 +2292,34 @@ final class SettingsWindowController: NSWindowController {
 
         shortcutMakerNoteField.lineBreakMode = .byTruncatingMiddle
         shortcutMakerDestinationField.lineBreakMode = .byTruncatingMiddle
+        shortcutMakerDropView.translatesAutoresizingMaskIntoConstraints = false
+        shortcutMakerDropView.onDropTarget = { [weak self] target in
+            self?.applyShortcutMakerDrop(target) ?? false
+        }
+        shortcutMakerDropView.widthAnchor.constraint(equalToConstant: 760).isActive = true
         refreshShortcutMakerFields()
 
         let chooseNoteButton = NSButton(title: "Choisir une note .md", target: self, action: #selector(chooseShortcutMakerNote))
         let chooseDestinationButton = NSButton(title: "Choisir destination", target: self, action: #selector(chooseShortcutMakerDestination))
         let generateButton = NSButton(title: "Créer le raccourci .app", target: self, action: #selector(generateShortcutMakerApp))
         let revealButton = NSButton(title: "Révéler le dernier raccourci", target: self, action: #selector(revealShortcutMakerApp))
+        let recentTitle = NSTextField(labelWithString: "Derniers raccourcis créés")
+        recentTitle.font = .boldSystemFont(ofSize: 13)
+
+        shortcutMakerRecentTextView.isEditable = false
+        shortcutMakerRecentTextView.isSelectable = true
+        shortcutMakerRecentTextView.drawsBackground = false
+        shortcutMakerRecentTextView.font = .systemFont(ofSize: 12)
+        shortcutMakerRecentTextView.textColor = .secondaryLabelColor
+
+        let recentScroll = NSScrollView()
+        recentScroll.hasVerticalScroller = true
+        recentScroll.drawsBackground = false
+        recentScroll.borderType = .lineBorder
+        recentScroll.documentView = shortcutMakerRecentTextView
+        recentScroll.translatesAutoresizingMaskIntoConstraints = false
+        recentScroll.widthAnchor.constraint(equalToConstant: 760).isActive = true
+        recentScroll.heightAnchor.constraint(equalToConstant: 110).isActive = true
 
         [chooseNoteButton, chooseDestinationButton, generateButton, revealButton].forEach { button in
             button.bezelStyle = .rounded
@@ -2218,12 +2329,15 @@ final class SettingsWindowController: NSWindowController {
 
         stack.addArrangedSubview(title)
         stack.addArrangedSubview(detail)
+        stack.addArrangedSubview(shortcutMakerDropView)
         stack.addArrangedSubview(shortcutMakerInfoRow(title: "Note", value: shortcutMakerNoteField))
         stack.addArrangedSubview(chooseNoteButton)
         stack.addArrangedSubview(shortcutMakerInfoRow(title: "Destination", value: shortcutMakerDestinationField))
         stack.addArrangedSubview(chooseDestinationButton)
         stack.addArrangedSubview(generateButton)
         stack.addArrangedSubview(revealButton)
+        stack.addArrangedSubview(recentTitle)
+        stack.addArrangedSubview(recentScroll)
 
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 18),
@@ -2248,8 +2362,129 @@ final class SettingsWindowController: NSWindowController {
     }
 
     private func refreshShortcutMakerFields() {
-        shortcutMakerNoteField.stringValue = UserDefaults.standard.string(forKey: "noteplanShortyNotePath") ?? "Aucune note choisie"
-        shortcutMakerDestinationField.stringValue = UserDefaults.standard.string(forKey: "noteplanShortyDestinationPath") ?? "Aucune destination choisie"
+        shortcutMakerNoteField.stringValue = shortcutMakerNoteDisplay()
+        shortcutMakerDestinationField.stringValue = shortcutMakerDestinationURL().path
+        shortcutMakerRecentTextView.string = shortcutMakerRecentShortcuts()
+            .map { "• \($0)" }
+            .joined(separator: "\n")
+    }
+
+    private func shortcutMakerNoteDisplay() -> String {
+        if let display = UserDefaults.standard.string(forKey: shortcutMakerNoteDisplayKey)?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !display.isEmpty {
+            return display
+        }
+        if let urlString = UserDefaults.standard.string(forKey: shortcutMakerNoteURLKey)?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !urlString.isEmpty {
+            return "NotePlan : \(shortcutMakerAppName(fromNotePlanURL: urlString))"
+        }
+        if let path = UserDefaults.standard.string(forKey: shortcutMakerNotePathKey)?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !path.isEmpty {
+            return path
+        }
+        return "Aucune note choisie"
+    }
+
+    private func shortcutMakerDestinationURL() -> URL {
+        if let path = UserDefaults.standard.string(forKey: shortcutMakerDestinationPathKey)?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !path.isEmpty {
+            return URL(fileURLWithPath: path)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Desktop", isDirectory: true)
+    }
+
+    private func shortcutMakerRecentShortcuts() -> [String] {
+        UserDefaults.standard.stringArray(forKey: shortcutMakerRecentShortcutsKey) ?? []
+    }
+
+    private func rememberShortcutMakerApp(_ appURL: URL) {
+        var recent = shortcutMakerRecentShortcuts()
+        recent.removeAll { $0 == appURL.path }
+        recent.insert(appURL.path, at: 0)
+        UserDefaults.standard.set(Array(recent.prefix(10)), forKey: shortcutMakerRecentShortcutsKey)
+        UserDefaults.standard.synchronize()
+        refreshShortcutMakerFields()
+    }
+
+    private func setShortcutMakerNote(path: String) {
+        UserDefaults.standard.set(path, forKey: shortcutMakerNotePathKey)
+        UserDefaults.standard.removeObject(forKey: shortcutMakerNoteURLKey)
+        UserDefaults.standard.set(path, forKey: shortcutMakerNoteDisplayKey)
+        UserDefaults.standard.synchronize()
+        refreshShortcutMakerFields()
+    }
+
+    private func setShortcutMakerNote(notePlanURL: String, displayName: String) {
+        UserDefaults.standard.set(notePlanURL, forKey: shortcutMakerNoteURLKey)
+        UserDefaults.standard.removeObject(forKey: shortcutMakerNotePathKey)
+        UserDefaults.standard.set("NotePlan : \(displayName)", forKey: shortcutMakerNoteDisplayKey)
+        UserDefaults.standard.synchronize()
+        refreshShortcutMakerFields()
+    }
+
+    private func applyShortcutMakerDrop(_ target: ShortcutTarget) -> Bool {
+        if let url = target.url {
+            if url.scheme?.lowercased() == "noteplan" {
+                let urlString = url.absoluteString
+                setShortcutMakerNote(notePlanURL: urlString, displayName: shortcutMakerAppName(fromNotePlanURL: urlString))
+                statusLabel.stringValue = "NotePlan enregistré : \(shortcutMakerAppName(fromNotePlanURL: urlString))"
+                return true
+            }
+            if url.isFileURL, url.pathExtension.lowercased() == "md" {
+                setShortcutMakerNote(path: url.standardizedFileURL.path)
+                statusLabel.stringValue = "Note choisie : \(url.lastPathComponent)"
+                return true
+            }
+        }
+
+        if let text = target.rawText {
+            if let notePlanURL = notePlanURLCandidate(from: text) {
+                setShortcutMakerNote(notePlanURL: notePlanURL, displayName: shortcutMakerAppName(fromNotePlanURL: notePlanURL))
+                statusLabel.stringValue = "NotePlan enregistré : \(shortcutMakerAppName(fromNotePlanURL: notePlanURL))"
+                return true
+            }
+            if let path = existingFinderPath(from: text), path.lowercased().hasSuffix(".md") {
+                setShortcutMakerNote(path: path)
+                statusLabel.stringValue = "Note choisie : \(URL(fileURLWithPath: path).lastPathComponent)"
+                return true
+            }
+        }
+
+        statusLabel.stringValue = "Dépose une note .md ou un lien noteplan://."
+        NSSound.beep()
+        return false
+    }
+
+    private func notePlanURLCandidate(from text: String) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let url = URL(string: trimmed), url.scheme?.lowercased() == "noteplan" {
+            return trimmed
+        }
+        let pattern = #"noteplan://[^\s\)\]>"]+"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return nil
+        }
+        let range = NSRange(trimmed.startIndex..<trimmed.endIndex, in: trimmed)
+        guard let match = regex.firstMatch(in: trimmed, range: range),
+              let matchRange = Range(match.range, in: trimmed) else {
+            return nil
+        }
+        return String(trimmed[matchRange])
+    }
+
+    private func shortcutMakerAppName(fromNotePlanURL urlString: String) -> String {
+        guard let components = URLComponents(string: urlString) else {
+            return "NotePlan Shortcut"
+        }
+        let items = components.queryItems ?? []
+        for name in ["noteTitle", "notePath", "fileName"] {
+            if let value = items.first(where: { $0.name == name })?.value,
+               !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return URL(fileURLWithPath: value).deletingPathExtension().lastPathComponent
+            }
+        }
+        let fallback = components.host ?? components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return fallback.isEmpty ? "NotePlan Shortcut" : fallback
     }
 
     @objc private func chooseShortcutMakerNote() {
@@ -2261,9 +2496,7 @@ final class SettingsWindowController: NSWindowController {
         panel.allowedContentTypes = [UTType(filenameExtension: "md")].compactMap { $0 }
         panel.directoryURL = Settings.selectedNotesRoot() ?? FileManager.default.homeDirectoryForCurrentUser
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        UserDefaults.standard.set(url.path, forKey: "noteplanShortyNotePath")
-        UserDefaults.standard.synchronize()
-        refreshShortcutMakerFields()
+        setShortcutMakerNote(path: url.path)
         statusLabel.stringValue = "Note choisie : \(url.lastPathComponent)"
     }
 
@@ -2274,33 +2507,41 @@ final class SettingsWindowController: NSWindowController {
         panel.canChooseDirectories = true
         panel.canCreateDirectories = true
         panel.allowsMultipleSelection = false
-        panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications", isDirectory: true)
+        panel.directoryURL = shortcutMakerDestinationURL()
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        UserDefaults.standard.set(url.path, forKey: "noteplanShortyDestinationPath")
+        UserDefaults.standard.set(url.path, forKey: shortcutMakerDestinationPathKey)
         UserDefaults.standard.synchronize()
         refreshShortcutMakerFields()
         statusLabel.stringValue = "Destination choisie : \(url.path)"
     }
 
     @objc private func generateShortcutMakerApp() {
-        guard let notePath = UserDefaults.standard.string(forKey: "noteplanShortyNotePath")?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !notePath.isEmpty else {
+        let notePath = UserDefaults.standard.string(forKey: shortcutMakerNotePathKey)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let notePlanURL = UserDefaults.standard.string(forKey: shortcutMakerNoteURLKey)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !notePath.isEmpty || !notePlanURL.isEmpty else {
             chooseShortcutMakerNote()
             return
         }
-        guard let destinationPath = UserDefaults.standard.string(forKey: "noteplanShortyDestinationPath")?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !destinationPath.isEmpty else {
-            chooseShortcutMakerDestination()
-            return
-        }
+        let destinationURL = shortcutMakerDestinationURL()
 
         do {
-            let result = try EditorNotePlanShortcutGenerator.generate(
-                noteURL: URL(fileURLWithPath: notePath),
-                destinationURL: URL(fileURLWithPath: destinationPath),
-                confirmReplace: confirmShortcutMakerReplacement(appURL:)
-            )
+            let result: EditorShortcutResult
+            if !notePlanURL.isEmpty {
+                result = try EditorNotePlanShortcutGenerator.generate(
+                    noteURLString: notePlanURL,
+                    appName: shortcutMakerAppName(fromNotePlanURL: notePlanURL),
+                    destinationURL: destinationURL,
+                    confirmReplace: confirmShortcutMakerReplacement(appURL:)
+                )
+            } else {
+                result = try EditorNotePlanShortcutGenerator.generate(
+                    noteURL: URL(fileURLWithPath: notePath),
+                    destinationURL: destinationURL,
+                    confirmReplace: confirmShortcutMakerReplacement(appURL:)
+                )
+            }
             generatedShortcutURL = result.appURL
+            rememberShortcutMakerApp(result.appURL)
             statusLabel.stringValue = "Raccourci généré : \(result.appURL.path)"
             askRevealShortcutMakerApp(result.appURL)
         } catch EditorNotePlanShortcutError.cancelled {
@@ -5706,6 +5947,43 @@ struct EditorNotePlanShortcutGenerator {
         return EditorShortcutResult(noteName: noteName, noteURLString: noteURLString, appURL: appURL)
     }
 
+    static func generate(
+        noteURLString: String,
+        appName: String,
+        destinationURL: URL,
+        confirmReplace: (URL) -> Bool = { _ in true }
+    ) throws -> EditorShortcutResult {
+        guard URLComponents(string: noteURLString)?.scheme?.lowercased() == "noteplan" else {
+            throw EditorNotePlanShortcutError.commandFailed("URL NotePlan invalide.")
+        }
+
+        let noteName = sanitizedAppName(appName)
+        guard !noteName.isEmpty else {
+            throw EditorNotePlanShortcutError.emptyNoteName
+        }
+
+        try FileManager.default.createDirectory(at: destinationURL, withIntermediateDirectories: true)
+
+        let appURL = destinationURL.appendingPathComponent("\(noteName).app", isDirectory: true)
+        if FileManager.default.fileExists(atPath: appURL.path) {
+            guard confirmReplace(appURL) else {
+                throw EditorNotePlanShortcutError.cancelled
+            }
+            try FileManager.default.removeItem(at: appURL)
+        }
+
+        let finalAppPath = destinationURL.path + "/" + noteName + ".app"
+        try compileShortcutApp(
+            noteURLString: noteURLString,
+            appName: noteName,
+            finalAppPath: finalAppPath,
+            destinationDir: destinationURL
+        )
+        try verify(appURL: appURL, noteName: noteName, noteURLString: noteURLString)
+
+        return EditorShortcutResult(noteName: noteName, noteURLString: noteURLString, appURL: appURL)
+    }
+
     private static func compileShortcutApp(noteURLString: String, appName: String, finalAppPath: String, destinationDir: URL) throws {
         let script = """
         tell application "NotePlan" to activate
@@ -5814,6 +6092,16 @@ struct EditorNotePlanShortcutGenerator {
         var allowed = CharacterSet.urlQueryAllowed
         allowed.remove(charactersIn: "&+=?")
         return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
+    }
+
+    private static func sanitizedAppName(_ value: String) -> String {
+        let illegal = CharacterSet(charactersIn: "/:")
+        let cleaned = value
+            .components(separatedBy: illegal)
+            .joined(separator: "-")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .precomposedStringWithCanonicalMapping
+        return cleaned.isEmpty ? "NotePlan Shortcut" : cleaned
     }
 }
 
