@@ -590,6 +590,20 @@ private func writeDebugLog(_ message: String) {
     }
 }
 
+private func noteDroopyLogoImage(size: NSSize? = nil) -> NSImage {
+    let image: NSImage
+    if let url = Bundle.main.url(forResource: "notedroppy-logo", withExtension: "png"),
+       let bundled = NSImage(contentsOf: url) {
+        image = bundled
+    } else {
+        image = NSApplication.shared.applicationIconImage
+    }
+    if let size {
+        image.size = size
+    }
+    return image
+}
+
 private func styleFillableField(_ field: NSTextField) {
     field.drawsBackground = true
     field.backgroundColor = NSColor.controlBackgroundColor.blended(withFraction: 0.16, of: .white) ?? .controlBackgroundColor
@@ -1840,7 +1854,7 @@ final class SettingsWindowController: NSWindowController {
         tagline.lineBreakMode = .byWordWrapping
 
         let logo = NSImageView()
-        logo.image = NSApplication.shared.applicationIconImage
+        logo.image = noteDroopyLogoImage()
         logo.imageScaling = .scaleProportionallyUpOrDown
         logo.translatesAutoresizingMaskIntoConstraints = false
         logo.widthAnchor.constraint(equalToConstant: 64).isActive = true
@@ -2872,6 +2886,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func showAbout(_ sender: Any?) {
         let alert = NSAlert()
+        alert.icon = noteDroopyLogoImage(size: NSSize(width: 96, height: 96))
         alert.messageText = "NoteDroppy"
         alert.informativeText = """
         Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")
@@ -4177,6 +4192,7 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
 
     @objc private func showAbout() {
         let alert = NSAlert()
+        alert.icon = noteDroopyLogoImage(size: NSSize(width: 96, height: 96))
         alert.messageText = "NoteDroppy"
         alert.informativeText = """
         Éditeur NotePlan local (fusionné depuis NoteDroppy V3.7).
