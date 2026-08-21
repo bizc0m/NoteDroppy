@@ -1962,13 +1962,8 @@ final class SettingsWindowController: NSWindowController {
         settingsTab.view = settingsContainer
         tabView.addTabViewItem(settingsTab)
 
-        let functionsTab = NSTabViewItem(identifier: "functions")
-        functionsTab.label = "Fonctions"
-        functionsTab.view = functionsTabView()
-        tabView.addTabViewItem(functionsTab)
-
         let shortcutMakerTab = NSTabViewItem(identifier: "shortcutMaker")
-        shortcutMakerTab.label = "Raccourcis .app"
+        shortcutMakerTab.label = "Raccourci NotePlan"
         shortcutMakerTab.view = shortcutMakerTabView()
         tabView.addTabViewItem(shortcutMakerTab)
 
@@ -2198,10 +2193,10 @@ final class SettingsWindowController: NSWindowController {
         stack.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(stack)
 
-        let title = NSTextField(labelWithString: "Raccourcis .app NotePlan")
+        let title = NSTextField(labelWithString: "Raccourci .app vers une note")
         title.font = .boldSystemFont(ofSize: 18)
 
-        let detail = NSTextField(labelWithString: "Génère une petite app qui ouvre directement une note NotePlan.")
+        let detail = NSTextField(labelWithString: "Crée une petite app qui ouvre directement la note choisie dans NotePlan.")
         detail.textColor = .secondaryLabelColor
         detail.lineBreakMode = .byWordWrapping
         detail.maximumNumberOfLines = 2
@@ -2212,7 +2207,7 @@ final class SettingsWindowController: NSWindowController {
 
         let chooseNoteButton = NSButton(title: "Choisir une note .md", target: self, action: #selector(chooseShortcutMakerNote))
         let chooseDestinationButton = NSButton(title: "Choisir destination", target: self, action: #selector(chooseShortcutMakerDestination))
-        let generateButton = NSButton(title: "Générer le raccourci .app", target: self, action: #selector(generateShortcutMakerApp))
+        let generateButton = NSButton(title: "Créer le raccourci .app", target: self, action: #selector(generateShortcutMakerApp))
         let revealButton = NSButton(title: "Révéler le dernier raccourci", target: self, action: #selector(revealShortcutMakerApp))
 
         [chooseNoteButton, chooseDestinationButton, generateButton, revealButton].forEach { button in
