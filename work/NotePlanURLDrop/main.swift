@@ -1949,12 +1949,27 @@ final class SettingsWindowController: NSWindowController {
     private func buildContent() {
         guard let contentView = window?.contentView else { return }
 
+        let tabView = NSTabView()
+        tabView.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(tabView)
+
+        let settingsContainer = NSView()
+        let settingsTab = NSTabViewItem(identifier: "settings")
+        settingsTab.label = "Réglages"
+        settingsTab.view = settingsContainer
+        tabView.addTabViewItem(settingsTab)
+
+        let functionsTab = NSTabViewItem(identifier: "functions")
+        functionsTab.label = "Fonctions"
+        functionsTab.view = functionsTabView()
+        tabView.addTabViewItem(functionsTab)
+
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 12
         stack.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(stack)
+        settingsContainer.addSubview(stack)
 
         let title = NSTextField(labelWithString: "NoteDroppy")
         title.font = .boldSystemFont(ofSize: 18)
@@ -2107,18 +2122,73 @@ final class SettingsWindowController: NSWindowController {
         stack.addArrangedSubview(statusLabel)
 
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 24),
-            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -24),
-            stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 22)
+            tabView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
+            tabView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
+            tabView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
+            tabView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -12),
+
+            stack.leadingAnchor.constraint(equalTo: settingsContainer.leadingAnchor, constant: 12),
+            stack.trailingAnchor.constraint(equalTo: settingsContainer.trailingAnchor, constant: -12),
+            stack.topAnchor.constraint(equalTo: settingsContainer.topAnchor, constant: 12)
         ])
         contentView.layoutSubtreeIfNeeded()
         let fitting = stack.fittingSize
-        let contentSize = NSSize(width: max(980, fitting.width + 48), height: max(620, fitting.height + 44))
+        let contentSize = NSSize(width: max(980, fitting.width + 72), height: max(620, fitting.height + 92))
         window?.setContentSize(contentSize)
         window?.minSize = NSSize(width: 980, height: 560)
         refreshAccessibilityStatus()
         markPendingChanges(false)
         installPasteMonitorIfNeeded()
+    }
+
+    private func functionsTabView() -> NSView {
+        let container = NSView()
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 14
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(stack)
+
+        let title = NSTextField(labelWithString: "Fonctions")
+        title.font = .boldSystemFont(ofSize: 18)
+
+        let detail = NSTextField(labelWithString: "Accès rapide aux fonctions complémentaires sans modifier les réglages de capture.")
+        detail.textColor = .secondaryLabelColor
+        detail.lineBreakMode = .byWordWrapping
+        detail.maximumNumberOfLines = 2
+
+        let editorButton = NSButton(title: "Ouvrir l’éditeur NotePlan", target: self, action: #selector(openEditorFromSettings))
+        let searchButton = NSButton(title: "Rechercher dans les notes", target: self, action: #selector(searchNotesFromSettings))
+        let exportButton = NSButton(title: "Exporter les préférences JSON", target: self, action: #selector(exportPreferencesJSON))
+        let helpButton = NSButton(title: "Aide", target: self, action: #selector(openHelp))
+
+        [editorButton, searchButton, exportButton, helpButton].forEach { button in
+            button.bezelStyle = .rounded
+            button.translatesAutoresizingMaskIntoConstraints = false
+            button.widthAnchor.constraint(equalToConstant: 260).isActive = true
+            stack.addArrangedSubview(button)
+        }
+
+        stack.insertArrangedSubview(detail, at: 0)
+        stack.insertArrangedSubview(title, at: 0)
+
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 18),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -18),
+            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 18)
+        ])
+        return container
+    }
+
+    @objc private func openEditorFromSettings() {
+        NotePlanEditorWindowController.show()
+    }
+
+    @objc private func searchNotesFromSettings() {
+        NoteSearchWindowController.show(initialQuery: "") { [weak self] selected in
+            self?.statusLabel.stringValue = "Note trouvée : \(selected.relativePath)"
+        }
     }
 
     deinit {
