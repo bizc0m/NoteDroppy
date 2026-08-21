@@ -1937,6 +1937,9 @@ final class SettingsWindowController: NSWindowController {
     private let importButton = NSButton(title: "Importer JSON", target: nil, action: nil)
     private let statusLabel = NSTextField(labelWithString: "")
     private let saveButton = NSButton(title: "Enregistrer", target: nil, action: nil)
+    private let shortcutMakerNoteField = NSTextField(labelWithString: "")
+    private let shortcutMakerDestinationField = NSTextField(labelWithString: "")
+    private var generatedShortcutURL: URL?
     private var hasPendingChanges = false
     private var pasteMonitor: Any?
 
@@ -1963,6 +1966,11 @@ final class SettingsWindowController: NSWindowController {
         functionsTab.label = "Fonctions"
         functionsTab.view = functionsTabView()
         tabView.addTabViewItem(functionsTab)
+
+        let shortcutMakerTab = NSTabViewItem(identifier: "shortcutMaker")
+        shortcutMakerTab.label = "Raccourcis .app"
+        shortcutMakerTab.view = shortcutMakerTabView()
+        tabView.addTabViewItem(shortcutMakerTab)
 
         let stack = NSStackView()
         stack.orientation = .vertical
@@ -2179,6 +2187,161 @@ final class SettingsWindowController: NSWindowController {
             stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 18)
         ])
         return container
+    }
+
+    private func shortcutMakerTabView() -> NSView {
+        let container = NSView()
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 14
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(stack)
+
+        let title = NSTextField(labelWithString: "Raccourcis .app NotePlan")
+        title.font = .boldSystemFont(ofSize: 18)
+
+        let detail = NSTextField(labelWithString: "Génère une petite app qui ouvre directement une note NotePlan.")
+        detail.textColor = .secondaryLabelColor
+        detail.lineBreakMode = .byWordWrapping
+        detail.maximumNumberOfLines = 2
+
+        shortcutMakerNoteField.lineBreakMode = .byTruncatingMiddle
+        shortcutMakerDestinationField.lineBreakMode = .byTruncatingMiddle
+        refreshShortcutMakerFields()
+
+        let chooseNoteButton = NSButton(title: "Choisir une note .md", target: self, action: #selector(chooseShortcutMakerNote))
+        let chooseDestinationButton = NSButton(title: "Choisir destination", target: self, action: #selector(chooseShortcutMakerDestination))
+        let generateButton = NSButton(title: "Générer le raccourci .app", target: self, action: #selector(generateShortcutMakerApp))
+        let revealButton = NSButton(title: "Révéler le dernier raccourci", target: self, action: #selector(revealShortcutMakerApp))
+
+        [chooseNoteButton, chooseDestinationButton, generateButton, revealButton].forEach { button in
+            button.bezelStyle = .rounded
+            button.translatesAutoresizingMaskIntoConstraints = false
+            button.widthAnchor.constraint(equalToConstant: 260).isActive = true
+        }
+
+        stack.addArrangedSubview(title)
+        stack.addArrangedSubview(detail)
+        stack.addArrangedSubview(shortcutMakerInfoRow(title: "Note", value: shortcutMakerNoteField))
+        stack.addArrangedSubview(chooseNoteButton)
+        stack.addArrangedSubview(shortcutMakerInfoRow(title: "Destination", value: shortcutMakerDestinationField))
+        stack.addArrangedSubview(chooseDestinationButton)
+        stack.addArrangedSubview(generateButton)
+        stack.addArrangedSubview(revealButton)
+
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 18),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -18),
+            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 18)
+        ])
+        return container
+    }
+
+    private func shortcutMakerInfoRow(title: String, value: NSTextField) -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.spacing = 10
+        row.alignment = .centerY
+        let label = formLabel(title, width: 90)
+        value.textColor = .secondaryLabelColor
+        value.translatesAutoresizingMaskIntoConstraints = false
+        value.widthAnchor.constraint(equalToConstant: 620).isActive = true
+        row.addArrangedSubview(label)
+        row.addArrangedSubview(value)
+        return row
+    }
+
+    private func refreshShortcutMakerFields() {
+        shortcutMakerNoteField.stringValue = UserDefaults.standard.string(forKey: "noteplanShortyNotePath") ?? "Aucune note choisie"
+        shortcutMakerDestinationField.stringValue = UserDefaults.standard.string(forKey: "noteplanShortyDestinationPath") ?? "Aucune destination choisie"
+    }
+
+    @objc private func chooseShortcutMakerNote() {
+        let panel = NSOpenPanel()
+        panel.title = "Choisir une note NotePlan"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [UTType(filenameExtension: "md")].compactMap { $0 }
+        panel.directoryURL = Settings.selectedNotesRoot() ?? FileManager.default.homeDirectoryForCurrentUser
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        UserDefaults.standard.set(url.path, forKey: "noteplanShortyNotePath")
+        UserDefaults.standard.synchronize()
+        refreshShortcutMakerFields()
+        statusLabel.stringValue = "Note choisie : \(url.lastPathComponent)"
+    }
+
+    @objc private func chooseShortcutMakerDestination() {
+        let panel = NSOpenPanel()
+        panel.title = "Choisir destination"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications", isDirectory: true)
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        UserDefaults.standard.set(url.path, forKey: "noteplanShortyDestinationPath")
+        UserDefaults.standard.synchronize()
+        refreshShortcutMakerFields()
+        statusLabel.stringValue = "Destination choisie : \(url.path)"
+    }
+
+    @objc private func generateShortcutMakerApp() {
+        guard let notePath = UserDefaults.standard.string(forKey: "noteplanShortyNotePath")?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !notePath.isEmpty else {
+            chooseShortcutMakerNote()
+            return
+        }
+        guard let destinationPath = UserDefaults.standard.string(forKey: "noteplanShortyDestinationPath")?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !destinationPath.isEmpty else {
+            chooseShortcutMakerDestination()
+            return
+        }
+
+        do {
+            let result = try EditorNotePlanShortcutGenerator.generate(
+                noteURL: URL(fileURLWithPath: notePath),
+                destinationURL: URL(fileURLWithPath: destinationPath),
+                confirmReplace: confirmShortcutMakerReplacement(appURL:)
+            )
+            generatedShortcutURL = result.appURL
+            statusLabel.stringValue = "Raccourci généré : \(result.appURL.path)"
+            askRevealShortcutMakerApp(result.appURL)
+        } catch EditorNotePlanShortcutError.cancelled {
+            statusLabel.stringValue = "Génération annulée."
+        } catch {
+            statusLabel.stringValue = "Erreur raccourci : \(error.localizedDescription)"
+        }
+    }
+
+    @objc private func revealShortcutMakerApp() {
+        guard let generatedShortcutURL else {
+            statusLabel.stringValue = "Aucun raccourci généré."
+            return
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([generatedShortcutURL])
+    }
+
+    private func confirmShortcutMakerReplacement(appURL: URL) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "Remplacer le raccourci existant ?"
+        alert.informativeText = appURL.path
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Remplacer")
+        alert.addButton(withTitle: "Annuler")
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    private func askRevealShortcutMakerApp(_ appURL: URL) {
+        let alert = NSAlert()
+        alert.messageText = "Raccourci généré"
+        alert.informativeText = appURL.path
+        alert.addButton(withTitle: "Révéler dans Finder")
+        alert.addButton(withTitle: "OK")
+        if alert.runModal() == .alertFirstButtonReturn {
+            NSWorkspace.shared.activateFileViewerSelecting([appURL])
+        }
     }
 
     @objc private func openEditorFromSettings() {
@@ -5567,6 +5730,7 @@ struct EditorNotePlanShortcutGenerator {
                 plistURL: plistURL
             )
             try renamePreservingUnicode(fromPath: tempAppURL.path, toPath: finalAppPath)
+            try run("/usr/bin/codesign", ["--force", "--deep", "-s", "-", finalAppPath])
         } catch {
             try? FileManager.default.removeItem(at: tempAppURL)
             throw error
