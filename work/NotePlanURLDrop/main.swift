@@ -2023,7 +2023,6 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
     private let shortcutMakerDestinationField = NSTextField(labelWithString: "")
     private let shortcutMakerDropView = ShortcutMakerDropView()
     private let shortcutMakerRecentTextView = NSTextView()
-    private let commanderController = NotePlanEditorWindowController()
     private let nc2Controller = NotePlanEditorWindowController()
     private var generatedShortcutURL: URL?
     private let shortcutMakerNotePathKey = "noteplanShortcutMaker.notePath"
@@ -2060,16 +2059,6 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         shortcutMakerTab.label = "Shortcut"
         shortcutMakerTab.view = shortcutMakerTabView()
         tabView.addTabViewItem(shortcutMakerTab)
-
-        let commanderTab = NSTabViewItem(identifier: "commander")
-        commanderTab.label = "Note Commander"
-        commanderTab.view = commanderController.embeddedView()
-        tabView.addTabViewItem(commanderTab)
-        commanderController.onCloseEmbeddedSort = { [weak tabView] in
-            guard let tabView,
-                  let settingsTab = tabView.tabViewItems.first(where: { ($0.identifier as? String) == "settings" }) else { return }
-            tabView.selectTabViewItem(settingsTab)
-        }
 
         let nc2Tab = NSTabViewItem(identifier: "nc2")
         nc2Tab.label = "NC2"
@@ -2261,8 +2250,6 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
 
     func tabView(_ tabView: NSTabView, didSelect tabViewItem: NSTabViewItem?) {
         switch tabViewItem?.identifier as? String {
-        case "commander":
-            commanderController.activateEmbeddedSort()
         case "nc2":
             nc2Controller.activateEmbeddedSort()
         default:
