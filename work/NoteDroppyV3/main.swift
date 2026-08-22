@@ -1,5 +1,7 @@
 import AppKit
+import Darwin
 import Foundation
+import UniformTypeIdentifiers
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     private let window = NSWindow(
@@ -21,6 +23,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     private let saveButton = NSButton(title: "Sauvegarder", target: nil, action: nil)
     private let reloadButton = NSButton(title: "Recharger", target: nil, action: nil)
     private var functionsWindow: NSWindow?
+    private var openAfterFunctionCheckbox: NSButton?
+    private var generatedShortcutURL: URL?
 
     private var rootURL: URL
     private var currentFileURL: URL?
@@ -333,6 +337,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         let path = todayPath()
         let root = rootURL
         fileField.stringValue = path
+        status("Chargement du fichier du jour...")
         DispatchQueue.global(qos: .userInitiated).async {
             do {
                 let loaded = try Self.readFile(pathString: path, rootURL: root, createIfMissing: true)
@@ -379,8 +384,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
             try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             try "".write(to: fileURL, atomically: true, encoding: .utf8)
         }
-        let content = try String(contentsOf: fileURL, encoding: .utf8)
+        let content = try readUTF8File(fileURL)
         return LoadedFile(relativePath: relativePath, fileURL: fileURL, content: content)
+    }
+
+    private static func readUTF8File(_ url: URL) throws -> String {
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("notedroppy-\(UUID().uuidString).md")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/cp")
+        process.arguments = [url.path, tempURL.path]
+        let errorPipe = Pipe()
+        process.standardError = errorPipe
+
+        try process.run()
+        guard wait(process: process, timeout: 4.0) else {
+            process.terminate()
+            throw NSError(domain: "NotePlanText", code: 5, userInfo: [
+                NSLocalizedDescriptionKey: "Lecture NotePlan bloquee par macOS"
+            ])
+        }
+        guard process.terminationStatus == 0 else {
+            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+            let errorText = String(data: errorData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            throw NSError(domain: "NotePlanText", code: Int(process.terminationStatus), userInfo: [
+                NSLocalizedDescriptionKey: errorText?.isEmpty == false ? errorText! : "Copie du fichier impossible"
+            ])
+        }
+
+        return try String(contentsOf: tempURL, encoding: .utf8)
+    }
+
+    private static func wait(process: Process, timeout: TimeInterval) -> Bool {
+        let semaphore = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in semaphore.signal() }
+        return semaphore.wait(timeout: .now() + timeout) == .success
     }
 
     private static func validateRoot(_ url: URL) throws {
@@ -454,7 +494,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         let alert = NSAlert()
         alert.messageText = "NoteDroppy V3"
         alert.informativeText = """
-        Version 1.0
+        Version 3.7
 
         App macOS locale pour éditer directement les fichiers Markdown NotePlan.
 
@@ -500,7 +540,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         }
 
         let infoWindow = NSWindow(
-            contentRect: NSRect(x: 220, y: 160, width: 760, height: 620),
+            contentRect: NSRect(x: 220, y: 160, width: 820, height: 620),
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
@@ -508,32 +548,393 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         infoWindow.isReleasedWhenClosed = false
         infoWindow.title = "Fonctions NoteDroppy / NoteplanShorty"
 
-        let textView = NSTextView()
-        textView.isEditable = false
-        textView.isSelectable = true
-        textView.isRichText = false
-        textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
-        textView.string = functionsSummaryText()
+        let titleLabel = NSTextField(labelWithString: "Fonctions")
+        titleLabel.font = .systemFont(ofSize: 18, weight: .bold)
 
-        let scrollView = NSScrollView()
-        scrollView.documentView = textView
-        scrollView.hasVerticalScroller = true
-        scrollView.autohidesScrollers = false
-        scrollView.borderType = .bezelBorder
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        let subtitleLabel = NSTextField(labelWithString: "Actions locales. Les écritures NotePlan demandent une validation avant modification.")
+        subtitleLabel.font = .systemFont(ofSize: 12, weight: .regular)
+        subtitleLabel.textColor = .secondaryLabelColor
+        subtitleLabel.lineBreakMode = .byWordWrapping
 
-        infoWindow.contentView = scrollView
+        let openCheckbox = NSButton(checkboxWithTitle: "Ouvrir NotePlan après action", target: self, action: #selector(toggleOpenAfterFunction))
+        openCheckbox.state = UserDefaults.standard.bool(forKey: "functionsOpenNotePlanAfterAction") ? .on : .off
+        openAfterFunctionCheckbox = openCheckbox
+
+        let noteDroppyRows = [
+            functionRow(title: "Ajouter une tâche à aujourd’hui", detail: "Demande le texte, confirme, puis ajoute dans Calendar/\(todayStamp()).md.", action: #selector(addTaskToToday)),
+            functionRow(title: "Ajouter une URL à aujourd’hui", detail: "Demande une URL et écrit le serveur avant le lien.", action: #selector(addURLToToday)),
+            functionRow(title: "Ajouter du texte sélectionné à aujourd’hui", detail: "Récupère le texte du presse-papiers courant, demande validation, puis ajoute.", action: #selector(addSelectedTextToToday)),
+            functionRow(title: "Rechercher dans les notes", detail: "Cherche localement dans Calendar et Notes.", action: #selector(searchNotesFromFunctions))
+        ]
+
+        let promptRows = [
+            functionRow(title: "Créer un deeplink IA", detail: "Prend une URL ChatGPT, Claude ou Perplexity, génère une ref et copie le Markdown NotePlan.", action: #selector(generateAIDeeplink)),
+            functionRow(title: "Choisir l’index prompts", detail: "Définit le fichier ou dossier d’index utilisé par la recherche prompts.", action: #selector(choosePromptIndexPath)),
+            functionRow(title: "Recherche booléenne prompts", detail: "Cherche dans l’index prompts avec AND, OR, NOT, guillemets et parenthèses.", action: #selector(booleanSearchPromptIndex))
+        ]
+
+        let shortyRows = [
+            functionRow(title: "Choisir une note `.md`", detail: "Sélectionne une note Markdown source.", action: #selector(chooseShortcutNote)),
+            functionRow(title: "Choisir une destination", detail: "Sélectionne un dossier destination pour le raccourci.", action: #selector(chooseShortcutDestination)),
+            functionRow(title: "Générer un raccourci `.app`", detail: "Choisit note et destination, confirme le remplacement, puis génère le .app.", action: #selector(generateShortcutApp)),
+            functionRow(title: "Confirmer avant remplacement", detail: "Intégré au générateur: aucun remplacement sans accord.", action: #selector(generateShortcutApp)),
+            functionRow(title: "Révéler le raccourci généré dans Finder", detail: "Sélectionne le dernier .app généré dans Finder.", action: #selector(revealGeneratedShortcut))
+        ]
+
+        let noteDroppySection = section(title: "NOTE DROPPY", rows: noteDroppyRows + [openCheckbox])
+        let promptSection = section(title: "DEEPLINK / PROMPTS", rows: promptRows)
+        let shortySection = section(title: "NOTEPLANSHORTY", rows: shortyRows)
+
+        let stack = NSStackView(views: [titleLabel, subtitleLabel, noteDroppySection, promptSection, shortySection])
+        stack.orientation = .vertical
+        stack.spacing = 14
+        stack.alignment = .leading
+        stack.edgeInsets = NSEdgeInsets(top: 18, left: 18, bottom: 18, right: 18)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        let content = NSView()
+        content.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(stack)
+        infoWindow.contentView = content
         NSLayoutConstraint.activate([
-            scrollView.topAnchor.constraint(equalTo: infoWindow.contentView!.topAnchor),
-            scrollView.leadingAnchor.constraint(equalTo: infoWindow.contentView!.leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: infoWindow.contentView!.trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: infoWindow.contentView!.bottomAnchor)
+            stack.topAnchor.constraint(equalTo: content.topAnchor),
+            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            stack.bottomAnchor.constraint(lessThanOrEqualTo: content.bottomAnchor),
+            subtitleLabel.widthAnchor.constraint(equalToConstant: 760)
         ])
 
         functionsWindow = infoWindow
         infoWindow.makeKeyAndOrderFront(nil)
         infoWindow.orderFrontRegardless()
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func section(title: String, rows: [NSView]) -> NSView {
+        let label = NSTextField(labelWithString: title)
+        label.font = .systemFont(ofSize: 13, weight: .bold)
+        label.textColor = .secondaryLabelColor
+        let stack = NSStackView(views: [label] + rows)
+        stack.orientation = .vertical
+        stack.spacing = 8
+        stack.alignment = .leading
+        return stack
+    }
+
+    private func functionRow(title: String, detail: String, action: Selector) -> NSView {
+        let button = greenButton(title: "LANCER", action: action)
+        let titleLabel = NSTextField(labelWithString: title)
+        titleLabel.font = .systemFont(ofSize: 14, weight: .semibold)
+        let detailLabel = NSTextField(labelWithString: detail)
+        detailLabel.font = .systemFont(ofSize: 12, weight: .regular)
+        detailLabel.textColor = .secondaryLabelColor
+        detailLabel.lineBreakMode = .byWordWrapping
+
+        let labels = NSStackView(views: [titleLabel, detailLabel])
+        labels.orientation = .vertical
+        labels.spacing = 2
+        labels.alignment = .leading
+
+        let row = NSStackView(views: [button, labels])
+        row.orientation = .horizontal
+        row.spacing = 12
+        row.alignment = .centerY
+        row.translatesAutoresizingMaskIntoConstraints = false
+
+        NSLayoutConstraint.activate([
+            button.widthAnchor.constraint(equalToConstant: 96),
+            button.heightAnchor.constraint(equalToConstant: 28),
+            labels.widthAnchor.constraint(equalToConstant: 650)
+        ])
+        return row
+    }
+
+    private func greenButton(title: String, action: Selector) -> NSButton {
+        let button = NSButton(title: title, target: self, action: action)
+        button.isBordered = false
+        button.wantsLayer = true
+        button.layer?.backgroundColor = NSColor.systemGreen.cgColor
+        button.layer?.cornerRadius = 6
+        button.attributedTitle = NSAttributedString(
+            string: title,
+            attributes: [
+                .foregroundColor: NSColor.white,
+                .font: NSFont.systemFont(ofSize: 12, weight: .bold)
+            ]
+        )
+        return button
+    }
+
+    @objc private func toggleOpenAfterFunction() {
+        UserDefaults.standard.set(openAfterFunctionCheckbox?.state == .on, forKey: "functionsOpenNotePlanAfterAction")
+    }
+
+    @objc private func addTaskToToday() {
+        guard let text = promptText(title: "Ajouter une tâche", message: "Texte de la tâche") else {
+            status("Ajout annulé")
+            return
+        }
+        let task = "- [ ] \(stripLeadingTaskMarker(text))"
+        appendToTodayAfterConfirmation(task, actionName: "Ajouter cette tâche ?")
+    }
+
+    @objc private func addURLToToday() {
+        let pasteboardURL = NSPasteboard.general.string(forType: .string).flatMap { URLLineFormatter.normalizedWebURL($0) } ?? ""
+        guard let text = promptText(title: "Ajouter une URL", message: "URL", defaultValue: pasteboardURL) else {
+            status("Ajout URL annulé")
+            return
+        }
+        guard let normalized = URLLineFormatter.normalizedWebURL(text) else {
+            status("URL invalide")
+            return
+        }
+        let task = "- [ ] \(URLLineFormatter.withHostPrefix(normalized))"
+        appendToTodayAfterConfirmation(task, actionName: "Ajouter cette URL ?")
+    }
+
+    @objc private func addSelectedTextToToday() {
+        let clipboardText = NSPasteboard.general.string(forType: .string) ?? ""
+        guard let text = promptText(title: "Ajouter le texte sélectionné", message: "Texte à ajouter", defaultValue: clipboardText) else {
+            status("Ajout texte annulé")
+            return
+        }
+        let task = "- [ ] \(stripLeadingTaskMarker(text))"
+        appendToTodayAfterConfirmation(task, actionName: "Ajouter ce texte ?")
+    }
+
+    @objc private func searchNotesFromFunctions() {
+        guard let query = promptText(title: "Rechercher dans les notes", message: "Recherche", defaultValue: searchField.stringValue) else {
+            status("Recherche annulée")
+            return
+        }
+        searchField.stringValue = query
+        do {
+            let results = try TaskSearch.search(rootURL: rootURL, query: query, bucket: nil, scope: .calendarAndNotes)
+            showSearchResults(results, title: "Recherche Calendar + Notes")
+        } catch {
+            status("Erreur recherche: \(error.localizedDescription)")
+        }
+    }
+
+    @objc private func generateAIDeeplink() {
+        let clipboardURL = NSPasteboard.general.string(forType: .string).flatMap { AIConversationDeeplink.normalizedConversationURL($0) } ?? ""
+        guard let url = promptText(title: "Créer un deeplink IA", message: "URL ChatGPT, Claude ou Perplexity", defaultValue: clipboardURL) else {
+            status("Deeplink annulé")
+            return
+        }
+        guard let title = promptText(title: "Titre NotePlan", message: "Titre du lien", defaultValue: "Conversation IA") else {
+            status("Deeplink annulé")
+            return
+        }
+        do {
+            let deeplink = try AIConversationDeeplink.generate(urlString: url, title: title)
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(deeplink.markdown, forType: .string)
+            showPlainText(title: "Deeplink copié", text: "\(deeplink.markdown)\n\nAncre à coller dans la conversation:\n[\(deeplink.ref)]")
+            status("Deeplink copié: \(deeplink.ref)")
+        } catch {
+            status("Erreur deeplink: \(error.localizedDescription)")
+        }
+    }
+
+    @objc private func choosePromptIndexPath() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = promptIndexURL().deletingLastPathComponent()
+        if panel.runModal() == .OK, let url = panel.url {
+            UserDefaults.standard.set(url.path, forKey: "promptIndexPath")
+            status("Index prompts: \(url.path)")
+        }
+    }
+
+    @objc private func booleanSearchPromptIndex() {
+        guard let query = promptText(title: "Recherche booléenne prompts", message: "Exemple: claude AND (noteplan OR deeplink) NOT archive", defaultValue: searchField.stringValue) else {
+            status("Recherche prompts annulée")
+            return
+        }
+        searchField.stringValue = query
+        do {
+            let indexURL = promptIndexURL()
+            let results = try PromptIndexSearch.search(indexURL: indexURL, query: query)
+            showPromptSearchResults(results, title: "Recherche prompts", indexURL: indexURL)
+        } catch {
+            status("Erreur recherche prompts: \(error.localizedDescription)")
+        }
+    }
+
+    @objc private func chooseShortcutNote() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [UTType(filenameExtension: "md")].compactMap { $0 }
+        panel.directoryURL = rootURL
+        if panel.runModal() == .OK, let url = panel.url {
+            UserDefaults.standard.set(url.path, forKey: "noteplanShortyNotePath")
+            status("Note choisie: \(url.lastPathComponent)")
+        }
+    }
+
+    @objc private func chooseShortcutDestination() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications", isDirectory: true)
+        if panel.runModal() == .OK, let url = panel.url {
+            UserDefaults.standard.set(url.path, forKey: "noteplanShortyDestinationPath")
+            status("Destination choisie: \(url.path)")
+        }
+    }
+
+    @objc private func generateShortcutApp() {
+        let noteURL: URL
+        if let saved = UserDefaults.standard.string(forKey: "noteplanShortyNotePath"), FileManager.default.fileExists(atPath: saved) {
+            noteURL = URL(fileURLWithPath: saved)
+        } else {
+            chooseShortcutNote()
+            guard let saved = UserDefaults.standard.string(forKey: "noteplanShortyNotePath") else { return }
+            noteURL = URL(fileURLWithPath: saved)
+        }
+
+        let destinationURL: URL
+        if let saved = UserDefaults.standard.string(forKey: "noteplanShortyDestinationPath") {
+            destinationURL = URL(fileURLWithPath: saved)
+        } else {
+            chooseShortcutDestination()
+            guard let saved = UserDefaults.standard.string(forKey: "noteplanShortyDestinationPath") else { return }
+            destinationURL = URL(fileURLWithPath: saved)
+        }
+
+        do {
+            let result = try NotePlanShortcutGenerator.generate(
+                noteURL: noteURL,
+                destinationURL: destinationURL,
+                confirmReplace: confirmShortcutReplacement(appURL:)
+            )
+            generatedShortcutURL = result.appURL
+            status("Raccourci généré: \(result.appURL.path)")
+            askRevealShortcut(result.appURL)
+        } catch NotePlanShortcutError.cancelled {
+            status("Génération annulée")
+        } catch {
+            status("Erreur raccourci: \(error.localizedDescription)")
+        }
+    }
+
+    @objc private func revealGeneratedShortcut() {
+        guard let generatedShortcutURL else {
+            status("Aucun raccourci généré")
+            return
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([generatedShortcutURL])
+        status("Raccourci révélé dans Finder")
+    }
+
+    private func promptText(title: String, message: String, defaultValue: String = "") -> String? {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.addButton(withTitle: "Continuer")
+        alert.addButton(withTitle: "Annuler")
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 420, height: 24))
+        field.stringValue = defaultValue
+        alert.accessoryView = field
+        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+        let text = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : text
+    }
+
+    private func promptIndexURL() -> URL {
+        if let saved = UserDefaults.standard.string(forKey: "promptIndexPath"), !saved.isEmpty {
+            return URL(fileURLWithPath: saved)
+        }
+        return URL(fileURLWithPath: "/Users/JOB/#DEV/prompt-index.md")
+    }
+
+    private func showPlainText(title: String, text: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = text
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
+    private func appendToTodayAfterConfirmation(_ line: String, actionName: String) {
+        let fileURL = rootURL.appendingPathComponent(todayPath())
+        let alert = NSAlert()
+        alert.messageText = actionName
+        alert.informativeText = "\(todayPath())\n\n\(line)"
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Ajouter")
+        alert.addButton(withTitle: "Annuler")
+        guard alert.runModal() == .alertFirstButtonReturn else {
+            status("Écriture annulée")
+            return
+        }
+
+        do {
+            try validateRoot(rootURL)
+            try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let original = (try? String(contentsOf: fileURL, encoding: .utf8)) ?? ""
+            try backup(fileURL: fileURL, content: original)
+            let prefix = original.isEmpty || original.hasSuffix("\n") ? "" : "\n"
+            let payload = "\(prefix)\(line)\n"
+            if FileManager.default.fileExists(atPath: fileURL.path) {
+                let handle = try FileHandle(forWritingTo: fileURL)
+                defer { try? handle.close() }
+                try handle.seekToEnd()
+                try handle.write(contentsOf: Data(payload.utf8))
+            } else {
+                try payload.write(to: fileURL, atomically: true, encoding: .utf8)
+            }
+            if currentFileURL?.path == fileURL.path || currentFileURL == nil {
+                open(pathString: todayPath(), createIfMissing: true)
+            }
+            if UserDefaults.standard.bool(forKey: "functionsOpenNotePlanAfterAction") {
+                openTodayInNotePlan()
+            }
+            status("Ajouté dans \(todayPath())")
+        } catch {
+            status("Erreur ajout: \(error.localizedDescription)")
+        }
+    }
+
+    private func confirmShortcutReplacement(appURL: URL) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "Remplacer le raccourci existant ?"
+        alert.informativeText = appURL.path
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Remplacer")
+        alert.addButton(withTitle: "Annuler")
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    private func askRevealShortcut(_ appURL: URL) {
+        let alert = NSAlert()
+        alert.messageText = "Raccourci généré"
+        alert.informativeText = appURL.path
+        alert.addButton(withTitle: "Révéler dans Finder")
+        alert.addButton(withTitle: "OK")
+        if alert.runModal() == .alertFirstButtonReturn {
+            NSWorkspace.shared.activateFileViewerSelecting([appURL])
+        }
+    }
+
+    private func openTodayInNotePlan() {
+        if let url = URL(string: "noteplan://x-callback-url/openNote?noteDate=today") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    private func stripLeadingTaskMarker(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"^\s*[-*]\s+\[[ xX]\]\s+"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"^\s*[-*]\s+"#, with: "", options: .regularExpression)
     }
 
     private func functionsSummaryText() -> String {
@@ -544,8 +945,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
 
         Version integree:
         - NoteDroppy V3
-        - version: 3.0
-        - build: 303
+        - version: 3.7
+        - build: 370
         - bundle id: local.codex.notedroppy.v3
         - source: work/NoteDroppyV3/main.swift
         - commit integre: d7f1a2f puis correctifs V3
@@ -773,6 +1174,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         pathLabel.stringValue = "Résultats de recherche non sauvegardables"
         window.title = "NoteDroppy V3 - \(title)"
         status("\(results.count) résultat(s)")
+    }
+
+    private func showPromptSearchResults(_ results: [PromptIndexSearch.Result], title: String, indexURL: URL) {
+        let lines = results.map { "- \($0.text) [\($0.path):\($0.line)]" }
+        let output = "# \(title)\n\nIndex: \(indexURL.path)\n\n" + (lines.isEmpty ? "Aucun résultat\n" : lines.joined(separator: "\n") + "\n")
+        replaceEditorText(output)
+        currentFileURL = nil
+        loadedContent = output
+        saveButton.isEnabled = false
+        pathLabel.stringValue = "Résultats prompts non sauvegardables"
+        window.title = "NoteDroppy V3 - \(title)"
+        status("\(results.count) résultat(s) prompts")
     }
 
     private func replaceEditorText(_ newText: String) {
@@ -1256,6 +1669,31 @@ enum ChapterFlattener {
 }
 
 enum URLLineFormatter {
+    static func normalizedWebURL(_ value: String) -> String? {
+        let trimmed = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "<>()[]{}\"'.,;"))
+        guard !trimmed.isEmpty, !trimmed.contains(" ") else { return nil }
+        let withScheme = trimmed.lowercased().hasPrefix("http://") || trimmed.lowercased().hasPrefix("https://")
+            ? trimmed
+            : "https://\(trimmed)"
+        guard var components = URLComponents(string: withScheme),
+              components.scheme?.hasPrefix("http") == true,
+              components.host?.contains(".") == true else {
+            return nil
+        }
+        let trackingNames = Set(["_gl", "_gs", "gclid", "gbraid", "wbraid", "fbclid", "msclkid", "yclid"])
+        components.queryItems = components.queryItems?.filter { item in
+            let name = item.name.lowercased()
+            return !name.hasPrefix("utm_") && !trackingNames.contains(name)
+        }
+        if components.queryItems?.isEmpty == true {
+            components.queryItems = nil
+        }
+        components.fragment = nil
+        return components.url?.absoluteString
+    }
+
     static func withHostPrefix(_ text: String) -> String {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let urlRange = trimmed.range(of: #"https?://[^\s)\]]+"#, options: .regularExpression) else {
@@ -1270,6 +1708,485 @@ enum URLLineFormatter {
             return trimmed
         }
         return "\(cleanHost) \(trimmed)"
+    }
+}
+
+enum AIConversationDeeplink {
+    struct Result {
+        let ref: String
+        let markdown: String
+    }
+
+    static func normalizedConversationURL(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") || trimmed.hasPrefix("claude://") else {
+            return nil
+        }
+        guard trimmed.contains("chatgpt.com/") || trimmed.contains("claude.ai/") || trimmed.contains("perplexity.ai/") else {
+            return nil
+        }
+        return trimmed
+    }
+
+    static func generate(urlString: String, title: String) throws -> Result {
+        guard let normalized = normalizedConversationURL(urlString) else {
+            throw NSError(domain: "AIConversationDeeplink", code: 1, userInfo: [NSLocalizedDescriptionKey: "URL ChatGPT, Claude ou Perplexity invalide"])
+        }
+        let ref = makeRef()
+        let label = clientLabel(for: normalized)
+        let base = stripHash(normalized)
+        let resumeURL: String
+        if label == "Claude", base.hasPrefix("https://claude.ai/chat/") {
+            resumeURL = "claude://" + String(base.dropFirst("https://".count)) + "#\(ref)"
+        } else {
+            resumeURL = base + "#\(ref)"
+        }
+        let safeTitle = normalizeTitle(title)
+        let markdown = "- [\(safeTitle)](\(resumeURL)) - \(ref) - \(label)\n  Ancre: `[\(ref)]`"
+        return Result(ref: ref, markdown: markdown)
+    }
+
+    private static func makeRef() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd"
+        let day = formatter.string(from: Date())
+        let letters = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
+        var suffix = ""
+        for _ in 0..<3 {
+            suffix.append(letters[Int(arc4random_uniform(UInt32(letters.count)))])
+        }
+        return "\(day)-\(suffix)"
+    }
+
+    private static func clientLabel(for url: String) -> String {
+        if url.contains("claude.ai/") || url.hasPrefix("claude://") {
+            return "Claude"
+        }
+        if url.contains("chatgpt.com/") {
+            return "ChatGPT"
+        }
+        if url.contains("perplexity.ai/") {
+            return "Perplexity"
+        }
+        return "IA"
+    }
+
+    private static func stripHash(_ value: String) -> String {
+        String(value.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false).first ?? "")
+    }
+
+    private static func normalizeTitle(_ value: String) -> String {
+        let collapsed = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .replacingOccurrences(of: "[", with: "\\[")
+            .replacingOccurrences(of: "]", with: "\\]")
+        return String(collapsed.prefix(60))
+    }
+}
+
+enum PromptIndexSearch {
+    struct Result {
+        let path: String
+        let line: Int
+        let text: String
+    }
+
+    static func search(indexURL: URL, query: String) throws -> [Result] {
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: indexURL.path, isDirectory: &isDir) else {
+            throw NSError(domain: "PromptIndexSearch", code: 1, userInfo: [NSLocalizedDescriptionKey: "Index prompts introuvable: \(indexURL.path)"])
+        }
+        let matcher = try BooleanQueryParser.parse(query)
+        let files = isDir.boolValue ? markdownLikeFiles(in: indexURL) : [indexURL]
+        var results: [Result] = []
+        for file in files {
+            let content = try String(contentsOf: file, encoding: .utf8)
+            let relative = isDir.boolValue ? file.path.replacingOccurrences(of: indexURL.path + "/", with: "") : file.lastPathComponent
+            for (idx, line) in content.components(separatedBy: "\n").enumerated() {
+                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { continue }
+                if matcher.matches(trimmed) {
+                    results.append(Result(path: relative, line: idx + 1, text: trimmed))
+                    if results.count >= 300 { return results }
+                }
+            }
+        }
+        return results
+    }
+
+    private static func markdownLikeFiles(in root: URL) -> [URL] {
+        guard let enumerator = FileManager.default.enumerator(
+            at: root,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else { return [] }
+        let allowed = Set(["md", "txt", "json", "jsonl"])
+        var output: [URL] = []
+        for case let file as URL in enumerator {
+            let path = file.path
+            if path.contains("/.git/") || path.contains("/node_modules/") || path.contains("/releases/") || path.contains("/DerivedData/") {
+                continue
+            }
+            if allowed.contains(file.pathExtension.lowercased()) {
+                output.append(file)
+            }
+        }
+        return output.sorted { $0.path < $1.path }
+    }
+}
+
+indirect enum BooleanQuery {
+    case term(String)
+    case not(BooleanQuery)
+    case and(BooleanQuery, BooleanQuery)
+    case or(BooleanQuery, BooleanQuery)
+
+    func matches(_ text: String) -> Bool {
+        let foldedText = Self.fold(text)
+        switch self {
+        case .term(let value):
+            return foldedText.contains(Self.fold(value))
+        case .not(let query):
+            return !query.matches(text)
+        case .and(let left, let right):
+            return left.matches(text) && right.matches(text)
+        case .or(let left, let right):
+            return left.matches(text) || right.matches(text)
+        }
+    }
+
+    private static func fold(_ value: String) -> String {
+        value.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current).lowercased()
+    }
+}
+
+enum BooleanQueryParser {
+    enum Token: Equatable {
+        case word(String)
+        case and
+        case or
+        case not
+        case lparen
+        case rparen
+    }
+
+    static func parse(_ raw: String) throws -> BooleanQuery {
+        let tokens = tokenize(raw)
+        guard !tokens.isEmpty else {
+            throw NSError(domain: "BooleanQueryParser", code: 1, userInfo: [NSLocalizedDescriptionKey: "Recherche vide"])
+        }
+        var parser = Parser(tokens: tokens)
+        let query = try parser.parseExpression()
+        guard parser.isAtEnd else {
+            throw NSError(domain: "BooleanQueryParser", code: 2, userInfo: [NSLocalizedDescriptionKey: "Expression booléenne invalide"])
+        }
+        return query
+    }
+
+    private static func tokenize(_ raw: String) -> [Token] {
+        var tokens: [Token] = []
+        var current = ""
+        var quoted = false
+
+        func flush() {
+            let value = current.trimmingCharacters(in: .whitespacesAndNewlines)
+            current = ""
+            guard !value.isEmpty else { return }
+            switch value.uppercased() {
+            case "AND":
+                tokens.append(.and)
+            case "OR":
+                tokens.append(.or)
+            case "NOT":
+                tokens.append(.not)
+            default:
+                tokens.append(.word(value))
+            }
+        }
+
+        for char in raw {
+            if char == "\"" {
+                if quoted {
+                    flush()
+                    quoted = false
+                } else {
+                    flush()
+                    quoted = true
+                }
+            } else if quoted {
+                current.append(char)
+            } else if char == "(" {
+                flush()
+                tokens.append(.lparen)
+            } else if char == ")" {
+                flush()
+                tokens.append(.rparen)
+            } else if char.isWhitespace {
+                flush()
+            } else {
+                current.append(char)
+            }
+        }
+        flush()
+        return insertImplicitAnd(tokens)
+    }
+
+    private static func insertImplicitAnd(_ tokens: [Token]) -> [Token] {
+        var output: [Token] = []
+        for token in tokens {
+            if let previous = output.last, needsImplicitAnd(after: previous, before: token) {
+                output.append(.and)
+            }
+            output.append(token)
+        }
+        return output
+    }
+
+    private static func needsImplicitAnd(after left: Token, before right: Token) -> Bool {
+        let leftIsValue = {
+            if case .word = left { return true }
+            return left == .rparen
+        }()
+        let rightIsValue = {
+            if case .word = right { return true }
+            return right == .lparen || right == .not
+        }()
+        return leftIsValue && rightIsValue
+    }
+
+    private struct Parser {
+        var tokens: [Token]
+        var index = 0
+        var isAtEnd: Bool { index >= tokens.count }
+
+        mutating func parseExpression() throws -> BooleanQuery {
+            try parseOr()
+        }
+
+        mutating private func parseOr() throws -> BooleanQuery {
+            var expr = try parseAnd()
+            while match(.or) {
+                expr = .or(expr, try parseAnd())
+            }
+            return expr
+        }
+
+        mutating private func parseAnd() throws -> BooleanQuery {
+            var expr = try parseUnary()
+            while match(.and) {
+                expr = .and(expr, try parseUnary())
+            }
+            return expr
+        }
+
+        mutating private func parseUnary() throws -> BooleanQuery {
+            if match(.not) {
+                return .not(try parseUnary())
+            }
+            return try parsePrimary()
+        }
+
+        mutating private func parsePrimary() throws -> BooleanQuery {
+            if isAtEnd {
+                throw NSError(domain: "BooleanQueryParser", code: 3, userInfo: [NSLocalizedDescriptionKey: "Terme manquant"])
+            }
+            let token = tokens[index]
+            index += 1
+            switch token {
+            case .word(let value):
+                return .term(value)
+            case .lparen:
+                let expr = try parseExpression()
+                guard match(.rparen) else {
+                    throw NSError(domain: "BooleanQueryParser", code: 4, userInfo: [NSLocalizedDescriptionKey: "Parenthèse fermante manquante"])
+                }
+                return expr
+            default:
+                throw NSError(domain: "BooleanQueryParser", code: 5, userInfo: [NSLocalizedDescriptionKey: "Terme booléen invalide"])
+            }
+        }
+
+        mutating private func match(_ token: Token) -> Bool {
+            guard !isAtEnd, tokens[index] == token else { return false }
+            index += 1
+            return true
+        }
+    }
+}
+
+enum NotePlanShortcutError: LocalizedError {
+    case notMarkdown
+    case emptyNoteName
+    case cancelled
+    case verificationFailed(String)
+    case commandFailed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .notMarkdown:
+            return "Le fichier choisi doit être une note .md."
+        case .emptyNoteName:
+            return "Le nom de la note est vide."
+        case .cancelled:
+            return "Opération annulée."
+        case .verificationFailed(let message), .commandFailed(let message):
+            return message
+        }
+    }
+}
+
+struct ShortcutResult {
+    let noteName: String
+    let noteURLString: String
+    let appURL: URL
+}
+
+struct NotePlanShortcutGenerator {
+    static func generate(
+        noteURL: URL,
+        destinationURL: URL,
+        confirmReplace: (URL) -> Bool = { _ in true }
+    ) throws -> ShortcutResult {
+        guard noteURL.pathExtension.lowercased() == "md" else {
+            throw NotePlanShortcutError.notMarkdown
+        }
+
+        let noteName = noteURL.deletingPathExtension().lastPathComponent.precomposedStringWithCanonicalMapping
+        guard !noteName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw NotePlanShortcutError.emptyNoteName
+        }
+
+        try FileManager.default.createDirectory(at: destinationURL, withIntermediateDirectories: true)
+
+        let appURL = destinationURL.appendingPathComponent("\(noteName).app", isDirectory: true)
+        if FileManager.default.fileExists(atPath: appURL.path) {
+            guard confirmReplace(appURL) else {
+                throw NotePlanShortcutError.cancelled
+            }
+            try FileManager.default.removeItem(at: appURL)
+        }
+
+        let noteURLString = "noteplan://x-callback-url/openNote?noteTitle=\(urlEncode(noteName))"
+        let finalAppPath = destinationURL.path + "/" + noteName + ".app"
+        try compileShortcutApp(
+            noteURLString: noteURLString,
+            appName: noteName,
+            finalAppPath: finalAppPath,
+            destinationDir: destinationURL
+        )
+        try verify(appURL: appURL, noteName: noteName, noteURLString: noteURLString)
+
+        return ShortcutResult(noteName: noteName, noteURLString: noteURLString, appURL: appURL)
+    }
+
+    private static func compileShortcutApp(noteURLString: String, appName: String, finalAppPath: String, destinationDir: URL) throws {
+        let script = """
+        tell application "NotePlan" to activate
+        open location "\(noteURLString)"
+        """
+        let tempAppURL = destinationDir.appendingPathComponent(".nps-tmp-\(UUID().uuidString).app")
+
+        do {
+            try run("/usr/bin/osacompile", ["-o", tempAppURL.path, "-e", script])
+            let plistURL = tempAppURL.appendingPathComponent("Contents/Info.plist")
+            try setPlistStrings(
+                [
+                    "CFBundleName": appName,
+                    "CFBundleDisplayName": appName,
+                    "NotePlanShortcutURL": noteURLString
+                ],
+                plistURL: plistURL
+            )
+            try renamePreservingUnicode(fromPath: tempAppURL.path, toPath: finalAppPath)
+        } catch {
+            try? FileManager.default.removeItem(at: tempAppURL)
+            throw error
+        }
+    }
+
+    private static func setPlistStrings(_ values: [String: String], plistURL: URL) throws {
+        let data = try Data(contentsOf: plistURL)
+        guard var plist = try PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any] else {
+            throw NotePlanShortcutError.commandFailed("Info.plist illisible: \(plistURL.path)")
+        }
+        for (key, value) in values {
+            plist[key] = value
+        }
+        let newData = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+        try newData.write(to: plistURL)
+    }
+
+    private static func renamePreservingUnicode(fromPath: String, toPath: String) throws {
+        let result = fromPath.withCString { src in
+            toPath.withCString { dst in
+                rename(src, dst)
+            }
+        }
+        guard result == 0 else {
+            throw NotePlanShortcutError.commandFailed("rename() a échoué: \(String(cString: strerror(errno)))")
+        }
+    }
+
+    private static func verify(appURL: URL, noteName: String, noteURLString: String) throws {
+        guard FileManager.default.fileExists(atPath: appURL.path) else {
+            throw NotePlanShortcutError.verificationFailed("Vérification échouée: le dossier .app n'existe pas.")
+        }
+        guard appURL.lastPathComponent == "\(noteName).app" else {
+            throw NotePlanShortcutError.verificationFailed("Vérification échouée: nom .app incorrect.")
+        }
+
+        let plistURL = appURL.appendingPathComponent("Contents/Info.plist")
+        let bundleName = try plistValue("CFBundleName", plistURL: plistURL)
+        let displayName = try plistValue("CFBundleDisplayName", plistURL: plistURL)
+        let storedURL = try plistValue("NotePlanShortcutURL", plistURL: plistURL)
+
+        guard bundleName == noteName else {
+            throw NotePlanShortcutError.verificationFailed("Vérification échouée: CFBundleName incorrect.")
+        }
+        guard displayName == noteName else {
+            throw NotePlanShortcutError.verificationFailed("Vérification échouée: CFBundleDisplayName incorrect.")
+        }
+        guard storedURL == noteURLString else {
+            throw NotePlanShortcutError.verificationFailed("Vérification échouée: URL NotePlan incorrecte.")
+        }
+    }
+
+    private static func plistValue(_ key: String, plistURL: URL) throws -> String {
+        try runAndCapture("/usr/bin/plutil", ["-extract", key, "raw", plistURL.path])
+    }
+
+    private static func run(_ executable: String, _ arguments: [String]) throws {
+        _ = try runAndCapture(executable, arguments)
+    }
+
+    private static func runAndCapture(_ executable: String, _ arguments: [String]) throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = arguments
+        let output = Pipe()
+        let error = Pipe()
+        process.standardOutput = output
+        process.standardError = error
+
+        try process.run()
+        process.waitUntilExit()
+
+        let outputText = String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let errorText = String(data: error.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        guard process.terminationStatus == 0 else {
+            throw NotePlanShortcutError.commandFailed(errorText.isEmpty ? outputText : errorText)
+        }
+        return outputText
+    }
+
+    static func urlEncode(_ value: String) -> String {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&+=?")
+        return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
     }
 }
 
