@@ -3,6 +3,44 @@ import Darwin
 import Foundation
 import UniformTypeIdentifiers
 
+private enum Settings {
+    static let notesRootPathKey = "notesRootPath"
+    static let notesRootBookmarkKey = "notesRootBookmark"
+
+    static var notesRootPath: String {
+        let value = UserDefaults.standard.string(forKey: notesRootPathKey) ?? ""
+        return value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func selectedNotesRoot() -> URL? {
+        if let data = UserDefaults.standard.data(forKey: notesRootBookmarkKey) {
+            var stale = false
+            if let url = try? URL(
+                resolvingBookmarkData: data,
+                options: [.withSecurityScope],
+                relativeTo: nil,
+                bookmarkDataIsStale: &stale
+            ) {
+                if stale {
+                    setNotesRoot(url)
+                }
+                return url
+            }
+        }
+
+        let path = notesRootPath
+        return path.isEmpty ? nil : URL(fileURLWithPath: path)
+    }
+
+    static func setNotesRoot(_ url: URL) {
+        UserDefaults.standard.set(url.path, forKey: notesRootPathKey)
+        if let data = try? url.bookmarkData(options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil) {
+            UserDefaults.standard.set(data, forKey: notesRootBookmarkKey)
+        }
+        UserDefaults.standard.synchronize()
+    }
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     private let window = NSWindow(
         contentRect: NSRect(x: 160, y: 120, width: 1100, height: 760),
@@ -29,6 +67,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     private var rootURL: URL
     private var currentFileURL: URL?
     private var loadedContent = ""
+    private var sourceMarkdown = ""
+    private var collapsedBlockStarts = Set<Int>()
+    private var initialCollapsedBlockStarts = Set<Int>()
+    private var displayedSourceLines: [Int] = []
+    private var isFoldView = false
+    private var isApplyingHighlight = false
 
     private struct LoadedFile {
         let relativePath: String
@@ -39,22 +83,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     override init() {
         let defaultRoot = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Containers/co.noteplan.NotePlan-setapp/Data/Library/Application Support/co.noteplan.NotePlan-setapp")
-        rootURL = UserDefaults.standard.string(forKey: "noteplanRoot").map(URL.init(fileURLWithPath:)) ?? defaultRoot
+        rootURL = Settings.selectedNotesRoot().map(Self.normalizedNotePlanRoot)
+            ?? UserDefaults.standard.string(forKey: "noteplanRoot").map(URL.init(fileURLWithPath:))
+            ?? defaultRoot
         super.init()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         buildMenu()
         buildUI()
+        loadTodayDirect(reason: "démarrage")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             self.showMainWindow()
-            self.loadTodayAsync()
+            self.loadTodayDirect(reason: "fenêtre prête")
             self.window.makeFirstResponder(self.textView)
         }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         showMainWindow()
+        loadTodayDirect(reason: "reopen")
         return true
     }
 
@@ -71,12 +119,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         let mainMenu = NSMenu()
 
         let appMenuItem = NSMenuItem()
-        let appMenu = NSMenu(title: "NoteDroppy V3")
-        appMenu.addItem(NSMenuItem(title: "About NoteDroppy V3", action: #selector(showAbout), keyEquivalent: ""))
+        let appMenu = NSMenu(title: "Note Commander")
+        appMenu.addItem(NSMenuItem(title: "About Note Commander", action: #selector(showAbout), keyEquivalent: ""))
         appMenu.addItem(NSMenuItem(title: "Changelog", action: #selector(showChangelog), keyEquivalent: ""))
-        appMenu.addItem(NSMenuItem(title: "Fonctions NoteDroppy / NoteplanShorty", action: #selector(showFunctionsWindow), keyEquivalent: ""))
+        appMenu.addItem(NSMenuItem(title: "Fonctions Note Commander", action: #selector(showFunctionsWindow), keyEquivalent: ""))
         appMenu.addItem(.separator())
-        appMenu.addItem(NSMenuItem(title: "Quitter NoteDroppy V3", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        appMenu.addItem(NSMenuItem(title: "Quitter Note Commander", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         appMenuItem.submenu = appMenu
         mainMenu.addItem(appMenuItem)
 
@@ -104,7 +152,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     }
 
     private func buildUI() {
-        window.title = "NoteDroppy V3"
+        window.title = "Note Commander"
         window.isReleasedWhenClosed = false
         window.isRestorable = false
         let content = NSView()
@@ -127,21 +175,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         fileField.action = #selector(loadFileFromField)
 
         let chooseButton = NSButton(title: "Choisir...", target: self, action: #selector(chooseRoot))
-        let applyButton = NSButton(title: "Appliquer", target: self, action: #selector(applyRootFromField))
+        let applyButton = NSButton(title: "Valider dossier", target: self, action: #selector(applyRootFromField))
         let loadButton = NSButton(title: "Charger", target: self, action: #selector(loadFileFromField))
+        let previousDayButton = NSButton(title: "← Jour", target: self, action: #selector(loadPreviousDay))
         let todayButton = NSButton(title: "Aujourd'hui", target: self, action: #selector(loadTodayAction))
+        let nextDayButton = NSButton(title: "Jour →", target: self, action: #selector(loadNextDay))
         let refreshButton = NSButton(title: "Refresh", target: self, action: #selector(reloadFile))
         reloadButton.target = self
         reloadButton.action = #selector(reloadFile)
         saveButton.target = self
         saveButton.action = #selector(saveFile)
-        saveButton.isEnabled = false
+        setSaveButtonState(.clean)
         let sortButton = NSButton(title: "Trier priorités", target: self, action: #selector(sortPriorities))
         let sortAtButton = NSButton(title: "Trier @", target: self, action: #selector(sortAtContext))
         let sortHashButton = NSButton(title: "Trier #", target: self, action: #selector(sortHashContext))
         let sortImportanceButton = NSButton(title: "Trier ^^", target: self, action: #selector(sortImportance))
         let sortMinutesButton = NSButton(title: "Trier --", target: self, action: #selector(sortMinutes))
         let flattenButton = NSButton(title: "Aplatir chapitres", target: self, action: #selector(flattenChapters))
+        let paletteLabel = NSTextField(labelWithString: "NotePlan")
+        paletteLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        let palettePopup = NSPopUpButton()
+        palettePopup.addItems(withTitles: MarkdownHighlighter.Palette.allCases.map(\.rawValue))
+        palettePopup.selectItem(withTitle: MarkdownHighlighter.palette.rawValue)
+        palettePopup.target = self
+        palettePopup.action = #selector(changeMarkdownPalette(_:))
+        let foldBlockButton = NSButton(title: "Plier bloc", target: self, action: #selector(foldCurrentBlock))
+        let unfoldBlockButton = NSButton(title: "Déplier bloc", target: self, action: #selector(unfoldCurrentBlock))
+        let foldAllButton = NSButton(title: "Tout plier", target: self, action: #selector(foldAllBlocks))
+        let unfoldAllButton = NSButton(title: "Tout déplier", target: self, action: #selector(unfoldAllBlocks))
+        let restoreFoldButton = NSButton(title: "État initial", target: self, action: #selector(restoreInitialFoldState))
         let fileActionsLabel = NSTextField(labelWithString: "Fichier")
         fileActionsLabel.font = .systemFont(ofSize: 12, weight: .medium)
         let sortLabel = NSTextField(labelWithString: "Tris")
@@ -192,6 +254,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         textView.allowsUndo = true
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
+        textView.isAutomaticLinkDetectionEnabled = false
+        textView.linkTextAttributes = [
+            .foregroundColor: NSColor.systemBlue,
+            .underlineStyle: NSUnderlineStyle.single.rawValue
+        ]
         textView.font = .monospacedSystemFont(ofSize: 14, weight: .regular)
         textView.textColor = .labelColor
         textView.backgroundColor = .textBackgroundColor
@@ -206,6 +273,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         )
         textView.delegate = self
         textView.string = ""
+        applySyntaxHighlighting()
 
         scrollView.documentView = textView
         scrollView.hasVerticalScroller = true
@@ -225,7 +293,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         fileRow.spacing = 8
         fileRow.alignment = .centerY
 
-        let fileActionRow = NSStackView(views: [fileActionsLabel, todayButton, reloadButton, refreshButton, saveButton])
+        let fileActionRow = NSStackView(views: [fileActionsLabel, previousDayButton, todayButton, nextDayButton, reloadButton, refreshButton, saveButton])
         fileActionRow.orientation = .horizontal
         fileActionRow.spacing = 8
         fileActionRow.alignment = .centerY
@@ -234,6 +302,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         sortRow.orientation = .horizontal
         sortRow.spacing = 8
         sortRow.alignment = .centerY
+
+        let viewRow = NSStackView(views: [paletteLabel, palettePopup, foldBlockButton, unfoldBlockButton, foldAllButton, unfoldAllButton, restoreFoldButton])
+        viewRow.orientation = .horizontal
+        viewRow.spacing = 8
+        viewRow.alignment = .centerY
 
         let searchRow = NSStackView(views: [searchLabel, searchField, searchButton, time15Button, time30Button, time60Button, timeMoreButton])
         searchRow.orientation = .horizontal
@@ -245,7 +318,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         rangeRow.spacing = 8
         rangeRow.alignment = .centerY
 
-        let header = NSStackView(views: [topRow, fileRow, fileActionRow, sortRow, searchRow, rangeRow, pathLabel, statusLabel])
+        let header = NSStackView(views: [topRow, fileRow, fileActionRow, sortRow, viewRow, searchRow, rangeRow, pathLabel, statusLabel])
         header.orientation = .vertical
         header.spacing = 8
         header.alignment = .leading
@@ -283,6 +356,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         return formatter.string(from: Date())
     }
 
+    private func calendarPath(for date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd"
+        return "Calendar/\(formatter.string(from: date)).md"
+    }
+
+    private func dateFromCurrentCalendarPath() -> Date? {
+        let value = fileField.stringValue
+        guard let match = value.range(of: #"\d{8}"#, options: .regularExpression) else { return nil }
+        let stamp = String(value[match])
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        return formatter.date(from: stamp)
+    }
+
     private func validateRoot(_ url: URL) throws {
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue else {
@@ -313,9 +402,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
 
     private func applyRoot(_ url: URL) {
         do {
-            try validateRoot(url)
-            rootURL = url
-            UserDefaults.standard.set(url.path, forKey: "noteplanRoot")
+            let normalized = Self.normalizedNotePlanRoot(url)
+            try validateRoot(normalized)
+            rootURL = normalized
+            UserDefaults.standard.set(normalized.path, forKey: "noteplanRoot")
+            Settings.setNotesRoot(url)
+            rootField.stringValue = normalized.path
             status("Dossier appliqué")
             loadToday()
         } catch {
@@ -327,8 +419,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         loadToday()
     }
 
+    @objc private func loadPreviousDay() {
+        loadRelativeDay(offset: -1)
+    }
+
+    @objc private func loadNextDay() {
+        loadRelativeDay(offset: 1)
+    }
+
     private func loadToday() {
+        loadTodayDirect(reason: "bouton")
+    }
+
+    private func loadTodayDirect(reason: String) {
+        rootURL = Self.normalizedNotePlanRoot(rootURL)
+        rootField.stringValue = rootURL.path
         let path = todayPath()
+        fileField.stringValue = path
+        do {
+            let loaded = try Self.readFile(pathString: path, rootURL: rootURL, createIfMissing: true)
+            applyLoadedFile(loaded, statusText: "Aujourd'hui chargé (\(reason))")
+        } catch {
+            status("Erreur aujourd'hui: \(error.localizedDescription)")
+        }
+    }
+
+    private func loadRelativeDay(offset: Int) {
+        guard currentEditorMarkdown() == loadedContent else {
+            status("Sauvegarde avant de changer de jour.")
+            setSaveButtonState(.dirty)
+            return
+        }
+        let base = dateFromCurrentCalendarPath() ?? Date()
+        guard let date = Calendar.current.date(byAdding: .day, value: offset, to: base) else {
+            status("Date invalide.")
+            return
+        }
+        let path = calendarPath(for: date)
         fileField.stringValue = path
         open(pathString: path, createIfMissing: true)
     }
@@ -343,7 +470,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
                 let loaded = try Self.readFile(pathString: path, rootURL: root, createIfMissing: true)
                 DispatchQueue.main.async {
                     guard self.rootURL.path == root.path else { return }
-                    self.applyLoadedFile(loaded)
+                    self.applyLoadedFile(loaded, statusText: "Aujourd'hui chargé")
                 }
             } catch {
                 DispatchQueue.main.async {
@@ -367,6 +494,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     }
 
     private static func readFile(pathString: String, rootURL: URL, createIfMissing: Bool) throws -> LoadedFile {
+        let rootURL = normalizedNotePlanRoot(rootURL)
         try validateRoot(rootURL)
         let relativePath: String
         let fileURL: URL
@@ -377,8 +505,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
             }
             relativePath = fileURL.path.replacingOccurrences(of: rootURL.path + "/", with: "")
         } else {
-            relativePath = pathString.trimmingCharacters(in: .whitespacesAndNewlines)
-            fileURL = rootURL.appendingPathComponent(relativePath)
+            let cleanedPath = pathString.trimmingCharacters(in: .whitespacesAndNewlines)
+            let resolved = resolveRelativeNotePlanFile(cleanedPath, rootURL: rootURL, createIfMissing: createIfMissing)
+            relativePath = resolved.relativePath
+            fileURL = resolved.fileURL
         }
         if createIfMissing && !FileManager.default.fileExists(atPath: fileURL.path) {
             try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -386,6 +516,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         }
         let content = try readUTF8File(fileURL)
         return LoadedFile(relativePath: relativePath, fileURL: fileURL, content: content)
+    }
+
+    private static func normalizedNotePlanRoot(_ url: URL) -> URL {
+        if url.lastPathComponent == "Notes" {
+            let parent = url.deletingLastPathComponent()
+            let hasCalendar = FileManager.default.fileExists(atPath: parent.appendingPathComponent("Calendar").path)
+            let hasNotes = FileManager.default.fileExists(atPath: parent.appendingPathComponent("Notes").path)
+            if hasCalendar && hasNotes {
+                return parent
+            }
+        }
+        return url
+    }
+
+    private static func resolveRelativeNotePlanFile(_ path: String, rootURL: URL, createIfMissing: Bool) -> (relativePath: String, fileURL: URL) {
+        let candidate = rootURL.appendingPathComponent(path)
+        if FileManager.default.fileExists(atPath: candidate.path) || path.hasPrefix("Calendar/") || path.hasPrefix("Notes/") || createIfMissing {
+            return (path, candidate)
+        }
+
+        let notesCandidate = rootURL.appendingPathComponent("Notes").appendingPathComponent(path)
+        if FileManager.default.fileExists(atPath: notesCandidate.path) {
+            return ("Notes/\(path)", notesCandidate)
+        }
+
+        return (path, candidate)
     }
 
     private static func readUTF8File(_ url: URL) throws -> String {
@@ -435,16 +591,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         }
     }
 
-    private func applyLoadedFile(_ loaded: LoadedFile) {
+    private func applyLoadedFile(_ loaded: LoadedFile, statusText: String = "Fichier chargé et éditable") {
         currentFileURL = loaded.fileURL
         loadedContent = loaded.content
+        sourceMarkdown = loaded.content
+        collapsedBlockStarts.removeAll()
+        initialCollapsedBlockStarts.removeAll()
+        isFoldView = false
+        displayedSourceLines = Array(0..<loaded.content.components(separatedBy: "\n").count)
+        textView.isEditable = true
         textView.string = loaded.content
+        applySyntaxHighlighting()
         pathLabel.stringValue = loaded.relativePath
         fileField.stringValue = loaded.relativePath
-        window.title = "NoteDroppy V3 - \(loaded.relativePath)"
+        window.title = "Note Commander - \(loaded.relativePath)"
         window.makeFirstResponder(textView)
-        saveButton.isEnabled = false
-        status("Fichier chargé et éditable")
+        setSaveButtonState(.clean)
+        status(statusText)
     }
 
     @objc private func reloadFile() {
@@ -455,15 +618,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     @objc private func saveFile() {
         guard let fileURL = currentFileURL else { return }
         do {
+            if isFoldView {
+                status("Déplie avant de sauvegarder: le pliage est un affichage.")
+                return
+            }
             let disk = try String(contentsOf: fileURL, encoding: .utf8)
             guard disk == loadedContent else {
                 status("Le fichier a changé sur disque. Recharge avant de sauvegarder.")
                 return
             }
             try backup(fileURL: fileURL, content: disk)
-            try textView.string.write(to: fileURL, atomically: true, encoding: .utf8)
-            loadedContent = textView.string
-            saveButton.isEnabled = false
+            let markdown = currentEditorMarkdown()
+            try markdown.write(to: fileURL, atomically: true, encoding: .utf8)
+            loadedContent = markdown
+            sourceMarkdown = markdown
+            setSaveButtonState(.saved)
             status("Sauvegardé")
         } catch {
             status("Erreur sauvegarde: \(error.localizedDescription)")
@@ -492,7 +661,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
 
     @objc private func showAbout() {
         let alert = NSAlert()
-        alert.messageText = "NoteDroppy V3"
+        alert.messageText = "Note Commander"
         alert.informativeText = """
         Version 3.7
 
@@ -546,7 +715,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
             defer: false
         )
         infoWindow.isReleasedWhenClosed = false
-        infoWindow.title = "Fonctions NoteDroppy / NoteplanShorty"
+        infoWindow.title = "Fonctions Note Commander"
 
         let titleLabel = NSTextField(labelWithString: "Fonctions")
         titleLabel.font = .systemFont(ofSize: 18, weight: .bold)
@@ -1059,37 +1228,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     }
 
     @objc private func sortPriorities() {
-        replaceEditorText(PrioritySorter.sort(textView.string))
+        guard ensureEditableMarkdownView() else { return }
+        replaceEditorText(PrioritySorter.sort(currentEditorMarkdown()))
         textDidChange(Notification(name: NSText.didChangeNotification))
         status("Tri appliqué en mémoire. Clique Sauvegarder pour écrire.")
     }
 
     @objc private func sortMinutes() {
-        replaceEditorText(TaskSorter.sort(textView.string, mode: .minutes))
+        guard ensureEditableMarkdownView() else { return }
+        replaceEditorText(TaskSorter.sort(currentEditorMarkdown(), mode: .minutes))
         textDidChange(Notification(name: NSText.didChangeNotification))
         status("Tri -- appliqué en mémoire. Clique Sauvegarder pour écrire.")
     }
 
     @objc private func sortAtContext() {
-        replaceEditorText(TaskSorter.sort(textView.string, mode: .atContext))
+        guard ensureEditableMarkdownView() else { return }
+        replaceEditorText(TaskSorter.sort(currentEditorMarkdown(), mode: .atContext))
         textDidChange(Notification(name: NSText.didChangeNotification))
         status("Tri @ appliqué en mémoire. Clique Sauvegarder pour écrire.")
     }
 
     @objc private func sortHashContext() {
-        replaceEditorText(TaskSorter.sort(textView.string, mode: .hashTag))
+        guard ensureEditableMarkdownView() else { return }
+        replaceEditorText(TaskSorter.sort(currentEditorMarkdown(), mode: .hashTag))
         textDidChange(Notification(name: NSText.didChangeNotification))
         status("Tri # appliqué en mémoire. Clique Sauvegarder pour écrire.")
     }
 
     @objc private func sortImportance() {
-        replaceEditorText(TaskSorter.sort(textView.string, mode: .importance))
+        guard ensureEditableMarkdownView() else { return }
+        replaceEditorText(TaskSorter.sort(currentEditorMarkdown(), mode: .importance))
         textDidChange(Notification(name: NSText.didChangeNotification))
         status("Tri ^^ appliqué en mémoire. Clique Sauvegarder pour écrire.")
     }
 
     @objc private func flattenChapters() {
-        replaceEditorText(ChapterFlattener.flatten(textView.string))
+        guard ensureEditableMarkdownView() else { return }
+        replaceEditorText(ChapterFlattener.flatten(currentEditorMarkdown()))
         textDidChange(Notification(name: NSText.didChangeNotification))
         status("Chapitres aplatis en mémoire. Clique Sauvegarder pour écrire.")
     }
@@ -1170,9 +1345,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         replaceEditorText(output)
         currentFileURL = nil
         loadedContent = output
-        saveButton.isEnabled = false
+        setSaveButtonState(.clean)
         pathLabel.stringValue = "Résultats de recherche non sauvegardables"
-        window.title = "NoteDroppy V3 - \(title)"
+        window.title = "Note Commander - \(title)"
         status("\(results.count) résultat(s)")
     }
 
@@ -1182,13 +1357,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         replaceEditorText(output)
         currentFileURL = nil
         loadedContent = output
-        saveButton.isEnabled = false
+        setSaveButtonState(.clean)
         pathLabel.stringValue = "Résultats prompts non sauvegardables"
-        window.title = "NoteDroppy V3 - \(title)"
+        window.title = "Note Commander - \(title)"
         status("\(results.count) résultat(s) prompts")
     }
 
     private func replaceEditorText(_ newText: String) {
+        guard ensureEditableMarkdownView() else { return }
         guard let storage = textView.textStorage else {
             textView.string = newText
             return
@@ -1199,10 +1375,202 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
             target.replaceEditorText(oldText)
         }
         storage.replaceCharacters(in: range, with: newText)
+        sourceMarkdown = newText
+        applySyntaxHighlighting()
     }
 
     func textDidChange(_ notification: Notification) {
-        saveButton.isEnabled = currentFileURL != nil && textView.string != loadedContent
+        if !isApplyingHighlight && !isFoldView {
+            sourceMarkdown = textView.string
+        }
+        applySyntaxHighlighting()
+        setSaveButtonState(currentFileURL != nil && currentEditorMarkdown() != loadedContent ? .dirty : .clean)
+    }
+
+    func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
+        guard let url = link as? URL else { return false }
+        NSWorkspace.shared.open(url)
+        status("Lien ouvert: \(url.absoluteString)")
+        return true
+    }
+
+    @objc private func changeMarkdownPalette(_ sender: NSPopUpButton) {
+        if let title = sender.selectedItem?.title, let palette = MarkdownHighlighter.Palette(rawValue: title) {
+            MarkdownHighlighter.palette = palette
+            UserDefaults.standard.set(title, forKey: "markdownPalette")
+            applySyntaxHighlighting()
+            status("Palette: \(title)")
+        }
+    }
+
+    @objc private func foldCurrentBlock() {
+        let sourceLine = currentSourceLineIndex()
+        guard hasChildLine(after: sourceLine, in: sourceLines()) else {
+            status("Aucun sous-bloc sur cette ligne.")
+            return
+        }
+        collapsedBlockStarts.insert(sourceLine)
+        renderFoldView(statusText: "Bloc plié")
+    }
+
+    @objc private func unfoldCurrentBlock() {
+        let sourceLine = currentSourceLineIndex()
+        collapsedBlockStarts.remove(sourceLine)
+        renderFoldView(statusText: "Bloc déplié")
+    }
+
+    @objc private func foldAllBlocks() {
+        let lines = sourceLines()
+        collapsedBlockStarts = Set(lines.indices.filter { hasChildLine(after: $0, in: lines) })
+        renderFoldView(statusText: "Tout plié")
+    }
+
+    @objc private func unfoldAllBlocks() {
+        collapsedBlockStarts.removeAll()
+        isFoldView = false
+        textView.isEditable = true
+        textView.string = sourceMarkdown
+        displayedSourceLines = Array(0..<sourceLines().count)
+        applySyntaxHighlighting()
+        setSaveButtonState(currentFileURL != nil && sourceMarkdown != loadedContent ? .dirty : .clean)
+        status("Tout déplié: Markdown complet éditable")
+    }
+
+    @objc private func restoreInitialFoldState() {
+        collapsedBlockStarts = initialCollapsedBlockStarts
+        if collapsedBlockStarts.isEmpty {
+            unfoldAllBlocks()
+        } else {
+            renderFoldView(statusText: "État initial restauré")
+        }
+    }
+
+    private func ensureEditableMarkdownView() -> Bool {
+        if isFoldView {
+            status("Déplie avant modification: le Markdown complet est protégé.")
+            return false
+        }
+        return true
+    }
+
+    private func currentEditorMarkdown() -> String {
+        isFoldView ? sourceMarkdown : textView.string
+    }
+
+    private func sourceLines() -> [String] {
+        sourceMarkdown.components(separatedBy: "\n")
+    }
+
+    private func currentSourceLineIndex() -> Int {
+        let selected = textView.selectedRange().location
+        let visible = textView.string as NSString
+        let clamped = min(max(selected, 0), visible.length)
+        let prefix = visible.substring(with: NSRange(location: 0, length: clamped))
+        let displayLine = prefix.reduce(0) { $1 == "\n" ? $0 + 1 : $0 }
+        guard displayLine >= 0, displayLine < displayedSourceLines.count else {
+            return min(displayLine, max(sourceLines().count - 1, 0))
+        }
+        return displayedSourceLines[displayLine]
+    }
+
+    private func renderFoldView(statusText: String) {
+        sourceMarkdown = currentEditorMarkdown()
+        let result = foldedMarkdown(lines: sourceLines(), collapsed: collapsedBlockStarts)
+        isFoldView = !collapsedBlockStarts.isEmpty
+        displayedSourceLines = result.sourceLineIndexes
+        textView.isEditable = !isFoldView
+        textView.string = result.text
+        applySyntaxHighlighting()
+        setSaveButtonState(currentFileURL != nil && sourceMarkdown != loadedContent ? .dirty : .clean)
+        status(isFoldView ? "\(statusText) - affichage seul, Markdown conservé" : statusText)
+    }
+
+    private func foldedMarkdown(lines: [String], collapsed: Set<Int>) -> (text: String, sourceLineIndexes: [Int]) {
+        var visible: [String] = []
+        var map: [Int] = []
+        var hiddenUntilIndent: Int?
+        for index in lines.indices {
+            let indent = lineIndent(lines[index])
+            if let hiddenIndent = hiddenUntilIndent {
+                if lines[index].trimmingCharacters(in: .whitespaces).isEmpty || indent > hiddenIndent {
+                    continue
+                }
+                hiddenUntilIndent = nil
+            }
+            let marker: String
+            if hasChildLine(after: index, in: lines) {
+                marker = collapsed.contains(index) ? "▸ " : "▾ "
+            } else {
+                marker = ""
+            }
+            visible.append(marker + lines[index])
+            map.append(index)
+            if collapsed.contains(index) {
+                hiddenUntilIndent = indent
+            }
+        }
+        return (visible.joined(separator: "\n"), map)
+    }
+
+    private func hasChildLine(after index: Int, in lines: [String]) -> Bool {
+        guard index >= 0, index < lines.count else { return false }
+        let parentIndent = lineIndent(lines[index])
+        let parentTrimmed = lines[index].trimmingCharacters(in: .whitespaces)
+        guard !parentTrimmed.isEmpty else { return false }
+        for next in lines.index(after: index)..<lines.count {
+            let trimmed = lines[next].trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty { continue }
+            let indent = lineIndent(lines[next])
+            if indent <= parentIndent { return false }
+            return true
+        }
+        return false
+    }
+
+    private func lineIndent(_ line: String) -> Int {
+        line.prefix { $0 == " " || $0 == "\t" }.reduce(0) { $0 + ($1 == "\t" ? 2 : 1) }
+    }
+
+    private enum SaveButtonState {
+        case clean
+        case dirty
+        case saved
+    }
+
+    private func setSaveButtonState(_ state: SaveButtonState) {
+        switch state {
+        case .clean:
+            styleButton(saveButton, title: "Sauvegarder", background: .controlColor, foreground: .secondaryLabelColor, enabled: false)
+        case .dirty:
+            styleButton(saveButton, title: "Sauvegarder", background: .systemOrange, foreground: .white, enabled: true)
+        case .saved:
+            styleButton(saveButton, title: "Sauvegardé", background: .systemGreen, foreground: .white, enabled: true)
+        }
+    }
+
+    private func styleButton(_ button: NSButton, title: String, background: NSColor, foreground: NSColor, enabled: Bool) {
+        button.isEnabled = enabled
+        button.bezelStyle = .rounded
+        button.isBordered = false
+        button.wantsLayer = true
+        button.layer?.backgroundColor = background.cgColor
+        button.layer?.cornerRadius = 6
+        button.attributedTitle = NSAttributedString(
+            string: title,
+            attributes: [
+                .foregroundColor: foreground,
+                .font: NSFont.systemFont(ofSize: 13, weight: .semibold)
+            ]
+        )
+    }
+
+    private func applySyntaxHighlighting() {
+        guard !isApplyingHighlight, let storage = textView.textStorage else { return }
+        isApplyingHighlight = true
+        let selectedRanges = textView.selectedRanges
+        MarkdownHighlighter.apply(to: storage)
+        textView.selectedRanges = selectedRanges
+        isApplyingHighlight = false
     }
 
     private func status(_ text: String) {
@@ -2187,6 +2555,211 @@ struct NotePlanShortcutGenerator {
         var allowed = CharacterSet.urlQueryAllowed
         allowed.remove(charactersIn: "&+=?")
         return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
+    }
+}
+
+private enum MarkdownHighlighter {
+    enum Palette: String, CaseIterable {
+        case notePlan = "NotePlan"
+        case contrast = "Contraste"
+        case soft = "Douce"
+    }
+
+    static var palette: Palette = {
+        if let value = UserDefaults.standard.string(forKey: "markdownPalette"),
+           let palette = Palette(rawValue: value) {
+            return palette
+        }
+        return .notePlan
+    }()
+
+    private static let baseFont = NSFont.monospacedSystemFont(ofSize: 14, weight: .regular)
+    private static let codeFont = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+
+    static func apply(to storage: NSTextStorage) {
+        let fullRange = NSRange(location: 0, length: storage.length)
+        guard fullRange.length > 0 else { return }
+
+        storage.beginEditing()
+        storage.setAttributes(baseAttributes(), range: fullRange)
+
+        let text = storage.string as NSString
+        text.enumerateSubstrings(in: fullRange, options: [.byLines, .substringNotRequired]) { _, lineRange, _, _ in
+            styleLine(in: storage, nsText: text, lineRange: lineRange)
+        }
+
+        applyRegex(#"`[^`]+`"#, storage: storage, fullRange: fullRange, color: .secondaryLabelColor, font: codeFont)
+        applyRegex(#"#[\p{L}\p{N}_/-]+"#, storage: storage, fullRange: fullRange, color: NSColor.systemOrange)
+        applyRegex(#"(?<!\S)@[\p{L}\p{N}_/-]+"#, storage: storage, fullRange: fullRange, color: NSColor.systemBlue)
+        applyRegex(#">\d{4}-\d{2}-\d{2}(?:\s+\d{1,2}:\d{2})?"#, storage: storage, fullRange: fullRange, color: NSColor.systemPurple)
+        applyRegex(#"\b\d{1,2}:\d{2}\b"#, storage: storage, fullRange: fullRange, color: NSColor.systemPurple)
+        applyMarkdownLinks(to: storage, fullRange: fullRange)
+
+        storage.endEditing()
+    }
+
+    private static func styleLine(in storage: NSTextStorage, nsText: NSString, lineRange: NSRange) {
+        guard lineRange.length > 0 else { return }
+        let line = nsText.substring(with: lineRange)
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        let indent = line.prefix { $0 == " " || $0 == "\t" }.count
+
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineSpacing = 2
+        paragraph.paragraphSpacing = 1
+        paragraph.headIndent = CGFloat(min(indent, 12)) * 7
+        storage.addAttribute(.paragraphStyle, value: paragraph, range: lineRange)
+
+        if trimmed.hasPrefix("#") {
+            let level = min(trimmed.prefix { $0 == "#" }.count, 4)
+            storage.addAttributes([
+                .font: NSFont.systemFont(ofSize: CGFloat(max(20 - level * 2, 14)), weight: .bold),
+                .foregroundColor: NSColor.systemOrange
+            ], range: lineRange)
+            return
+        }
+
+        if trimmed.hasPrefix("- [x]") || trimmed.hasPrefix("* [x]") || trimmed.hasPrefix("- [X]") || trimmed.hasPrefix("* [X]") {
+            storage.addAttributes([
+                .foregroundColor: NSColor.secondaryLabelColor,
+                .strikethroughStyle: NSUnderlineStyle.single.rawValue
+            ], range: lineRange)
+        } else if trimmed.hasPrefix("- [ ]") || trimmed.hasPrefix("* [ ]") || trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ") {
+            storage.addAttribute(.foregroundColor, value: colorForIndent(indent), range: lineRange)
+        }
+
+        styleUrgency(in: storage, nsText: nsText, lineRange: lineRange, line: line)
+    }
+
+    private static func styleUrgency(in storage: NSTextStorage, nsText: NSString, lineRange: NSRange, line: String) {
+        let urgency: (token: String, color: NSColor, background: NSColor)?
+        if line.contains("!!!") {
+            urgency = ("!!!", .white, NSColor.systemRed.withAlphaComponent(0.78))
+        } else if line.contains("!!") {
+            urgency = ("!!", NSColor.systemRed, NSColor.systemRed.withAlphaComponent(0.16))
+        } else if line.contains("!") {
+            urgency = ("!", NSColor.systemOrange, NSColor.systemOrange.withAlphaComponent(0.12))
+        } else {
+            urgency = nil
+        }
+        guard let urgency else { return }
+
+        storage.addAttribute(.backgroundColor, value: urgency.background, range: lineRange)
+        var searchStart = lineRange.location
+        let lineEnd = lineRange.location + lineRange.length
+        while searchStart < lineEnd {
+            let found = nsText.range(of: urgency.token, options: [], range: NSRange(location: searchStart, length: lineEnd - searchStart))
+            if found.location == NSNotFound { break }
+            storage.addAttributes([
+                .font: NSFont.monospacedSystemFont(ofSize: 14, weight: .bold),
+                .foregroundColor: urgency.color
+            ], range: found)
+            searchStart = found.location + max(found.length, 1)
+        }
+    }
+
+    private static func applyRegex(_ pattern: String, storage: NSTextStorage, fullRange: NSRange, color: NSColor, font: NSFont? = nil) {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return }
+        regex.enumerateMatches(in: storage.string, range: fullRange) { match, _, _ in
+            guard let range = match?.range, range.location != NSNotFound else { return }
+            storage.addAttribute(.foregroundColor, value: color, range: range)
+            if let font {
+                storage.addAttribute(.font, value: font, range: range)
+            }
+        }
+    }
+
+    private static func applyMarkdownLinks(to storage: NSTextStorage, fullRange: NSRange) {
+        applyLinkRegex(
+            #"\[([^\]\n]+)\]\\?\(\[(https?://[^\]\n]+)\]\((https?://[^)\s]+)\)\)"#,
+            storage: storage,
+            fullRange: fullRange,
+            titleGroup: 1,
+            urlGroup: 3
+        )
+        applyLinkRegex(
+            #"(?<!\()\[([^\]\n]+)\]\((https?://[^)\s]+)\)"#,
+            storage: storage,
+            fullRange: fullRange,
+            titleGroup: 1,
+            urlGroup: 2
+        )
+    }
+
+    private static func applyLinkRegex(_ pattern: String, storage: NSTextStorage, fullRange: NSRange, titleGroup: Int, urlGroup: Int) {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return }
+        let text = storage.string as NSString
+        regex.enumerateMatches(in: storage.string, range: fullRange) { match, _, _ in
+            guard let match else { return }
+            let titleRange = match.range(at: titleGroup)
+            let urlRange = match.range(at: urlGroup)
+            guard titleRange.location != NSNotFound, urlRange.location != NSNotFound else { return }
+            let urlString = text.substring(with: urlRange)
+            guard let url = URL(string: urlString) else { return }
+
+            let hiddenAttributes: [NSAttributedString.Key: Any] = [
+                .link: url,
+                .foregroundColor: NSColor.clear,
+                .font: NSFont.monospacedSystemFont(ofSize: 0.1, weight: .regular)
+            ]
+            let titleStart = titleRange.location
+            let titleEnd = titleRange.location + titleRange.length
+            let matchEnd = match.range.location + match.range.length
+
+            if titleStart > match.range.location {
+                storage.addAttributes(hiddenAttributes, range: NSRange(location: match.range.location, length: titleStart - match.range.location))
+            }
+            if matchEnd > titleEnd {
+                storage.addAttributes(hiddenAttributes, range: NSRange(location: titleEnd, length: matchEnd - titleEnd))
+            }
+            if titleEnd < matchEnd {
+                storage.addAttributes(arrowAttributes(url: url), range: NSRange(location: titleEnd, length: 1))
+            }
+            storage.addAttributes([
+                .link: url,
+                .foregroundColor: NSColor.systemBlue,
+                .underlineStyle: NSUnderlineStyle.single.rawValue,
+                .font: NSFont.monospacedSystemFont(ofSize: 14, weight: .semibold)
+            ], range: titleRange)
+        }
+    }
+
+    private static func arrowAttributes(url: URL) -> [NSAttributedString.Key: Any] {
+        let attachment = NSTextAttachment()
+        if let image = NSImage(systemSymbolName: "arrow.up.right", accessibilityDescription: "Ouvrir le lien") {
+            image.isTemplate = true
+            attachment.image = image
+            attachment.bounds = NSRect(x: 1, y: -1, width: 10, height: 10)
+        }
+        return [
+            .attachment: attachment,
+            .link: url,
+            .foregroundColor: NSColor.systemBlue,
+            .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .semibold)
+        ]
+    }
+
+    private static func baseAttributes() -> [NSAttributedString.Key: Any] {
+        [
+            .font: baseFont,
+            .foregroundColor: NSColor.labelColor,
+            .backgroundColor: NSColor.textBackgroundColor
+        ]
+    }
+
+    private static func colorForIndent(_ indent: Int) -> NSColor {
+        let level = max(0, min(indent / 2, 5))
+        switch palette {
+        case .notePlan:
+            let colors: [NSColor] = [.labelColor, .systemOrange, .systemTeal, .systemBlue, .systemIndigo, .secondaryLabelColor]
+            return colors[level]
+        case .contrast:
+            let colors: [NSColor] = [.labelColor, .systemRed, .systemOrange, .systemGreen, .systemBlue, .systemPurple]
+            return colors[level]
+        case .soft:
+            let colors: [NSColor] = [.labelColor, .systemBrown, .systemMint, .systemCyan, .systemGray, .secondaryLabelColor]
+            return colors[level]
+        }
     }
 }
 
