@@ -2023,6 +2023,7 @@ final class SettingsWindowController: NSWindowController {
     private let shortcutMakerDestinationField = NSTextField(labelWithString: "")
     private let shortcutMakerDropView = ShortcutMakerDropView()
     private let shortcutMakerRecentTextView = NSTextView()
+    private let commanderController = NotePlanEditorWindowController()
     private var generatedShortcutURL: URL?
     private let shortcutMakerNotePathKey = "noteplanShortcutMaker.notePath"
     private let shortcutMakerNoteURLKey = "noteplanShortcutMaker.noteURL"
@@ -2055,6 +2056,11 @@ final class SettingsWindowController: NSWindowController {
         shortcutMakerTab.label = "Raccourci NotePlan"
         shortcutMakerTab.view = shortcutMakerTabView()
         tabView.addTabViewItem(shortcutMakerTab)
+
+        let commanderTab = NSTabViewItem(identifier: "commander")
+        commanderTab.label = "Commander"
+        commanderTab.view = commanderController.embeddedView()
+        tabView.addTabViewItem(commanderTab)
 
         let stack = NSStackView()
         stack.orientation = .vertical
@@ -4372,7 +4378,7 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         controller.window.delegate = controller
         shared = controller
         controller.showMainWindow()
-        controller.loadTodayAsync()
+        controller.loadInitialFileIfNeeded()
         controller.window.makeFirstResponder(controller.textView)
     }
 
@@ -4398,6 +4404,8 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
     private var openAfterFunctionCheckbox: NSButton?
     private var generatedShortcutURL: URL?
     private var editorMenu: NSMenu!
+    private var embeddedContentView: NSView?
+    private var didLoadInitialFile = false
 
     private var rootURL: URL
     private var currentFileURL: URL?
@@ -4419,6 +4427,17 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
     private func showMainWindow() {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func embeddedView() -> NSView {
+        if let embeddedContentView {
+            return embeddedContentView
+        }
+        buildMenu()
+        let content = buildEditorContentView()
+        embeddedContentView = content
+        loadInitialFileIfNeeded()
+        return content
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
@@ -4474,9 +4493,12 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         window.title = "NoteDroppy - Éditeur NotePlan"
         window.isReleasedWhenClosed = false
         window.isRestorable = false
+        window.contentView = buildEditorContentView()
+    }
+
+    private func buildEditorContentView() -> NSView {
         let content = NSView()
         content.translatesAutoresizingMaskIntoConstraints = false
-        window.contentView = content
 
         let rootLabel = NSTextField(labelWithString: "Dossier NotePlan")
         rootLabel.font = .systemFont(ofSize: 12, weight: .medium)
@@ -4638,6 +4660,16 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
             scrollView.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -14),
             scrollView.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -14)
         ])
+        return content
+    }
+
+    private func loadInitialFileIfNeeded() {
+        guard !didLoadInitialFile else { return }
+        didLoadInitialFile = true
+        loadTodayAsync()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            self.textView.window?.makeFirstResponder(self.textView)
+        }
     }
 
     private func todayPath() -> String {
@@ -4802,8 +4834,8 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         textView.string = loaded.content
         pathLabel.stringValue = loaded.relativePath
         fileField.stringValue = loaded.relativePath
-        window.title = "NoteDroppy - Éditeur NotePlan - \(loaded.relativePath)"
-        window.makeFirstResponder(textView)
+        setVisibleTitle("NoteDroppy - Commander - \(loaded.relativePath)")
+        textView.window?.makeFirstResponder(textView)
         saveButton.isEnabled = false
         status("Fichier chargé et éditable")
     }
@@ -5349,8 +5381,16 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         loadedContent = output
         saveButton.isEnabled = false
         pathLabel.stringValue = "Résultats de recherche non sauvegardables"
-        window.title = "NoteDroppy - Éditeur NotePlan - \(title)"
+        setVisibleTitle("NoteDroppy - Commander - \(title)")
         status("\(results.count) résultat(s)")
+    }
+
+    private func setVisibleTitle(_ title: String) {
+        if let visibleWindow = textView.window {
+            visibleWindow.title = title
+        } else {
+            window.title = title
+        }
     }
 
     private func replaceEditorText(_ newText: String) {

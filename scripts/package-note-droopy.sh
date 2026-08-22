@@ -27,7 +27,8 @@ cat > "$STAGE/INSTALL.md" <<'EOF'
 Drag `Note Droopy.app` to Applications.
 
 Scope: fast capture to NotePlan through Dock drops, URL files, macOS Service,
-and global shortcuts. This app is separate from Note Commander.
+and global shortcuts. The Commander tab integrates local NotePlan editing,
+search and sorting tools directly inside Note Droopy.
 EOF
 
 xattr -cr "$STAGE" 2>/dev/null || true
