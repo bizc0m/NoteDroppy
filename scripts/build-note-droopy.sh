@@ -133,6 +133,8 @@ ditto --norsrc --noextattr "$ROOT_DIR/assets/notedroppy-logo.png" "$APP/Contents
 ditto --norsrc --noextattr "$ROOT_DIR/HELP.md" "$APP/Contents/Resources/HELP.md" 2>/dev/null || true
 ditto --norsrc --noextattr "$ROOT_DIR/HELP.en.md" "$APP/Contents/Resources/HELP.en.md" 2>/dev/null || true
 ditto --norsrc --noextattr "$ROOT_DIR/README.en.md" "$APP/Contents/Resources/README.en.md" 2>/dev/null || true
+ditto --norsrc --noextattr "$ROOT_DIR/capture-rules.json" "$APP/Contents/Resources/capture-rules.json" 2>/dev/null || true
+ditto --norsrc --noextattr "$ROOT_DIR/docs/capture-rules.md" "$APP/Contents/Resources/capture-rules.md" 2>/dev/null || true
 
 xattr -cr "$APP" 2>/dev/null || true
 codesign --force --deep --options runtime -s "$SIGN_IDENTITY" "$APP"

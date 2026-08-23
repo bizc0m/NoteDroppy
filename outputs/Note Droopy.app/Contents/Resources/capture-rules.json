@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "id": "llm-gpt",
+      "enabled": true,
+      "match": { "domains": ["chatgpt.com", "chat.openai.com"] },
+      "title": { "fallback": "GPT Chat" },
+      "tags": ["#LLM", "#GPT"],
+      "destination": { "engine": "noteplan", "type": "slot" },
+      "format": "linkTask",
+      "source": "textOnly"
+    },
+    {
+      "id": "llm-perplexity-task",
+      "enabled": true,
+      "match": { "domains": ["perplexity.ai"], "pathContains": ["/computer/tasks/"] },
+      "title": { "fallback": "Perplexity Task" },
+      "tags": ["#LLM", "#Perplexity"],
+      "destination": { "engine": "noteplan", "type": "slot" },
+      "format": "linkTask",
+      "source": "textOnly"
+    },
+    {
+      "id": "llm-perplexity",
+      "enabled": true,
+      "match": { "domains": ["perplexity.ai"] },
+      "title": { "fallback": "Perplexity" },
+      "tags": ["#LLM", "#Perplexity"],
+      "destination": { "engine": "noteplan", "type": "slot" },
+      "format": "linkTask",
+      "source": "textOnly"
+    },
+    {
+      "id": "llm-claude",
+      "enabled": true,
+      "match": { "domains": ["claude.ai"] },
+      "title": { "fallback": "Claude Chat" },
+      "tags": ["#LLM", "#Claude"],
+      "destination": { "engine": "noteplan", "type": "slot" },
+      "format": "linkTask",
+      "source": "textOnly"
+    }
+  ]
+}

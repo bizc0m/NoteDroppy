@@ -260,6 +260,186 @@ struct CaptureSource {
     var title: String?
 }
 
+struct LLMURLMetadata {
+    let title: String
+    let tags: [String]
+}
+
+struct CaptureRulesFile: Codable {
+    var version: Int
+    var rules: [CaptureRule]
+}
+
+struct CaptureRule: Codable {
+    struct Match: Codable {
+        var domains: [String]?
+        var pathContains: [String]?
+    }
+
+    struct TitleRule: Codable {
+        var fallback: String?
+    }
+
+    var id: String
+    var enabled: Bool
+    var match: Match
+    var title: TitleRule?
+    var tags: [String]?
+}
+
+private enum CaptureRulesStore {
+    static let fileName = "capture-rules.json"
+    static let docName = "capture-rules.md"
+
+    static var supportDirectory: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/NoteDroopy", isDirectory: true)
+    }
+
+    static var rulesURL: URL { supportDirectory.appendingPathComponent(fileName) }
+    static var docURL: URL { supportDirectory.appendingPathComponent(docName) }
+
+    static func ensureFiles() {
+        try? FileManager.default.createDirectory(at: supportDirectory, withIntermediateDirectories: true)
+        if !FileManager.default.fileExists(atPath: rulesURL.path) {
+            let bundled = Bundle.main.url(forResource: "capture-rules", withExtension: "json")
+            let content = bundled.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? defaultRulesJSON
+            try? content.write(to: rulesURL, atomically: true, encoding: .utf8)
+        }
+        if !FileManager.default.fileExists(atPath: docURL.path) {
+            let bundled = Bundle.main.url(forResource: "capture-rules", withExtension: "md")
+            let content = bundled.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? defaultRulesDocumentation
+            try? content.write(to: docURL, atomically: true, encoding: .utf8)
+        }
+    }
+
+    static func metadata(for normalizedURL: String) -> LLMURLMetadata? {
+        guard let components = URLComponents(string: normalizedURL),
+              let host = components.host?.lowercased() else {
+            return nil
+        }
+        let canonicalHost = canonical(host)
+        let path = components.path.lowercased()
+
+        for rule in activeRules() {
+            let domains = rule.match.domains?.map { canonical($0.lowercased()) } ?? []
+            guard domains.contains(canonicalHost) else { continue }
+            if let pathContains = rule.match.pathContains,
+               !pathContains.isEmpty,
+               !pathContains.contains(where: { path.contains($0.lowercased()) }) {
+                continue
+            }
+            return LLMURLMetadata(
+                title: rule.title?.fallback ?? fallbackTitle(for: canonicalHost),
+                tags: normalizedRuleTags(rule.tags ?? [])
+            )
+        }
+        return nil
+    }
+
+    private static func activeRules() -> [CaptureRule] {
+        ensureFiles()
+        guard let data = try? Data(contentsOf: rulesURL),
+              let file = try? JSONDecoder().decode(CaptureRulesFile.self, from: data) else {
+            return defaultRules()
+        }
+        return file.rules.filter(\.enabled)
+    }
+
+    private static func defaultRules() -> [CaptureRule] {
+        guard let data = defaultRulesJSON.data(using: .utf8),
+              let file = try? JSONDecoder().decode(CaptureRulesFile.self, from: data) else {
+            return []
+        }
+        return file.rules.filter(\.enabled)
+    }
+
+    private static func canonical(_ host: String) -> String {
+        host.replacingOccurrences(of: #"^www\."#, with: "", options: .regularExpression)
+    }
+
+    private static func fallbackTitle(for host: String) -> String {
+        host.split(separator: ".").first.map { String($0).capitalized } ?? host
+    }
+
+    private static func normalizedRuleTags(_ values: [String]) -> [String] {
+        values
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .map { $0.hasPrefix("#") || $0.hasPrefix("@") ? $0 : "#\($0)" }
+    }
+
+    static let defaultRulesJSON = """
+    {
+      "version": 1,
+      "rules": [
+        {
+          "id": "llm-gpt",
+          "enabled": true,
+          "match": { "domains": ["chatgpt.com", "chat.openai.com"] },
+          "title": { "fallback": "GPT Chat" },
+          "tags": ["#LLM", "#GPT"],
+          "destination": { "engine": "noteplan", "type": "slot" },
+          "format": "linkTask",
+          "source": "textOnly"
+        },
+        {
+          "id": "llm-perplexity-task",
+          "enabled": true,
+          "match": { "domains": ["perplexity.ai"], "pathContains": ["/computer/tasks/"] },
+          "title": { "fallback": "Perplexity Task" },
+          "tags": ["#LLM", "#Perplexity"],
+          "destination": { "engine": "noteplan", "type": "slot" },
+          "format": "linkTask",
+          "source": "textOnly"
+        },
+        {
+          "id": "llm-perplexity",
+          "enabled": true,
+          "match": { "domains": ["perplexity.ai"] },
+          "title": { "fallback": "Perplexity" },
+          "tags": ["#LLM", "#Perplexity"],
+          "destination": { "engine": "noteplan", "type": "slot" },
+          "format": "linkTask",
+          "source": "textOnly"
+        },
+        {
+          "id": "llm-claude",
+          "enabled": true,
+          "match": { "domains": ["claude.ai"] },
+          "title": { "fallback": "Claude Chat" },
+          "tags": ["#LLM", "#Claude"],
+          "destination": { "engine": "noteplan", "type": "slot" },
+          "format": "linkTask",
+          "source": "textOnly"
+        }
+      ]
+    }
+    """
+
+    static let defaultRulesDocumentation = """
+    # NoteDroopy capture-rules.json
+
+    JSON actif : `~/Library/Application Support/NoteDroopy/capture-rules.json`
+
+    Champs utiles :
+    - `id` : nom stable de la règle.
+    - `enabled` : active/désactive la règle.
+    - `match.domains` : domaines sans obligation de mettre `www`.
+    - `match.pathContains` : fragments de chemin optionnels.
+    - `title.fallback` : titre utilisé si le vrai titre navigateur est absent.
+    - `tags` : tags ajoutés automatiquement.
+    - `destination` : prévu pour la prochaine passe de routage par règle.
+    - `format` : prévu pour les formats avancés.
+    - `source` : `textOnly` = source seulement quand la capture est du texte.
+
+    Formats :
+    - URL seule : `- [ ] [Titre](url) #capture #LLM #GPT`
+    - Texte sélectionné : `- [ ] texte #capture #LLM #GPT` puis `> Source : [Titre](url)`
+    - Multi-ligne : première ligne en tâche, lignes suivantes en citation.
+    """
+}
+
 struct PreferencesFile: Codable {
     var version: Int
     var openNote: Bool
@@ -2017,6 +2197,8 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
     private let accessibilityButton = NSButton(title: "Autoriser Accessibilité", target: nil, action: nil)
     private let exportButton = NSButton(title: "Exporter JSON", target: nil, action: nil)
     private let importButton = NSButton(title: "Importer JSON", target: nil, action: nil)
+    private let captureRulesButton = NSButton(title: "Règles capture", target: nil, action: nil)
+    private let captureRulesHelpButton = NSButton(title: "Doc formats", target: nil, action: nil)
     private let statusLabel = NSTextField(labelWithString: "")
     private let saveButton = NSButton(title: "Enregistrer", target: nil, action: nil)
     private let shortcutMakerNoteField = NSTextField(labelWithString: "")
@@ -2051,17 +2233,17 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
 
         let settingsContainer = NSView()
         let settingsTab = NSTabViewItem(identifier: "settings")
-        settingsTab.label = "NoteDroppy"
+        settingsTab.label = "Capture"
         settingsTab.view = settingsContainer
         tabView.addTabViewItem(settingsTab)
 
         let shortcutMakerTab = NSTabViewItem(identifier: "shortcutMaker")
-        shortcutMakerTab.label = "Shortcut"
+        shortcutMakerTab.label = "Raccourcis"
         shortcutMakerTab.view = shortcutMakerTabView()
         tabView.addTabViewItem(shortcutMakerTab)
 
         let nc2Tab = NSTabViewItem(identifier: "nc2")
-        nc2Tab.label = "NC2"
+        nc2Tab.label = "Commander"
         nc2Tab.view = nc2Controller.embeddedView()
         tabView.addTabViewItem(nc2Tab)
         nc2Controller.onCloseEmbeddedSort = { [weak tabView] in
@@ -2069,7 +2251,7 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
                   let settingsTab = tabView.tabViewItems.first(where: { ($0.identifier as? String) == "settings" }) else { return }
             tabView.selectTabViewItem(settingsTab)
         }
-        tabView.selectTabViewItem(nc2Tab)
+        tabView.selectTabViewItem(settingsTab)
 
         let stack = NSStackView()
         stack.orientation = .vertical
@@ -2163,6 +2345,14 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         helpButton.action = #selector(openHelp)
         helpButton.bezelStyle = .rounded
 
+        captureRulesButton.target = self
+        captureRulesButton.action = #selector(openCaptureRulesJSON)
+        captureRulesButton.bezelStyle = .rounded
+
+        captureRulesHelpButton.target = self
+        captureRulesHelpButton.action = #selector(openCaptureRulesHelp)
+        captureRulesHelpButton.bezelStyle = .rounded
+
         exportButton.target = self
         exportButton.action = #selector(exportPreferencesJSON)
         exportButton.bezelStyle = .rounded
@@ -2174,6 +2364,8 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         buttons.addArrangedSubview(saveButton)
         buttons.addArrangedSubview(exportButton)
         buttons.addArrangedSubview(importButton)
+        buttons.addArrangedSubview(captureRulesButton)
+        buttons.addArrangedSubview(captureRulesHelpButton)
         buttons.addArrangedSubview(helpButton)
         buttons.addArrangedSubview(accessibilityButton)
         buttons.addArrangedSubview(quitButton)
@@ -3102,6 +3294,18 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         }
     }
 
+    @objc private func openCaptureRulesJSON() {
+        CaptureRulesStore.ensureFiles()
+        NSWorkspace.shared.open(CaptureRulesStore.rulesURL)
+        statusLabel.stringValue = "Règles capture : \(CaptureRulesStore.rulesURL.path)"
+    }
+
+    @objc private func openCaptureRulesHelp() {
+        CaptureRulesStore.ensureFiles()
+        NSWorkspace.shared.open(CaptureRulesStore.docURL)
+        statusLabel.stringValue = "Doc formats : \(CaptureRulesStore.docURL.path)"
+    }
+
     private func saveCurrentControlsToDefaults() {
         let serviceName = serviceNameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let tag = tagField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3753,37 +3957,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
               let host = url.host else {
             return nil
         }
-        let title = cleanSourceTitle(title) ?? llmURLMetadata(for: normalized)?.title ?? webLinkTitle(for: url, host: host)
+        let title = cleanSourceTitle(title) ?? CaptureRulesStore.metadata(for: normalized)?.title ?? webLinkTitle(for: url, host: host)
         let escapedTitle = title
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "[", with: "\\[")
             .replacingOccurrences(of: "]", with: "\\]")
         return "[\(escapedTitle)](\(normalized))"
-    }
-
-    private struct LLMURLMetadata {
-        let title: String
-        let tags: [String]
-    }
-
-    private func llmURLMetadata(for value: String) -> LLMURLMetadata? {
-        guard let normalized = normalizedWebURL(value),
-              let components = URLComponents(string: normalized),
-              let host = components.host?.lowercased() else {
-            return nil
-        }
-        let path = components.path.lowercased()
-        if host == "chatgpt.com" || host == "chat.openai.com" {
-            return LLMURLMetadata(title: "GPT Chat", tags: ["#LLM", "#GPT"])
-        }
-        if host == "perplexity.ai" || host.hasSuffix(".perplexity.ai") {
-            let title = path.contains("/tasks/") ? "Perplexity Task" : "Perplexity"
-            return LLMURLMetadata(title: title, tags: ["#LLM", "#Perplexity"])
-        }
-        if host == "claude.ai" || host.hasSuffix(".claude.ai") {
-            return LLMURLMetadata(title: "Claude Chat", tags: ["#LLM", "#Claude"])
-        }
-        return nil
     }
 
     private func webLinkTitle(for url: URL, host: String) -> String {
@@ -4226,7 +4405,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         var seen = Set<String>()
         for value in values {
             for url in webURLs(in: value) {
-                guard let metadata = llmURLMetadata(for: url) else { continue }
+                guard let normalized = normalizedWebURL(url),
+                      let metadata = CaptureRulesStore.metadata(for: normalized) else { continue }
                 for tag in metadata.tags where seen.insert(tag.lowercased()).inserted {
                     tags.append(tag)
                 }
