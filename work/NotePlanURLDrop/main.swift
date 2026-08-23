@@ -3747,13 +3747,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return components.url?.absoluteString
     }
 
-    private func markdownLinkForWebURL(_ value: String) -> String? {
+    private func markdownLinkForWebURL(_ value: String, title: String? = nil) -> String? {
         guard let normalized = normalizedWebURL(value),
               let url = URL(string: normalized),
               let host = url.host else {
             return nil
         }
-        let title = llmURLMetadata(for: normalized)?.title ?? webLinkTitle(for: url, host: host)
+        let title = cleanSourceTitle(title) ?? llmURLMetadata(for: normalized)?.title ?? webLinkTitle(for: url, host: host)
         let escapedTitle = title
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "[", with: "\\[")
@@ -3853,6 +3853,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !accessibilityTrusted {
             log("shortcut:accessibility-not-trusted:clipboard-only")
         }
+        let pageSource = sourceWebPage(for: NSWorkspace.shared.frontmostApplication)
         let documentSource = accessibilityTrusted ? sourceDocumentFileURL(for: NSWorkspace.shared.frontmostApplication) : nil
 
         let pasteboard = NSPasteboard.general
@@ -3872,7 +3873,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 : nil
             if let normalized = self.bestShortcutText(clipboardText: clipboardText, axText: axText) {
                 self.log("shortcut:text:\(normalized)")
-                let source = pastedSourceURL.map { CaptureSource(url: $0, title: nil) } ?? documentSource
+                let source = pastedSourceURL.map { CaptureSource(url: $0, title: pageSource?.title) } ?? pageSource ?? documentSource
                 self.sendTodo(normalized, shortcutSlot: slot, sourceURL: source?.url, sourceTitle: source?.title)
                 return
             }
@@ -3925,7 +3926,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return selectedText
     }
 
-    private func sourceWebPageURL(for application: NSRunningApplication?) -> String? {
+    private func sourceWebPage(for application: NSRunningApplication?) -> CaptureSource? {
         guard let appName = application?.localizedName else { return nil }
         let escapedAppName = appName.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
         let script = """
@@ -3933,24 +3934,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         set chromiumApps to {"Google Chrome", "Google Chrome Canary", "Brave Browser", "Microsoft Edge", "Arc", "Chromium"}
         if frontApp is "Safari" then
             tell application "Safari"
-                if (count of windows) > 0 then return URL of current tab of front window
+                if (count of windows) > 0 then return (URL of current tab of front window) & linefeed & (name of current tab of front window)
             end tell
         else if chromiumApps contains frontApp then
             using terms from application "Google Chrome"
                 tell application frontApp
-                    if (count of windows) > 0 then return URL of active tab of front window
+                    if (count of windows) > 0 then return (URL of active tab of front window) & linefeed & (title of active tab of front window)
                 end tell
             end using terms from
         end if
         return ""
         """
-        guard let output = shell(["/usr/bin/osascript", "-e", script], timeout: 1.0)?.trimmingCharacters(in: .whitespacesAndNewlines),
-              isWebURL(output) else {
+        guard let output = shell(["/usr/bin/osascript", "-e", script], timeout: 1.0)?.trimmingCharacters(in: .whitespacesAndNewlines) else {
             log("source-url:none-or-timeout:\(appName)")
             return nil
         }
-        log("source-url:\(output)")
-        return output
+        let lines = output.components(separatedBy: .newlines)
+        guard let url = lines.first?.trimmingCharacters(in: .whitespacesAndNewlines),
+              isWebURL(url) else {
+            log("source-url:none-or-timeout:\(appName)")
+            return nil
+        }
+        let title = cleanSourceTitle(lines.dropFirst().joined(separator: " "))
+        log("source-url:\(url)")
+        return CaptureSource(url: url, title: title)
     }
 
     private func sourceWebURL(from pasteboard: NSPasteboard) -> String? {
@@ -4079,7 +4086,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func sendTodo(_ todoText: String, shortcutSlot: ShortcutSlot? = nil, sourceURL: String? = nil, sourceTitle: String? = nil) {
         let tagSource = shortcutSlot?.tags ?? Settings.taskTag
-        guard let content = normalizedTaskContent(expandedVariables(todoText), tags: tagSource) else { return }
+        guard let content = normalizedTaskContent(expandedVariables(todoText), tags: tagSource, sourceURL: sourceURL, sourceTitle: sourceTitle) else { return }
         log("sendTodo:\(content)")
         let task = formattedTask(from: content, tags: tagSource, sourceURL: sourceURL, sourceTitle: sourceTitle)
         log("sendTodoTask:\(task)")
@@ -4239,10 +4246,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func markdownLinkForSourceURL(_ value: String, title: String?) -> String? {
-        if let webLink = markdownLinkForWebURL(value) {
-            if let title = cleanSourceTitle(title), let normalized = normalizedWebURL(value) {
-                return "[\(escapedMarkdownLinkTitle(title))](\(normalized))"
-            }
+        if let webLink = markdownLinkForWebURL(value, title: title) {
             return webLink
         }
 
@@ -4299,13 +4303,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
               let host = components.host?.lowercased() else {
             return nil
         }
+        let canonicalHost = host.replacingOccurrences(of: #"^www\."#, with: "", options: .regularExpression)
         let port = components.port.map { ":\($0)" } ?? ""
         let path = components.percentEncodedPath.isEmpty ? "/" : components.percentEncodedPath
         let query = components.percentEncodedQuery.map { "?\($0)" } ?? ""
-        return "\(host)\(port)\(path)\(query)"
+        return "\(canonicalHost)\(port)\(path)\(query)"
     }
 
-    private func normalizedTaskContent(_ value: String, tags: String) -> String? {
+    private func normalizedTaskContent(_ value: String, tags: String, sourceURL: String? = nil, sourceTitle: String? = nil) -> String? {
         var content = stripLeadingCheckbox(value.trimmingCharacters(in: .whitespacesAndNewlines))
         guard !content.isEmpty, content != "(null)" else { return nil }
 
@@ -4323,7 +4328,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let fileURL = standaloneFileURL(from: content) {
             return fileMarkdownLink(for: fileURL)
         }
-        if let markdownLink = markdownLinkForWebURL(content) {
+        let matchingSourceTitle = comparableWebURLKey(content) == sourceURL.flatMap(comparableWebURLKey) ? sourceTitle : nil
+        if let markdownLink = markdownLinkForWebURL(content, title: matchingSourceTitle) {
             return markdownLink
         }
         return content
