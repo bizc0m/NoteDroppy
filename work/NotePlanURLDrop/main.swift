@@ -2251,7 +2251,7 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
                   let settingsTab = tabView.tabViewItems.first(where: { ($0.identifier as? String) == "settings" }) else { return }
             tabView.selectTabViewItem(settingsTab)
         }
-        tabView.selectTabViewItem(settingsTab)
+        tabView.selectTabViewItem(nc2Tab)
 
         let stack = NSStackView()
         stack.orientation = .vertical
@@ -4110,7 +4110,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let escapedAppName = appName.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
         let script = """
         set frontApp to "\(escapedAppName)"
-        set chromiumApps to {"Google Chrome", "Google Chrome Canary", "Brave Browser", "Microsoft Edge", "Arc", "Chromium"}
+        set chromiumApps to {"Google Chrome", "Google Chrome Canary", "Brave Browser", "Microsoft Edge", "Arc", "Chromium", "Comet", "Dia", "Vivaldi", "Opera"}
         if frontApp is "Safari" then
             tell application "Safari"
                 if (count of windows) > 0 then return (URL of current tab of front window) & linefeed & (name of current tab of front window)
