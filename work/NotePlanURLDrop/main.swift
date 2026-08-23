@@ -3753,12 +3753,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
               let host = url.host else {
             return nil
         }
-        let title = webLinkTitle(for: url, host: host)
+        let title = llmURLMetadata(for: normalized)?.title ?? webLinkTitle(for: url, host: host)
         let escapedTitle = title
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "[", with: "\\[")
             .replacingOccurrences(of: "]", with: "\\]")
         return "[\(escapedTitle)](\(normalized))"
+    }
+
+    private struct LLMURLMetadata {
+        let title: String
+        let tags: [String]
+    }
+
+    private func llmURLMetadata(for value: String) -> LLMURLMetadata? {
+        guard let normalized = normalizedWebURL(value),
+              let components = URLComponents(string: normalized),
+              let host = components.host?.lowercased() else {
+            return nil
+        }
+        let path = components.path.lowercased()
+        if host == "chatgpt.com" || host == "chat.openai.com" {
+            return LLMURLMetadata(title: "GPT Chat", tags: ["#LLM", "#GPT"])
+        }
+        if host == "perplexity.ai" || host.hasSuffix(".perplexity.ai") {
+            let title = path.contains("/tasks/") ? "Perplexity Task" : "Perplexity"
+            return LLMURLMetadata(title: title, tags: ["#LLM", "#Perplexity"])
+        }
+        if host == "claude.ai" || host.hasSuffix(".claude.ai") {
+            return LLMURLMetadata(title: "Claude Chat", tags: ["#LLM", "#Claude"])
+        }
+        return nil
     }
 
     private func webLinkTitle(for url: URL, host: String) -> String {
@@ -4165,7 +4190,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func formattedTask(from content: String, tags: String, sourceURL: String? = nil, sourceTitle: String? = nil) -> String {
-        let tag = normalizedTags(expandedVariables(tags))
+        let tag = normalizedTags(expandedVariables(tags), extra: llmTags(in: [content, sourceURL].compactMap { $0 }))
         var lines = content.components(separatedBy: .newlines)
         while lines.first?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true {
             lines.removeFirst()
@@ -4187,6 +4212,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let suffix = tag.isEmpty ? "" : " \(tag)"
         return (["- [ ] \(firstLine)\(suffix)"] + continuation).joined(separator: "\n")
+    }
+
+    private func llmTags(in values: [String]) -> [String] {
+        var tags: [String] = []
+        var seen = Set<String>()
+        for value in values {
+            for url in webURLs(in: value) {
+                guard let metadata = llmURLMetadata(for: url) else { continue }
+                for tag in metadata.tags where seen.insert(tag.lowercased()).inserted {
+                    tags.append(tag)
+                }
+            }
+        }
+        return tags
     }
 
     private func sourceContinuationLine(_ sourceURL: String?, title: String? = nil, content: String) -> String? {
@@ -4316,8 +4355,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return isDirectory.boolValue
     }
 
-    private func normalizedTags(_ value: String) -> String {
-        normalizedPreferenceTags(value).joined(separator: " ")
+    private func normalizedTags(_ value: String, extra: [String] = []) -> String {
+        var tags: [String] = []
+        var seen = Set<String>()
+        for tag in normalizedPreferenceTags(value) + extra {
+            let key = tag.lowercased()
+            if seen.insert(key).inserted {
+                tags.append(tag)
+            }
+        }
+        return tags.joined(separator: " ")
     }
 
     private func encode(_ value: String) -> String {
