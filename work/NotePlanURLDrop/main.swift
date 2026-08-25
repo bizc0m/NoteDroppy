@@ -7058,14 +7058,8 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         textView.isEditable = true
         textView.string = loaded.content
         applySyntaxHighlighting()
-        let contentWidth = max(scrollView.contentSize.width, 1100)
-        textView.frame = NSRect(x: 0, y: 0, width: contentWidth, height: max(scrollView.contentSize.height, 640))
-        textView.textContainer?.containerSize = NSSize(width: contentWidth, height: CGFloat.greatestFiniteMagnitude)
-        if let container = textView.textContainer {
-            textView.layoutManager?.ensureLayout(for: container)
-        }
+        textView.needsLayout = true
         textView.needsDisplay = true
-        scrollView.documentView = textView
         textView.scrollRangeToVisible(NSRange(location: 0, length: 0))
         textView.setSelectedRange(NSRange(location: 0, length: 0))
         textView.scrollToBeginningOfDocument(nil)
