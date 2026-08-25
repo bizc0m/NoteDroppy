@@ -1,93 +1,61 @@
 # NoteDroppy Help
 
-NoteDroppy quickly adds a task to today's NotePlan note.
+NoteDroppy captures text, URLs, and file paths, then adds a task to NotePlan or writes to Markdown/TXT depending on the selected shortcut.
 
-GitHub repository:
+## Capture
 
-```text
-https://github.com/bizc0m/NoteDroppy
-```
+- Dock: drop a URL, `.webloc`, `.url`, text file, or Markdown file.
+- macOS Service: send selected text from a compatible app.
+- Global shortcut: capture the active selection.
+- Non-text file: capture a clickable file link.
 
-## Sent Format
-
-```text
-- [ ] <content> #capture
-```
-
-The tag can be changed in settings.
-
-## Send A URL Or File
-
-Drag onto the `NoteDroppy` Dock icon:
-
-- URL from a browser.
-- `.webloc` or `.url` file.
-- Text file: `.txt`, `.md`, `.rtf`, or `.textclipping`.
-
-The item is sent directly to NotePlan.
-
-## Send Selected Text
-
-There are two methods.
-
-### macOS Service
-
-In compatible apps:
+Base format:
 
 ```text
-Active app > Services > NotePlan : ajouter en tâche
+- [ ] Captured text #capture
 ```
 
-Depending on the app, the Service may also appear in the right-click menu.
+## Shortcuts
 
-### Global Shortcut
+Preferences show 20 configurable shortcuts.
 
-For apps that do not expose macOS Services:
+- `Action`: capture, capture + open, open.
+- `+`: advanced options for the row.
+- `Output`: NotePlan Today, NotePlan Note, Markdown `.md`, Obsidian `.md`, `.txt`.
+- `Target`: file name only.
+- `Tag & Config`: visible tags + red config summary.
 
-1. Keep NoteDroppy open.
-2. Select text.
-3. Press the global shortcut, default `Ctrl+Option+Cmd+N`.
+The `+` button turns red when advanced config is active.
 
-The shortcut is configurable in settings.
+## Advanced Options
 
-macOS requires Accessibility permission for this method because NoteDroppy must simulate `Cmd+C` to read the selection.
+The `+` panel shows the construction order:
 
-If Accessibility is not granted, the shortcut cannot read another app's selection and sends nothing.
+```text
+marker -> priority -> content -> date -> tags -> config
+```
 
-## Settings
+Options:
 
-Click the `NoteDroppy` Dock icon without dropping a file.
+- Marker: `- [ ]`, `*`, `+`, text.
+- NotePlan priority: none, `!`, `!!`, `!!!`.
+- Date: none, tomorrow, weekend, next week.
+- Content: expanded or folded.
+- Section and insertion position.
+- Routing: open after capture, web source, file source.
+- Governance: secret/public, indexing, local/remote LLM.
 
-Available settings:
+The preview at the bottom shows the generated line before saving.
 
-- macOS Service name.
-- Task tag.
-- Open NotePlan after adding.
-- 10 configurable global shortcuts.
-- Row 1 default: App `NotePlan`, destination `Today (NotePlan)`.
-- For each shortcut: Enabled, Shortcut, App, Destination, Note/Path, Tags.
-- Apps: `NotePlan` or `Obsidian beta`.
-- NotePlan destinations: Today, Named note, Note path.
-- Obsidian beta: write directly to a `.md` note in the vault.
-- The `Rechercher` button lists NotePlan notes, filters by title, path, `#tag`, or `@context`, then validates the path into `Note/Path`.
-- Comma-separated tags, automatically normalized as NotePlan tags.
-- JSON export and JSON import for preferences.
-- Direct button to macOS Accessibility settings.
-- In-app Help window with `GitHub Repository` button.
+## Permissions
 
-## Accessibility Permission
+The global shortcut requires macOS Accessibility permission because NoteDroppy must copy the active selection.
 
-If the global shortcut does not work:
+If selection capture does not work:
 
 1. Open NoteDroppy.
 2. Click `Autoriser Accessibilité`.
-3. In macOS, enable `NoteDroppy`.
-4. Quit and relaunch NoteDroppy.
+3. Enable NoteDroppy in macOS.
+4. Quit and relaunch the app.
 
-On this machine, NoteDroppy is signed with the local identity `NoteDroppy Local Code Signing` so macOS does not lose Accessibility permission on every rebuild.
-
-## macOS Limits
-
-Dragging selected raw text directly onto the Dock icon is not reliable on macOS. The Dock does not consistently pass selected text to apps.
-
-The global shortcut is ignored while NoteDroppy, System Settings, or a system alert is frontmost, to avoid sending settings text instead of the intended selection.
+GitHub: https://github.com/bizc0m/NoteDroppy

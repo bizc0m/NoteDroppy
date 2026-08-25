@@ -3068,7 +3068,7 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
     private var pasteMonitor: Any?
 
     convenience init() {
-        let window = centeredWindow("Préférences NoteDroppy", width: 1220, height: 860, style: [.titled, .closable, .miniaturizable, .resizable])
+        let window = centeredWindow("Note Droopy — Préférences", width: 1220, height: 860, style: [.titled, .closable, .miniaturizable, .resizable])
         window.minSize = NSSize(width: 1220, height: 860)
         window.setContentSize(NSSize(width: 1220, height: 860))
         self.init(window: window)
@@ -3652,7 +3652,7 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         case "nc2":
             nc2Controller.activateEmbeddedSort()
         default:
-            window?.title = "Préférences NoteDroppy"
+            window?.title = "Note Droopy — Préférences"
         }
     }
 
@@ -6591,7 +6591,6 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         let previousDayButton = NSButton(title: "← Jour", target: self, action: #selector(loadPreviousDay))
         let todayButton = NSButton(title: "Aujourd'hui", target: self, action: #selector(loadTodayAction))
         let nextDayButton = NSButton(title: "Jour →", target: self, action: #selector(loadNextDay))
-        let refreshButton = NSButton(title: "Refresh", target: self, action: #selector(reloadFile))
         let closeSortButton = NSButton(title: "Fermer Note Commander", target: self, action: #selector(closeEmbeddedSort))
         reloadButton.target = self
         reloadButton.action = #selector(reloadFile)
@@ -6712,7 +6711,7 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         fileRow.spacing = 8
         fileRow.alignment = .centerY
 
-        let fileActionRow = NSStackView(views: [fileActionsLabel, previousDayButton, todayButton, nextDayButton, reloadButton, refreshButton, saveButton, closeSortButton])
+        let fileActionRow = NSStackView(views: [fileActionsLabel, previousDayButton, todayButton, nextDayButton, reloadButton, saveButton, closeSortButton])
         fileActionRow.orientation = .horizontal
         fileActionRow.spacing = 8
         fileActionRow.alignment = .centerY
@@ -7051,7 +7050,7 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         textView.scrollToBeginningOfDocument(nil)
         pathLabel.stringValue = loaded.relativePath
         fileField.stringValue = loaded.relativePath
-        setVisibleTitle("Note Commander - \(loaded.relativePath)")
+        setVisibleTitle("Note Droopy — Commander — \(loaded.relativePath)")
         textView.window?.makeFirstResponder(textView)
         setSaveButtonState(.clean)
         status("\(statusText) - \(loaded.content.count) caractères")
@@ -7611,7 +7610,7 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         sourceMarkdown = output
         setSaveButtonState(.clean)
         pathLabel.stringValue = "Résultats de recherche non sauvegardables"
-        setVisibleTitle("Note Commander - \(title)")
+        setVisibleTitle("Note Droopy — Commander — \(title)")
         status("\(results.count) résultat(s)")
     }
 
