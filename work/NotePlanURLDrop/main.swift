@@ -6736,39 +6736,10 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         rangeRow.spacing = 8
         rangeRow.alignment = .centerY
 
-        func sectionTitle(_ text: String) -> NSTextField {
-            let label = NSTextField(labelWithString: text.uppercased())
-            label.font = .systemFont(ofSize: 11, weight: .bold)
-            label.textColor = .secondaryLabelColor
-            return label
-        }
-
-        func separator() -> NSBox {
-            let box = NSBox()
-            box.boxType = .separator
-            box.translatesAutoresizingMaskIntoConstraints = false
-            return box
-        }
-
-        let separator1 = separator()
-        let separator2 = separator()
-        let separator3 = separator()
-
-        let header = NSStackView(views: [
-            sectionTitle("Dossier & fichier"), topRow, fileRow, fileActionRow,
-            separator1,
-            sectionTitle("Édition"), sortRow, viewRow,
-            separator2,
-            sectionTitle("Recherche"), searchRow, rangeRow,
-            separator3,
-            pathLabel, statusLabel
-        ])
+        let header = NSStackView(views: [topRow, fileRow, fileActionRow, sortRow, viewRow, searchRow, rangeRow, pathLabel, statusLabel])
         header.orientation = .vertical
         header.spacing = 8
         header.alignment = .leading
-        header.setCustomSpacing(14, after: fileActionRow)
-        header.setCustomSpacing(14, after: viewRow)
-        header.setCustomSpacing(14, after: rangeRow)
 
         for view in [header, scrollView] {
             view.translatesAutoresizingMaskIntoConstraints = false
@@ -6779,9 +6750,6 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
             header.topAnchor.constraint(equalTo: content.topAnchor, constant: 14),
             header.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 14),
             header.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -14),
-            separator1.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -28),
-            separator2.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -28),
-            separator3.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -28),
             rootField.widthAnchor.constraint(greaterThanOrEqualToConstant: 620),
             fileField.widthAnchor.constraint(greaterThanOrEqualToConstant: 620),
             searchField.widthAnchor.constraint(greaterThanOrEqualToConstant: 360),
