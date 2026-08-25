@@ -1,0 +1,50 @@
+{
+  "defaultTags": "#capture",
+  "openNote": true,
+  "serviceName": "NotePlan : ajouter en tâche",
+  "shortcuts": [
+    {
+      "destination": "notePath",
+      "enabled": true,
+      "folder": "Journal",
+      "index": 1,
+      "keyCode": 35,
+      "modifiers": 6400,
+      "notePath": "$date.md",
+      "shortcut": "ctrl+option+cmd+p",
+      "tags": [
+        "#capture",
+        "#$year",
+        "#$month"
+      ]
+    },
+    {
+      "destination": "noteTitle",
+      "enabled": true,
+      "folder": "",
+      "index": 2,
+      "keyCode": 18,
+      "modifiers": 6400,
+      "notePath": "Inbox Capture",
+      "shortcut": "ctrl+option+cmd+1",
+      "tags": [
+        "#capture",
+        "@inbox"
+      ]
+    },
+    {
+      "destination": "today",
+      "enabled": false,
+      "folder": "",
+      "index": 3,
+      "keyCode": 19,
+      "modifiers": 6400,
+      "notePath": "",
+      "shortcut": "ctrl+option+cmd+2",
+      "tags": [
+        "#capture"
+      ]
+    }
+  ],
+  "version": 1
+}

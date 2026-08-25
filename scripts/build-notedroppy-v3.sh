@@ -6,8 +6,8 @@ APP="$ROOT_DIR/outputs/NoteDroppy V3.app"
 SRC="$ROOT_DIR/work/NoteDroppyV3/main.swift"
 BIN="$APP/Contents/MacOS/NoteDroppyV3"
 PLIST="$APP/Contents/Info.plist"
-VERSION="${1:-3.0}"
-BUILD="${2:-300}"
+VERSION="${1:-3.7}"
+BUILD="${2:-370}"
 SIGN_IDENTITY="${NOTEDROPPY_CODESIGN_IDENTITY:-NoteDroppy Local Code Signing}"
 
 if ! security find-identity -v -p codesigning | grep -Fq "\"$SIGN_IDENTITY\""; then
@@ -38,9 +38,9 @@ cat > "$PLIST" <<'PLIST'
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>3.0</string>
+  <string>3.7</string>
   <key>CFBundleVersion</key>
-  <string>300</string>
+  <string>370</string>
   <key>LSMinimumSystemVersion</key>
   <string>14.0</string>
   <key>NSQuitAlwaysKeepsWindows</key>

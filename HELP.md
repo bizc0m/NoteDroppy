@@ -1,93 +1,61 @@
 # Aide NoteDroppy
 
-NoteDroppy ajoute rapidement une tâche dans la note du jour NotePlan.
+NoteDroppy capture du texte, des URL et des chemins de fichiers, puis ajoute une tâche dans NotePlan ou dans un fichier Markdown/TXT selon le raccourci choisi.
 
-GitHub Repository:
+## Capture
 
-```text
-https://github.com/bizc0m/NoteDroppy
-```
+- Dock : déposer une URL, un `.webloc`, un `.url`, un fichier texte ou Markdown.
+- Service macOS : envoyer le texte sélectionné depuis une app compatible.
+- Raccourci global : capturer la sélection active.
+- Fichier non texte : capturer un lien cliquable vers le fichier.
 
-## Format envoyé
-
-```text
-- [ ] <contenu> #capture
-```
-
-Le tag peut être changé dans les réglages.
-
-## Envoyer une URL ou un fichier
-
-Glisser-déposer sur l'icone Dock `NoteDroppy` :
-
-- URL depuis un navigateur.
-- Fichier `.webloc` ou `.url`.
-- Fichier texte `.txt`, `.md`, `.rtf` ou `.textclipping`.
-
-L'envoi est direct vers NotePlan.
-
-## Envoyer du texte sélectionné
-
-Deux méthodes existent.
-
-### Service macOS
-
-Dans les apps compatibles :
+Format de base :
 
 ```text
-App active > Services > NotePlan : ajouter en tâche
+- [ ] Texte capturé #capture
 ```
 
-Selon l'app, le Service peut aussi apparaître dans le clic droit.
+## Raccourcis
 
-### Raccourci global
+Les préférences affichent 20 raccourcis configurables.
 
-Pour les apps qui n'affichent pas les Services :
+- `Action` : capturer, capturer + ouvrir, ouvrir.
+- `+` : options avancées de la ligne.
+- `Sortie` : NotePlan Today, NotePlan Note, Markdown `.md`, Obsidian `.md`, `.txt`.
+- `Cible` : nom du fichier uniquement.
+- `Tag & Config` : tags visibles + config résumée en rouge.
 
-1. Laisser NoteDroppy ouvert.
-2. Sélectionner du texte.
-3. Utiliser le raccourci global, par défaut `Ctrl+Option+Cmd+N`.
+Le bouton `+` devient rouge quand une config avancée est active.
 
-Le raccourci est configurable dans les réglages.
+## Options avancées
 
-macOS exige l'autorisation Accessibilité pour cette méthode, car NoteDroppy doit simuler `Cmd+C` pour lire la sélection.
+Le panneau `+` montre l'ordre de construction :
 
-Si Accessibilité n'est pas accordée, le raccourci ne peut pas lire la sélection d'une autre app et n'envoie rien.
+```text
+marqueur -> priorité -> contenu -> date -> tags -> config
+```
 
-## Réglages
+Options :
 
-Cliquer sur l'icone Dock `NoteDroppy` sans déposer de fichier.
+- Marqueur : `- [ ]`, `*`, `+`, texte.
+- Priorité NotePlan : aucune, `!`, `!!`, `!!!`.
+- Date : aucune, demain, week-end, semaine pro.
+- Contenu : déplié ou plié.
+- Section et position d'insertion.
+- Routage : ouvrir après capture, source web, source fichier.
+- Gouvernance : secret/public, indexation, LLM local/distant.
 
-Réglages disponibles :
+L'aperçu en bas montre la ligne produite avant validation.
 
-- Nom du Service macOS.
-- Tag ajouté à la tâche.
-- Ouverture de NotePlan après ajout.
-- 10 raccourcis globaux configurables.
-- Ligne 1 par défaut : App `NotePlan`, destination `Aujourd'hui (NotePlan)`.
-- Pour chaque raccourci : Actif, Raccourci, App, Destination, Note/Path, Tags.
-- Apps : `NotePlan` ou `Obsidian beta`.
-- Destinations NotePlan : Aujourd'hui, Note nommée, Chemin de note.
-- Obsidian beta : écrire directement dans une note `.md` du vault.
-- Le bouton `Rechercher` liste les notes NotePlan, filtre par titre, chemin, `#tag` ou `@contexte`, puis valide le chemin dans `Note/Path`.
-- Tags séparés par virgule, automatiquement normalisés en tags NotePlan.
-- Export JSON et import JSON des préférences.
-- Accès direct au panneau Accessibilité macOS.
-- Aide intégrée dans l'app avec bouton `GitHub Repository`.
+## Permissions
 
-## Autorisation Accessibilité
+Le raccourci global demande Accessibilité macOS, car NoteDroppy doit copier la sélection active.
 
-Si le raccourci global ne fonctionne pas :
+Si la capture sélection ne marche pas :
 
 1. Ouvrir NoteDroppy.
 2. Cliquer `Autoriser Accessibilité`.
-3. Dans macOS, activer `NoteDroppy`.
-4. Quitter et relancer NoteDroppy.
+3. Activer NoteDroppy dans macOS.
+4. Quitter et relancer l'app.
 
-Sur cette machine, NoteDroppy est signé avec l'identité locale `NoteDroppy Local Code Signing` pour éviter que macOS perde l'autorisation à chaque rebuild.
-
-## Limites macOS
-
-Le glisser-déposer direct de texte sélectionné vers l'icone Dock n'est pas fiable sur macOS. Le Dock ne transmet pas toujours le texte brut sélectionné aux apps.
-
-Le raccourci global est ignoré quand NoteDroppy, Réglages Système ou une alerte système est au premier plan, afin d'éviter d'envoyer le texte des réglages au lieu de la sélection cible.
+GitHub : https://github.com/bizc0m/NoteDroppy

@@ -20,6 +20,14 @@
 		<data>
 		kZRcfhY5pxI4GhsD/HcE35HuWgg=
 		</data>
+		<key>Resources/capture-rules.json</key>
+		<data>
+		xxk+gNQvinA95dSkODIgQSVMw6A=
+		</data>
+		<key>Resources/capture-rules.md</key>
+		<data>
+		1IHCRa0hL27iC2D/gfa3aAGKTmQ=
+		</data>
 		<key>Resources/notedroppy-logo.png</key>
 		<data>
 		0p2du1+L7/s05ppFUKBLm+rDLho=
@@ -53,6 +61,20 @@
 			<key>hash2</key>
 			<data>
 			PtrkKbxwUrAdRQia9LkIVFr0XFoRxTev9hjo9Gk4IVY=
+			</data>
+		</dict>
+		<key>Resources/capture-rules.json</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			yMUjb4/0/chXX7fPqkxS8aPEdP4K0lzX1TRDqdzRkxc=
+			</data>
+		</dict>
+		<key>Resources/capture-rules.md</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			uAUIrgduhkIu4a/mh1BcsxaXCcC+cnAb9IYR+20RECc=
 			</data>
 		</dict>
 		<key>Resources/notedroppy-logo.png</key>
