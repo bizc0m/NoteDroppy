@@ -3461,7 +3461,7 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         stack.translatesAutoresizingMaskIntoConstraints = false
         settingsContainer.addSubview(stack)
 
-        let title = NSTextField(labelWithString: "NoteDroppy")
+        let title = NSTextField(labelWithString: "Note Droopy")
         title.font = .boldSystemFont(ofSize: 18)
 
         let tagline = NSTextField(labelWithString: "Time is precious.\nSpend it with those you love")
@@ -4383,7 +4383,7 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
           end if
         end tell
         delay 0.2
-        tell application "NoteDroppy" to activate
+        tell application "Note Droopy" to activate
         return copied
         """
 
@@ -5136,7 +5136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.icon = noteDroopyLogoImage(size: NSSize(width: 96, height: 96))
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
-        alert.messageText = "NoteDroppy"
+        alert.messageText = "Note Droopy"
         alert.informativeText = """
         Version \(version) build \(build)
 
@@ -5165,7 +5165,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func openEnglishHelp(_ sender: Any?) {
-        showHelpDocument(named: "HELP.en", title: "NoteDroppy Help")
+        showHelpDocument(named: "HELP.en", title: "Note Droopy Help")
     }
 
     @objc func openGitHubRepository(_ sender: Any?) {
@@ -6505,7 +6505,7 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         loadInitialFileIfNeeded()
         if textView.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
            currentFileURL != nil || fileField.stringValue.hasPrefix("Calendar/") {
-            loadTodayDirect(reason: "activation")
+            loadTodayAsync(reason: "activation")
         }
         textView.window?.makeFirstResponder(textView)
     }
@@ -6522,13 +6522,13 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         let editorMainMenu = NSMenu()
 
         let appMenuItem = NSMenuItem()
-        let appMenu = NSMenu(title: "NoteDroppy")
-        appMenu.addItem(NSMenuItem(title: "About NoteDroppy", action: #selector(showAbout), keyEquivalent: ""))
+        let appMenu = NSMenu(title: "Note Droopy")
+        appMenu.addItem(NSMenuItem(title: "About Note Droopy", action: #selector(showAbout), keyEquivalent: ""))
         appMenu.addItem(NSMenuItem(title: "Changelog", action: #selector(showChangelog), keyEquivalent: ""))
-        appMenu.addItem(NSMenuItem(title: "Fonctions NoteDroppy / NoteplanShorty", action: #selector(showFunctionsWindow), keyEquivalent: ""))
+        appMenu.addItem(NSMenuItem(title: "Fonctions Note Droopy / NoteplanShorty", action: #selector(showFunctionsWindow), keyEquivalent: ""))
         appMenu.addItem(.separator())
         appMenu.addItem(NSMenuItem(title: "Fermer l'éditeur", action: #selector(closeEditorWindow), keyEquivalent: "w"))
-        appMenu.addItem(NSMenuItem(title: "Quitter NoteDroppy", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        appMenu.addItem(NSMenuItem(title: "Quitter Note Droopy", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         appMenuItem.submenu = appMenu
         editorMainMenu.addItem(appMenuItem)
 
@@ -6560,7 +6560,7 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
     }
 
     private func buildUI() {
-        window.title = "NoteDroppy - Éditeur NotePlan"
+        window.title = "Note Droopy — Éditeur NotePlan"
         window.isReleasedWhenClosed = false
         window.isRestorable = false
         window.contentView = buildEditorContentView()
@@ -6736,10 +6736,39 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         rangeRow.spacing = 8
         rangeRow.alignment = .centerY
 
-        let header = NSStackView(views: [topRow, fileRow, fileActionRow, sortRow, viewRow, searchRow, rangeRow, pathLabel, statusLabel])
+        func sectionTitle(_ text: String) -> NSTextField {
+            let label = NSTextField(labelWithString: text.uppercased())
+            label.font = .systemFont(ofSize: 11, weight: .bold)
+            label.textColor = .secondaryLabelColor
+            return label
+        }
+
+        func separator() -> NSBox {
+            let box = NSBox()
+            box.boxType = .separator
+            box.translatesAutoresizingMaskIntoConstraints = false
+            return box
+        }
+
+        let separator1 = separator()
+        let separator2 = separator()
+        let separator3 = separator()
+
+        let header = NSStackView(views: [
+            sectionTitle("Dossier & fichier"), topRow, fileRow, fileActionRow,
+            separator1,
+            sectionTitle("Édition"), sortRow, viewRow,
+            separator2,
+            sectionTitle("Recherche"), searchRow, rangeRow,
+            separator3,
+            pathLabel, statusLabel
+        ])
         header.orientation = .vertical
         header.spacing = 8
         header.alignment = .leading
+        header.setCustomSpacing(14, after: fileActionRow)
+        header.setCustomSpacing(14, after: viewRow)
+        header.setCustomSpacing(14, after: rangeRow)
 
         for view in [header, scrollView] {
             view.translatesAutoresizingMaskIntoConstraints = false
@@ -6750,6 +6779,9 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
             header.topAnchor.constraint(equalTo: content.topAnchor, constant: 14),
             header.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 14),
             header.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -14),
+            separator1.widthAnchor.constraint(equalTo: header.widthAnchor),
+            separator2.widthAnchor.constraint(equalTo: header.widthAnchor),
+            separator3.widthAnchor.constraint(equalTo: header.widthAnchor),
             rootField.widthAnchor.constraint(greaterThanOrEqualToConstant: 620),
             fileField.widthAnchor.constraint(greaterThanOrEqualToConstant: 620),
             searchField.widthAnchor.constraint(greaterThanOrEqualToConstant: 360),
@@ -6852,20 +6884,7 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
     }
 
     private func loadToday() {
-        loadTodayDirect(reason: "bouton")
-    }
-
-    private func loadTodayDirect(reason: String) {
-        rootURL = Self.normalizedNotePlanRoot(rootURL)
-        rootField.stringValue = rootURL.path
-        let path = todayPath()
-        fileField.stringValue = path
-        do {
-            let loaded = try Self.readFile(pathString: path, rootURL: rootURL, createIfMissing: true)
-            applyLoadedFile(loaded, statusText: "Aujourd'hui chargé (\(reason))")
-        } catch {
-            status("Erreur aujourd'hui: \(error.localizedDescription)")
-        }
+        loadTodayAsync(reason: "bouton")
     }
 
     @objc private func loadPreviousDay() {
@@ -6892,7 +6911,9 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         open(pathString: path, createIfMissing: true)
     }
 
-    private func loadTodayAsync() {
+    private func loadTodayAsync(reason: String = "démarrage") {
+        rootURL = Self.normalizedNotePlanRoot(rootURL)
+        rootField.stringValue = rootURL.path
         let path = todayPath()
         let root = rootURL
         fileField.stringValue = path
@@ -6902,11 +6923,11 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
                 let loaded = try Self.readFile(pathString: path, rootURL: root, createIfMissing: true)
                 DispatchQueue.main.async {
                     guard self.rootURL.path == root.path else { return }
-                    self.applyLoadedFile(loaded)
+                    self.applyLoadedFile(loaded, statusText: "Aujourd'hui chargé (\(reason))")
                 }
             } catch {
                 DispatchQueue.main.async {
-                    self.status("Erreur ouverture: \(error.localizedDescription)")
+                    self.status("Erreur aujourd'hui: \(error.localizedDescription)")
                 }
             }
         }
@@ -7108,7 +7129,7 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
     @objc private func showAbout() {
         let alert = NSAlert()
         alert.icon = noteDroopyLogoImage(size: NSSize(width: 96, height: 96))
-        alert.messageText = "NoteDroppy"
+        alert.messageText = "Note Droopy"
         alert.informativeText = """
         Éditeur NotePlan local (fusionné depuis NoteDroppy V3.7).
 
@@ -7160,7 +7181,7 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
             defer: false
         )
         infoWindow.isReleasedWhenClosed = false
-        infoWindow.title = "Actions NoteDroppy"
+        infoWindow.title = "Actions Note Droopy"
 
         let titleLabel = NSTextField(labelWithString: "Actions")
         titleLabel.font = .systemFont(ofSize: 18, weight: .bold)
@@ -8896,7 +8917,7 @@ let mainMenu = NSMenu()
 let appMenuItem = NSMenuItem()
 mainMenu.addItem(appMenuItem)
 let appMenu = NSMenu()
-appMenu.addItem(withTitle: "À propos de NoteDroppy", action: #selector(AppDelegate.showAbout(_:)), keyEquivalent: "")
+appMenu.addItem(withTitle: "À propos de Note Droopy", action: #selector(AppDelegate.showAbout(_:)), keyEquivalent: "")
 appMenu.addItem(NSMenuItem.separator())
 appMenu.addItem(withTitle: "Réglages...", action: #selector(AppDelegate.showSettingsWindowFromMenu(_:)), keyEquivalent: ",")
 appMenu.addItem(withTitle: "Éditeur NotePlan...", action: #selector(AppDelegate.showEditorWindowFromMenu(_:)), keyEquivalent: "e")
