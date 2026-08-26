@@ -590,6 +590,13 @@ enum ShortcutDestination: String, CaseIterable {
 
 extension ShortcutDestination: Codable {}
 
+private enum CaptureSectionPosition {
+    case sectionTop
+    case sectionBottom
+    case beforeSection
+    case afterSection
+}
+
 struct NoteSearchResult {
     let title: String
     let relativePath: String
@@ -1303,10 +1310,16 @@ final class ShortcutMakerDropView: NSView {
 
         titleLabel.font = .boldSystemFont(ofSize: 18)
         titleLabel.alignment = .center
+        titleLabel.isEditable = false
+        titleLabel.isSelectable = false
+        titleLabel.allowsEditingTextAttributes = false
         detailLabel.textColor = .secondaryLabelColor
         detailLabel.alignment = .center
         detailLabel.lineBreakMode = .byWordWrapping
         detailLabel.maximumNumberOfLines = 2
+        detailLabel.isEditable = false
+        detailLabel.isSelectable = false
+        detailLabel.allowsEditingTextAttributes = false
 
         stack.addArrangedSubview(titleLabel)
         stack.addArrangedSubview(detailLabel)
@@ -1337,6 +1350,10 @@ final class ShortcutMakerDropView: NSView {
         resetDropStyle()
     }
 
+    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        shortcutTarget(from: sender.draggingPasteboard) != nil
+    }
+
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         writeDebugLog("shortcut-maker-drop:perform:\(pasteboardDebugDescription(sender.draggingPasteboard))")
         resetDropStyle()
@@ -1350,6 +1367,46 @@ final class ShortcutMakerDropView: NSView {
     private func resetDropStyle() {
         layer?.borderColor = NSColor.separatorColor.cgColor
         layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.55).cgColor
+    }
+}
+
+final class ShortcutMakerTabDropView: NSView {
+    var onDropTarget: ((ShortcutTarget) -> Bool)?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        registerForDraggedTypes(shortcutDropPasteboardTypes)
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        registerForDraggedTypes(shortcutDropPasteboardTypes)
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        writeDebugLog("shortcut-maker-tab:entered:\(pasteboardDebugDescription(sender.draggingPasteboard))")
+        return shortcutTarget(from: sender.draggingPasteboard) == nil
+            ? NSDragOperation()
+            : preferredDragOperation(from: sender.draggingSourceOperationMask)
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        shortcutTarget(from: sender.draggingPasteboard) == nil
+            ? NSDragOperation()
+            : preferredDragOperation(from: sender.draggingSourceOperationMask)
+    }
+
+    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        shortcutTarget(from: sender.draggingPasteboard) != nil
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        writeDebugLog("shortcut-maker-tab:perform:\(pasteboardDebugDescription(sender.draggingPasteboard))")
+        guard let target = shortcutTarget(from: sender.draggingPasteboard) else {
+            NSSound.beep()
+            return false
+        }
+        return onDropTarget?(target) ?? false
     }
 }
 
@@ -2046,6 +2103,20 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         ["!Demain", "!Weekend", "!SemainePro", "!MoisProchain", "!Dans6Mois"].forEach {
             addToken($0, color: .systemPink, to: menu)
         }
+        addMenuSection("Section NotePlan", to: menu)
+        let sectionItem = NSMenuItem(title: "$section(...)", action: #selector(addSectionToken), keyEquivalent: "")
+        sectionItem.target = self
+        sectionItem.attributedTitle = NSAttributedString(
+            string: "$section(...)",
+            attributes: [
+                .foregroundColor: NSColor.systemBlue,
+                .font: NSFont.systemFont(ofSize: 13, weight: .semibold)
+            ]
+        )
+        menu.addItem(sectionItem)
+        ["!SectionTop", "!SectionBottom", "!BeforeSection", "!AfterSection"].forEach {
+            addToken($0, color: .systemPink, to: menu)
+        }
         menu.addItem(.separator())
         let clearItem = NSMenuItem(title: "Effacer Tag & Config", action: #selector(clearTagsConfig), keyEquivalent: "")
         clearItem.target = self
@@ -2100,6 +2171,29 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
             refreshTagsConfigDisplay()
             return
         }
+        tagsField.stringValue = (existing + [token]).joined(separator: ", ")
+        refreshTagsConfigDisplay()
+        rowChanged()
+    }
+
+    @objc private func addSectionToken() {
+        let alert = NSAlert()
+        alert.messageText = "Section NotePlan"
+        alert.informativeText = "Nom du titre sous lequel insérer la capture."
+        alert.addButton(withTitle: "Ajouter")
+        alert.addButton(withTitle: "Annuler")
+        let field = NSTextField(string: "")
+        field.placeholderString = "Notes et idées"
+        field.frame = NSRect(x: 0, y: 0, width: 360, height: 24)
+        alert.accessoryView = field
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let section = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !section.isEmpty else { return }
+        let token = "$section(\(section))"
+        let existing = tagsField.stringValue
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && !$0.lowercased().hasPrefix("$section(") }
         tagsField.stringValue = (existing + [token]).joined(separator: ", ")
         refreshTagsConfigDisplay()
         rowChanged()
@@ -3127,7 +3221,10 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
     }
 
     private func shortcutMakerTabView() -> NSView {
-        let container = NSView()
+        let container = ShortcutMakerTabDropView()
+        container.onDropTarget = { [weak self] target in
+            self?.applyShortcutMakerDrop(target) ?? false
+        }
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -3143,10 +3240,6 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         detail.lineBreakMode = .byWordWrapping
         detail.maximumNumberOfLines = 2
 
-        shortcutAutoSaveCheckbox.state = Settings.autoSave ? .on : .off
-        shortcutAutoSaveCheckbox.target = self
-        shortcutAutoSaveCheckbox.action = #selector(autosaveSettingsFromControl(_:))
-
         shortcutMakerNoteField.lineBreakMode = .byTruncatingMiddle
         shortcutMakerDestinationField.lineBreakMode = .byTruncatingMiddle
         shortcutMakerDropView.translatesAutoresizingMaskIntoConstraints = false
@@ -3156,9 +3249,47 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         shortcutMakerDropView.widthAnchor.constraint(equalToConstant: 760).isActive = true
         refreshShortcutMakerFields()
 
+        let chooseNoteButton = NSButton(title: "Choisir une note .md", target: self, action: #selector(chooseShortcutMakerNote))
+        let chooseDestinationButton = NSButton(title: "Choisir destination", target: self, action: #selector(chooseShortcutMakerDestination))
+        let generateButton = NSButton(title: "Créer le raccourci .app", target: self, action: #selector(generateShortcutMakerApp))
+        let revealButton = NSButton(title: "Révéler le dernier raccourci", target: self, action: #selector(revealShortcutMakerApp))
+        let clearButton = NSButton(title: "Nettoyer", target: self, action: #selector(clearShortcutMakerState))
+        let recentTitle = NSTextField(labelWithString: "Derniers raccourcis créés")
+        recentTitle.font = .boldSystemFont(ofSize: 13)
+
+        shortcutMakerRecentTextView.isEditable = false
+        shortcutMakerRecentTextView.isSelectable = true
+        shortcutMakerRecentTextView.drawsBackground = false
+        shortcutMakerRecentTextView.font = .systemFont(ofSize: 12)
+        shortcutMakerRecentTextView.textColor = .secondaryLabelColor
+
+        let recentScroll = NSScrollView()
+        recentScroll.hasVerticalScroller = true
+        recentScroll.drawsBackground = false
+        recentScroll.borderType = .lineBorder
+        recentScroll.documentView = shortcutMakerRecentTextView
+        recentScroll.translatesAutoresizingMaskIntoConstraints = false
+        recentScroll.widthAnchor.constraint(equalToConstant: 760).isActive = true
+        recentScroll.heightAnchor.constraint(equalToConstant: 110).isActive = true
+
+        [chooseNoteButton, chooseDestinationButton, generateButton, revealButton, clearButton].forEach { button in
+            button.bezelStyle = .rounded
+            button.translatesAutoresizingMaskIntoConstraints = false
+            button.widthAnchor.constraint(equalToConstant: 260).isActive = true
+        }
+
         stack.addArrangedSubview(title)
         stack.addArrangedSubview(detail)
         stack.addArrangedSubview(shortcutMakerDropView)
+        stack.addArrangedSubview(shortcutMakerInfoRow(title: "Note", value: shortcutMakerNoteField))
+        stack.addArrangedSubview(chooseNoteButton)
+        stack.addArrangedSubview(shortcutMakerInfoRow(title: "Destination", value: shortcutMakerDestinationField))
+        stack.addArrangedSubview(chooseDestinationButton)
+        stack.addArrangedSubview(generateButton)
+        stack.addArrangedSubview(revealButton)
+        stack.addArrangedSubview(clearButton)
+        stack.addArrangedSubview(recentTitle)
+        stack.addArrangedSubview(recentScroll)
 
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 18),
@@ -3227,6 +3358,17 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         refreshShortcutMakerFields()
     }
 
+    @objc private func clearShortcutMakerState() {
+        UserDefaults.standard.removeObject(forKey: shortcutMakerNotePathKey)
+        UserDefaults.standard.removeObject(forKey: shortcutMakerNoteURLKey)
+        UserDefaults.standard.removeObject(forKey: shortcutMakerNoteDisplayKey)
+        UserDefaults.standard.removeObject(forKey: shortcutMakerRecentShortcutsKey)
+        UserDefaults.standard.synchronize()
+        generatedShortcutURL = nil
+        refreshShortcutMakerFields()
+        statusLabel.stringValue = "Raccourcis nettoyés. Dépose une note .md ou choisis une note."
+    }
+
     private func setShortcutMakerNote(path: String) {
         UserDefaults.standard.set(path, forKey: shortcutMakerNotePathKey)
         UserDefaults.standard.removeObject(forKey: shortcutMakerNoteURLKey)
@@ -3249,11 +3391,13 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
                 let urlString = url.absoluteString
                 setShortcutMakerNote(notePlanURL: urlString, displayName: shortcutMakerAppName(fromNotePlanURL: urlString))
                 statusLabel.stringValue = "NotePlan enregistré : \(shortcutMakerAppName(fromNotePlanURL: urlString))"
+                generateShortcutMakerApp()
                 return true
             }
             if url.isFileURL, url.pathExtension.lowercased() == "md" {
                 setShortcutMakerNote(path: url.standardizedFileURL.path)
                 statusLabel.stringValue = "Note choisie : \(url.lastPathComponent)"
+                generateShortcutMakerApp()
                 return true
             }
         }
@@ -3262,11 +3406,13 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
             if let notePlanURL = notePlanURLCandidate(from: text) {
                 setShortcutMakerNote(notePlanURL: notePlanURL, displayName: shortcutMakerAppName(fromNotePlanURL: notePlanURL))
                 statusLabel.stringValue = "NotePlan enregistré : \(shortcutMakerAppName(fromNotePlanURL: notePlanURL))"
+                generateShortcutMakerApp()
                 return true
             }
             if let path = existingFinderPath(from: text), path.lowercased().hasSuffix(".md") {
                 setShortcutMakerNote(path: path)
                 statusLabel.stringValue = "Note choisie : \(URL(fileURLWithPath: path).lastPathComponent)"
+                generateShortcutMakerApp()
                 return true
             }
         }
@@ -3340,7 +3486,8 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         let notePath = UserDefaults.standard.string(forKey: shortcutMakerNotePathKey)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let notePlanURL = UserDefaults.standard.string(forKey: shortcutMakerNoteURLKey)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !notePath.isEmpty || !notePlanURL.isEmpty else {
-            chooseShortcutMakerNote()
+            statusLabel.stringValue = "Aucune note choisie : dépose une note .md ou clique Choisir une note .md."
+            NSSound.beep()
             return
         }
         let destinationURL = shortcutMakerDestinationURL()
@@ -5092,6 +5239,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             writeObsidianTask(task, shortcutSlot: shortcutSlot)
             return
         }
+        if let sectionTarget = captureSectionTarget(from: tagSource),
+           writeNotePlanTask(task, shortcutSlot: shortcutSlot, sectionTarget: sectionTarget) {
+            return
+        }
         let openNoteValue = Settings.openNote ? "yes" : "no"
         let noteTarget = notePlanTarget(for: shortcutSlot)
         log("sendTodoTarget:\(noteTarget)")
@@ -5145,6 +5296,212 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } catch {
             log("obsidian:error:\(error.localizedDescription)")
             NSSound.beep()
+        }
+    }
+
+    private func captureSectionTarget(from config: String) -> (name: String, position: CaptureSectionPosition)? {
+        guard let section = captureSectionName(from: config) else { return nil }
+        let tokens = configTokens(config)
+        let position: CaptureSectionPosition
+        if tokens.contains("!sectiontop") || tokens.contains("!topsection") || tokens.contains("!hautsection") {
+            position = .sectionTop
+        } else if tokens.contains("!beforesection") || tokens.contains("!avantsection") {
+            position = .beforeSection
+        } else if tokens.contains("!aftersection") || tokens.contains("!apressection") || tokens.contains("!aprèssection") {
+            position = .afterSection
+        } else {
+            position = .sectionBottom
+        }
+        return (section, position)
+    }
+
+    private func captureSectionName(from config: String) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: #"\$section\(([^)]{1,120})\)"#, options: [.caseInsensitive]) else {
+            return nil
+        }
+        let range = NSRange(config.startIndex..<config.endIndex, in: config)
+        guard let match = regex.firstMatch(in: config, range: range),
+              let valueRange = Range(match.range(at: 1), in: config) else {
+            return nil
+        }
+        let value = String(config[valueRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
+    }
+
+    private func writeNotePlanTask(_ task: String, shortcutSlot: ShortcutSlot?, sectionTarget: (name: String, position: CaptureSectionPosition)) -> Bool {
+        guard let target = notePlanFileTarget(for: shortcutSlot) else {
+            log("noteplan-section:error:no-target")
+            NSSound.beep()
+            return false
+        }
+        do {
+            try FileManager.default.createDirectory(at: target.fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let existing = (try? String(contentsOf: target.fileURL, encoding: .utf8)) ?? ""
+            let updated = markdownByInserting(task: task, in: existing, section: sectionTarget.name, position: sectionTarget.position)
+            try updated.write(to: target.fileURL, atomically: true, encoding: .utf8)
+            log("noteplan-section:write:\(target.relativePath):\(sectionTarget.name)")
+            if Settings.openNote {
+                openNotePlanFile(relativePath: target.relativePath)
+            }
+            return true
+        } catch {
+            log("noteplan-section:error:\(error.localizedDescription)")
+            NSSound.beep()
+            return false
+        }
+    }
+
+    private func markdownByInserting(task: String, in markdown: String, section: String, position: CaptureSectionPosition) -> String {
+        var lines = markdown.components(separatedBy: "\n")
+        let hadTrailingNewline = markdown.hasSuffix("\n")
+        let taskLines = task.components(separatedBy: "\n")
+        if let heading = headingRange(named: section, in: lines) {
+            let insertionIndex: Int
+            switch position {
+            case .beforeSection:
+                insertionIndex = heading.start
+            case .sectionTop:
+                insertionIndex = min(heading.start + 1, lines.count)
+            case .sectionBottom, .afterSection:
+                insertionIndex = heading.end
+            }
+            lines.insert(contentsOf: taskLines, at: insertionIndex)
+            if insertionIndex < lines.count - taskLines.count,
+               lines[insertionIndex + taskLines.count].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+                lines.insert("", at: insertionIndex + taskLines.count)
+            }
+        } else {
+            if lines.last?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+                lines.append("")
+            }
+            lines.append("## \(section)")
+            lines.append(contentsOf: taskLines)
+        }
+        let output = lines.joined(separator: "\n")
+        return hadTrailingNewline || output.hasSuffix("\n") ? output : output + "\n"
+    }
+
+    private func headingRange(named section: String, in lines: [String]) -> (start: Int, end: Int)? {
+        let wanted = normalizedSectionTitle(section)
+        for index in lines.indices {
+            let line = lines[index].trimmingCharacters(in: .whitespaces)
+            guard line.hasPrefix("#") else { continue }
+            let level = line.prefix { $0 == "#" }.count
+            let title = normalizedSectionTitle(String(line.dropFirst(level)).trimmingCharacters(in: .whitespaces))
+            guard title == wanted else { continue }
+            var end = lines.count
+            for next in lines.index(after: index)..<lines.count {
+                let nextLine = lines[next].trimmingCharacters(in: .whitespaces)
+                guard nextLine.hasPrefix("#") else { continue }
+                let nextLevel = nextLine.prefix { $0 == "#" }.count
+                if nextLevel <= level {
+                    end = next
+                    break
+                }
+            }
+            return (index, end)
+        }
+        return nil
+    }
+
+    private func normalizedSectionTitle(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: CharacterSet(charactersIn: "# \t\r\n"))
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "fr_FR"))
+            .lowercased()
+    }
+
+    private func notePlanFileTarget(for shortcutSlot: ShortcutSlot?) -> (relativePath: String, fileURL: URL)? {
+        guard let root = normalizedNotePlanBaseRoot() else { return nil }
+        let relativePath: String
+        guard let shortcutSlot else {
+            relativePath = todayNotePlanRelativePath()
+            return (relativePath, root.appendingPathComponent(relativePath))
+        }
+        switch shortcutSlot.destination {
+        case .standard, .today:
+            relativePath = todayNotePlanRelativePath()
+        case .noteTitle:
+            let noteTitle = expandedVariables(shortcutSlot.noteReference).trimmingCharacters(in: .whitespacesAndNewlines)
+            let folder = expandedVariables(shortcutSlot.folder).trimmingCharacters(in: .whitespacesAndNewlines)
+            let joined = joinedNotePath(folder: folder, note: noteTitle)
+            if !joined.isEmpty {
+                relativePath = notePlanRelativePath(joined)
+            } else if let found = notePathMatchingTitleForCapture(noteTitle, notesRoot: root.appendingPathComponent("Notes")) {
+                relativePath = notePlanRelativePath(found)
+            } else {
+                relativePath = notePlanRelativePath(noteTitle.hasSuffix(".md") ? noteTitle : "\(noteTitle).md")
+            }
+        case .notePath:
+            let note = expandedVariables(shortcutSlot.noteReference).trimmingCharacters(in: .whitespacesAndNewlines)
+            let folder = expandedVariables(shortcutSlot.folder).trimmingCharacters(in: .whitespacesAndNewlines)
+            relativePath = notePlanRelativePath(joinedNotePath(folder: folder, note: note))
+        }
+        return (relativePath, root.appendingPathComponent(relativePath))
+    }
+
+    private func normalizedNotePlanBaseRoot() -> URL? {
+        guard let selected = Settings.selectedNotesRoot()?.standardizedFileURL else { return nil }
+        if selected.lastPathComponent == "Notes" {
+            let parent = selected.deletingLastPathComponent()
+            if FileManager.default.fileExists(atPath: parent.appendingPathComponent("Calendar").path) {
+                return parent
+            }
+        }
+        return selected
+    }
+
+    private func todayNotePlanRelativePath(date: Date = Date()) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        return "Calendar/\(formatter.string(from: date)).md"
+    }
+
+    private func notePlanRelativePath(_ path: String) -> String {
+        let clean = path.trimmingCharacters(in: CharacterSet(charactersIn: " /"))
+        if clean.hasPrefix("Calendar/") || clean.hasPrefix("Notes/") {
+            return clean
+        }
+        return "Notes/\(clean)"
+    }
+
+    private func notePathMatchingTitleForCapture(_ title: String, notesRoot: URL) -> String? {
+        let cleanTitle = title.trimmingCharacters(in: CharacterSet(charactersIn: " \t\r\n#[]"))
+        guard !cleanTitle.isEmpty else { return nil }
+        let lowerTitle = cleanTitle.lowercased()
+        let exactFileName = cleanTitle.hasSuffix(".md") ? cleanTitle : "\(cleanTitle).md"
+        let matches = noteMarkdownFiles(under: notesRoot).compactMap { url -> String? in
+            let relativePath = url.path.replacingOccurrences(of: notesRoot.path + "/", with: "")
+            let fileName = url.lastPathComponent
+            if fileName.compare(exactFileName, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame {
+                return relativePath
+            }
+            let baseName = url.deletingPathExtension().lastPathComponent.lowercased()
+            if baseName == lowerTitle {
+                return relativePath
+            }
+            let summary = noteSearchSummary(from: url)
+            if summary.title?.lowercased() == lowerTitle {
+                return relativePath
+            }
+            return nil
+        }
+        return matches.sorted { $0.count < $1.count }.first
+    }
+
+    private func openNotePlanFile(relativePath: String) {
+        let target: String
+        if relativePath.hasPrefix("Calendar/") {
+            target = "noteDate=today"
+        } else {
+            let notePath = relativePath.hasPrefix("Notes/")
+                ? String(relativePath.dropFirst("Notes/".count))
+                : relativePath
+            target = "notePath=\(encode(notePath))&fileName=\(encode(notePath))"
+        }
+        if let url = URL(string: "noteplan://x-callback-url/openNote?\(target)") {
+            NSWorkspace.shared.open(url)
         }
     }
 
@@ -8402,7 +8759,7 @@ struct EditorNotePlanShortcutGenerator {
             try FileManager.default.removeItem(at: appURL)
         }
 
-        let noteURLString = "noteplan://x-callback-url/openNote?noteTitle=\(urlEncode(noteName))"
+        let noteURLString = notePlanOpenURLString(for: noteURL, fallbackNoteName: noteName)
         let finalAppPath = destinationURL.path + "/" + noteName + ".app"
         try compileShortcutApp(
             noteURLString: noteURLString,
@@ -8560,6 +8917,19 @@ struct EditorNotePlanShortcutGenerator {
         var allowed = CharacterSet.urlQueryAllowed
         allowed.remove(charactersIn: "&+=?")
         return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
+    }
+
+    private static func notePlanOpenURLString(for noteURL: URL, fallbackNoteName: String) -> String {
+        let standardized = noteURL.standardizedFileURL
+        if let root = Settings.selectedNotesRoot()?.standardizedFileURL {
+            let rootPath = root.path.hasSuffix("/") ? root.path : root.path + "/"
+            if standardized.path.hasPrefix(rootPath) {
+                let relativePath = String(standardized.path.dropFirst(rootPath.count))
+                let encoded = urlEncode(relativePath)
+                return "noteplan://x-callback-url/openNote?notePath=\(encoded)&fileName=\(encoded)"
+            }
+        }
+        return "noteplan://x-callback-url/openNote?noteTitle=\(urlEncode(fallbackNoteName))"
     }
 
     private static func sanitizedAppName(_ value: String) -> String {
