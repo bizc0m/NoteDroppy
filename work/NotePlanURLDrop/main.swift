@@ -59,9 +59,9 @@ private enum Settings {
     }
 
     static var serviceName: String {
-        let value = UserDefaults.standard.string(forKey: serviceNameKey) ?? "NotePlan : ajouter en tâche"
+        let value = UserDefaults.standard.string(forKey: serviceNameKey) ?? "-> Today"
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "NotePlan : ajouter en tâche" : trimmed
+        return trimmed.isEmpty ? "-> Today" : trimmed
     }
 
     static var notesRootPath: String {
@@ -480,7 +480,7 @@ struct PreferencesFile: Codable {
         UserDefaults.standard.set(autoSave ?? true, forKey: Settings.autoSaveKey)
         UserDefaults.standard.set(includeSource ?? true, forKey: Settings.includeSourceKey)
         UserDefaults.standard.set(includeDocumentSource ?? false, forKey: Settings.includeDocumentSourceKey)
-        UserDefaults.standard.set(serviceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "NotePlan : ajouter en tâche" : serviceName, forKey: Settings.serviceNameKey)
+        UserDefaults.standard.set(serviceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "-> Today" : serviceName, forKey: Settings.serviceNameKey)
         UserDefaults.standard.set(defaultTags.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "#capture" : defaultTags, forKey: Settings.taskTagKey)
         let trimmedNotesRoot = (notesRootPath ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedNotesRoot.isEmpty {
@@ -1698,6 +1698,7 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
     let index: Int
     let enabledCheckbox: NSButton
     let recorder: ShortcutRecorderButton
+    let outputPopup = ShortcutTargetPopUpButton()
     let enginePopup = ShortcutTargetPopUpButton()
     let destinationPopup = ShortcutTargetPopUpButton()
     let folderField: NSTextField
@@ -1714,6 +1715,18 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
     private weak var rowView: NSStackView?
     private var storedCombo: KeyCombo
     private var displayIndex: String { index == 10 ? "0" : "\(index)" }
+    private struct OutputOption {
+        let title: String
+        let engine: ShortcutEngine
+        let destination: ShortcutDestination
+    }
+    private static let outputOptions: [OutputOption] = [
+        OutputOption(title: "NotePlan Today", engine: .notePlan, destination: .today),
+        OutputOption(title: "NotePlan Note", engine: .notePlan, destination: .notePath),
+        OutputOption(title: "Markdown .md", engine: .notePlan, destination: .standard),
+        OutputOption(title: "Obsidian .md", engine: .obsidian, destination: .notePath),
+        OutputOption(title: "md / txt / ...", engine: .notePlan, destination: .standard)
+    ]
 
     init(slot: ShortcutSlot) {
         self.index = slot.index
@@ -1737,12 +1750,21 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         destinationPopup.selectItem(withTitle: Settings.validDestination(slot.destination, for: slot.index).title)
         destinationPopup.target = self
         destinationPopup.action = #selector(destinationChanged)
+        Self.outputOptions.forEach { outputPopup.addItem(withTitle: $0.title) }
+        outputPopup.selectItem(withTitle: outputTitle(engine: slot.engine, destination: Settings.validDestination(slot.destination, for: slot.index)))
+        outputPopup.target = self
+        outputPopup.action = #selector(outputChanged)
         [enginePopup, destinationPopup].forEach { (popup: ShortcutTargetPopUpButton) in
             popup.acceptsDrop = true
             popup.onDropTarget = { [weak self] target in
                 guard let self else { return false }
                 return self.onTargetDrop?(self, target) ?? false
             }
+        }
+        outputPopup.acceptsDrop = true
+        outputPopup.onDropTarget = { [weak self] target in
+            guard let self else { return false }
+            return self.onTargetDrop?(self, target) ?? false
         }
         folderField.placeholderString = "Dossier"
         noteField.placeholderString = placeholder(for: slot.destination)
@@ -1771,39 +1793,37 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         advancedButton.target = self
         advancedButton.action = #selector(openAdvancedConfig)
         advancedButton.bezelStyle = .rounded
-        advancedButton.isBordered = false
-        advancedButton.wantsLayer = true
-        advancedButton.layer?.backgroundColor = NSColor.systemRed.cgColor
-        advancedButton.layer?.cornerRadius = 6
+        advancedButton.controlSize = .small
+        advancedButton.isBordered = true
+        advancedButton.contentTintColor = .systemYellow
         advancedButton.attributedTitle = NSAttributedString(
             string: "+",
             attributes: [
-                .foregroundColor: NSColor.white,
-                .font: NSFont.systemFont(ofSize: 14, weight: .bold)
+                .foregroundColor: NSColor.systemYellow,
+                .font: NSFont.systemFont(ofSize: 13, weight: .bold)
             ]
         )
         [folderField, noteField].forEach(styleFillableField)
         styleConfigField(tagsField)
         refreshTagsConfigDisplay()
 
-        [enabledCheckbox, recorder, enginePopup, destinationPopup, folderField, noteField, searchButton, targetField, tagsField, advancedButton].forEach {
+        [enabledCheckbox, recorder, outputPopup, enginePopup, destinationPopup, folderField, noteField, searchButton, targetField, tagsField, advancedButton].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
         }
         enabledCheckbox.widthAnchor.constraint(equalToConstant: Self.columnWidths[0]).isActive = true
         recorder.widthAnchor.constraint(equalToConstant: Self.columnWidths[1]).isActive = true
-        enginePopup.widthAnchor.constraint(equalToConstant: 112).isActive = true
-        destinationPopup.widthAnchor.constraint(equalToConstant: 142).isActive = true
-        targetField.widthAnchor.constraint(equalToConstant: 286).isActive = true
+        outputPopup.widthAnchor.constraint(equalToConstant: Self.columnWidths[2]).isActive = true
+        targetField.widthAnchor.constraint(equalToConstant: Self.columnWidths[3]).isActive = true
         searchButton.widthAnchor.constraint(equalToConstant: 88).isActive = true
-        tagsField.widthAnchor.constraint(equalToConstant: 212).isActive = true
-        advancedButton.widthAnchor.constraint(equalToConstant: 28).isActive = true
-        advancedButton.heightAnchor.constraint(equalToConstant: 26).isActive = true
+        tagsField.widthAnchor.constraint(equalToConstant: 236).isActive = true
+        advancedButton.widthAnchor.constraint(equalToConstant: 24).isActive = true
+        advancedButton.heightAnchor.constraint(equalToConstant: 24).isActive = true
         refreshNoteFieldState()
     }
 
     static let columnSpacing: CGFloat = 12
-    static let columnTitles = ["Actif", "Raccourci", "App / Cible", "Tag & Config"]
-    static let columnWidths: [CGFloat] = [44, 92, 560, 252]
+    static let columnTitles = ["Actif", "Raccourci", "Sortie", "Cible", "Tag & Config"]
+    static let columnWidths: [CGFloat] = [44, 92, 174, 330, 290]
 
     static func headerView() -> NSView {
         let row = NSStackView()
@@ -1842,6 +1862,7 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
 
     func setEngine(_ engine: ShortcutEngine) {
         enginePopup.selectItem(withTitle: engine.title)
+        outputPopup.selectItem(withTitle: outputTitle(engine: engine, destination: selectedDestination()))
         refreshNoteFieldState()
     }
 
@@ -1858,23 +1879,22 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
             return self.onTargetDrop?(self, target) ?? false
         }
         rowView = row
-        let targetStack = ShortcutSlotDropStack()
-        targetStack.orientation = .horizontal
-        targetStack.spacing = 8
-        targetStack.alignment = .centerY
-        targetStack.acceptsDrop = true
-        targetStack.onDropTarget = { [weak self] target in
+        let outputStack = ShortcutSlotDropStack()
+        outputStack.orientation = .horizontal
+        outputStack.spacing = 0
+        outputStack.alignment = .centerY
+        outputStack.acceptsDrop = true
+        outputStack.onDropTarget = { [weak self] target in
             guard let self else { return false }
             return self.onTargetDrop?(self, target) ?? false
         }
-        targetStack.translatesAutoresizingMaskIntoConstraints = false
-        targetStack.widthAnchor.constraint(equalToConstant: Self.columnWidths[2]).isActive = true
-        targetStack.addArrangedSubview(enginePopup)
-        targetStack.addArrangedSubview(destinationPopup)
-        targetStack.addArrangedSubview(targetField)
+        outputStack.translatesAutoresizingMaskIntoConstraints = false
+        outputStack.widthAnchor.constraint(equalToConstant: Self.columnWidths[2]).isActive = true
+        outputStack.addArrangedSubview(outputPopup)
         row.addArrangedSubview(enabledCheckbox)
         row.addArrangedSubview(recorder)
-        row.addArrangedSubview(targetStack)
+        row.addArrangedSubview(outputStack)
+        row.addArrangedSubview(targetField)
         let configStack = NSStackView()
         configStack.orientation = .horizontal
         configStack.spacing = 6
@@ -1895,6 +1915,7 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
 
     func applySelectedNote(_ result: NoteSearchResult) {
         destinationPopup.selectItem(withTitle: ShortcutDestination.notePath.title)
+        outputPopup.selectItem(withTitle: outputTitle(engine: selectedEngine(), destination: .notePath))
         folderField.stringValue = result.folder
         noteField.stringValue = URL(fileURLWithPath: result.relativePath).lastPathComponent
         applyTargetDisplay(targetDisplay(for: .notePath, folder: result.folder, note: URL(fileURLWithPath: result.relativePath).lastPathComponent))
@@ -1914,6 +1935,7 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         destinationPopup.removeAllItems()
         Settings.destinations(forShortcut: index).forEach { destinationPopup.addItem(withTitle: $0.title) }
         destinationPopup.selectItem(withTitle: destination.title)
+        outputPopup.selectItem(withTitle: outputTitle(engine: slot.engine, destination: destination))
         folderField.stringValue = slot.folder
         noteField.stringValue = slot.noteReference
         applyTargetDisplay(targetDisplay(for: destination, folder: slot.folder, note: slot.noteReference))
@@ -1924,11 +1946,23 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
     }
 
     @objc private func engineChanged() {
+        outputPopup.selectItem(withTitle: outputTitle(engine: selectedEngine(), destination: selectedDestination()))
         refreshNoteFieldState()
         rowChanged()
     }
 
     @objc private func destinationChanged() {
+        noteField.placeholderString = placeholder(for: selectedDestination())
+        outputPopup.selectItem(withTitle: outputTitle(engine: selectedEngine(), destination: selectedDestination()))
+        refreshNoteFieldState()
+        rowChanged()
+    }
+
+    @objc private func outputChanged() {
+        let option = selectedOutputOption()
+        outputPopup.selectItem(withTitle: option.title)
+        enginePopup.selectItem(withTitle: option.engine.title)
+        destinationPopup.selectItem(withTitle: Settings.validDestination(option.destination, for: index).title)
         noteField.placeholderString = placeholder(for: selectedDestination())
         refreshNoteFieldState()
         rowChanged()
@@ -2074,12 +2108,38 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
     }
 
     private func selectedEngine() -> ShortcutEngine {
-        ShortcutEngine.allCases.first { $0.title == enginePopup.titleOfSelectedItem } ?? .notePlan
+        selectedOutputOption().engine
     }
 
     private func selectedDestination() -> ShortcutDestination {
-        let selected = ShortcutDestination.allCases.first { $0.title == destinationPopup.titleOfSelectedItem } ?? (index == 1 ? .today : .standard)
-        return Settings.validDestination(selected, for: index)
+        Settings.validDestination(selectedOutputOption().destination, for: index)
+    }
+
+    private func selectedOutputOption() -> OutputOption {
+        let selectedTitle = outputPopup.titleOfSelectedItem ?? ""
+        if let option = Self.outputOptions.first(where: { $0.title == selectedTitle }) {
+            let validDestination = Settings.validDestination(option.destination, for: index)
+            if validDestination == option.destination {
+                return option
+            }
+            return OutputOption(title: outputTitle(engine: option.engine, destination: validDestination), engine: option.engine, destination: validDestination)
+        }
+        let fallbackEngine = ShortcutEngine.allCases.first { $0.title == enginePopup.titleOfSelectedItem } ?? .notePlan
+        let fallbackDestination = ShortcutDestination.allCases.first { $0.title == destinationPopup.titleOfSelectedItem } ?? (index == 1 ? .today : .standard)
+        let validDestination = Settings.validDestination(fallbackDestination, for: index)
+        return OutputOption(title: outputTitle(engine: fallbackEngine, destination: validDestination), engine: fallbackEngine, destination: validDestination)
+    }
+
+    private func outputTitle(engine: ShortcutEngine, destination: ShortcutDestination) -> String {
+        if engine == .obsidian { return "Obsidian .md" }
+        switch Settings.validDestination(destination, for: index) {
+        case .today:
+            return "NotePlan Today"
+        case .noteTitle, .notePath:
+            return "NotePlan Note"
+        case .standard:
+            return "Markdown .md"
+        }
     }
 
     private func refreshNoteFieldState() {
@@ -2462,6 +2522,7 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
     private let shortcutMakerRecentShortcutsKey = "noteplanShortcutMaker.recentShortcuts"
     private var hasPendingChanges = false
     private var pasteMonitor: Any?
+    private weak var preferencesTabView: NSTabView?
 
     convenience init() {
         let window = centeredWindow("Note Droopy — Préférences", width: 1220, height: 860, style: [.titled, .closable, .miniaturizable, .resizable])
@@ -2477,6 +2538,7 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         let tabView = NSTabView()
         tabView.translatesAutoresizingMaskIntoConstraints = false
         tabView.delegate = self
+        preferencesTabView = tabView
         contentView.addSubview(tabView)
 
         let settingsContainer = NSView()
@@ -2485,9 +2547,10 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         settingsTab.view = settingsContainer
         tabView.addTabViewItem(settingsTab)
 
+        let shortcutTabContainer = NSView()
         let shortcutMakerTab = NSTabViewItem(identifier: "shortcutMaker")
         shortcutMakerTab.label = "Raccourcis"
-        shortcutMakerTab.view = shortcutMakerTabView()
+        shortcutMakerTab.view = shortcutTabContainer
         tabView.addTabViewItem(shortcutMakerTab)
 
         let nc2Tab = NSTabViewItem(identifier: "nc2")
@@ -2545,7 +2608,7 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         titleStack.addArrangedSubview(title)
         titleStack.addArrangedSubview(tagline)
 
-        serviceNameField.placeholderString = "NotePlan : ajouter en tâche"
+        serviceNameField.placeholderString = "-> Today"
         serviceNameField.lineBreakMode = .byTruncatingTail
 
         tagField.placeholderString = "#capture"
@@ -2558,17 +2621,6 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         chooseNotesRootButton.target = self
         chooseNotesRootButton.action = #selector(chooseNotesRoot)
         chooseNotesRootButton.bezelStyle = .rounded
-
-        let serviceTagRow = horizontalRow(spacing: 10)
-        serviceTagRow.addArrangedSubview(formLabel("Nom du Service", width: 118))
-        serviceTagRow.addArrangedSubview(serviceNameField)
-        serviceTagRow.addArrangedSubview(formLabel("Tag de la tâche via service", width: 178))
-        serviceTagRow.addArrangedSubview(tagField)
-
-        let notesRootRow = horizontalRow(spacing: 10)
-        notesRootRow.addArrangedSubview(formLabel("Dossier Notes", width: 118))
-        notesRootRow.addArrangedSubview(notesRootField)
-        notesRootRow.addArrangedSubview(chooseNotesRootButton)
 
         openNoteCheckbox.state = Settings.openNote ? .on : .off
         autoSaveCheckbox.state = Settings.autoSave ? .on : .off
@@ -2674,12 +2726,61 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         tagField.widthAnchor.constraint(equalToConstant: 260).isActive = true
         notesRootField.widthAnchor.constraint(equalToConstant: 560).isActive = true
 
+        let shortcutsContainer = NSStackView()
+        shortcutsContainer.orientation = .vertical
+        shortcutsContainer.spacing = 6
+        shortcutsContainer.alignment = .leading
+        shortcutsContainer.addArrangedSubview(ShortcutSlotRow.headerView())
+
+        let shortcutsScrollView = NSScrollView()
+        shortcutsScrollView.translatesAutoresizingMaskIntoConstraints = false
+        shortcutsScrollView.hasVerticalScroller = true
+        shortcutsScrollView.hasHorizontalScroller = false
+        shortcutsScrollView.autohidesScrollers = false
+        shortcutsScrollView.drawsBackground = false
+        shortcutsScrollView.borderType = .noBorder
+
+        let shortcutsDocument = FlippedView()
+        shortcutsDocument.translatesAutoresizingMaskIntoConstraints = false
+        shortcutsScrollView.documentView = shortcutsDocument
+
         let slotsStack = NSStackView()
         slotsStack.orientation = .vertical
         slotsStack.spacing = 8
         slotsStack.alignment = .leading
+        slotsStack.translatesAutoresizingMaskIntoConstraints = false
+        shortcutsDocument.addSubview(slotsStack)
+        shortcutsContainer.addArrangedSubview(shortcutsScrollView)
 
-        slotsStack.addArrangedSubview(ShortcutSlotRow.headerView())
+        NSLayoutConstraint.activate([
+            shortcutsScrollView.widthAnchor.constraint(equalToConstant: 1012),
+            shortcutsScrollView.heightAnchor.constraint(equalToConstant: 238),
+            shortcutsDocument.widthAnchor.constraint(equalTo: shortcutsScrollView.contentView.widthAnchor),
+            slotsStack.leadingAnchor.constraint(equalTo: shortcutsDocument.leadingAnchor),
+            slotsStack.trailingAnchor.constraint(lessThanOrEqualTo: shortcutsDocument.trailingAnchor),
+            slotsStack.topAnchor.constraint(equalTo: shortcutsDocument.topAnchor),
+            slotsStack.bottomAnchor.constraint(equalTo: shortcutsDocument.bottomAnchor)
+        ])
+
+        let shortcutTabScrollView = NSScrollView()
+        shortcutTabScrollView.translatesAutoresizingMaskIntoConstraints = false
+        shortcutTabScrollView.hasVerticalScroller = true
+        shortcutTabScrollView.hasHorizontalScroller = false
+        shortcutTabScrollView.autohidesScrollers = false
+        shortcutTabScrollView.drawsBackground = false
+        shortcutTabScrollView.borderType = .noBorder
+        shortcutTabContainer.addSubview(shortcutTabScrollView)
+
+        let shortcutTabDocument = FlippedView()
+        shortcutTabDocument.translatesAutoresizingMaskIntoConstraints = false
+        shortcutTabScrollView.documentView = shortcutTabDocument
+
+        let shortcutTabStack = NSStackView()
+        shortcutTabStack.orientation = .vertical
+        shortcutTabStack.alignment = .leading
+        shortcutTabStack.spacing = 12
+        shortcutTabStack.translatesAutoresizingMaskIntoConstraints = false
+        shortcutTabDocument.addSubview(shortcutTabStack)
 
         shortcutRows = Settings.allShortcutSlots().map { slot in
             let row = ShortcutSlotRow(slot: slot)
@@ -2708,22 +2809,13 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         }
 
         stack.addArrangedSubview(titleStack)
-        stack.addArrangedSubview(serviceTagRow)
-        stack.addArrangedSubview(notesRootRow)
-        let captureOptionsRow = horizontalRow(spacing: 14)
-        captureOptionsRow.addArrangedSubview(openNoteCheckbox)
-        captureOptionsRow.addArrangedSubview(autoSaveCheckbox)
-        captureOptionsRow.addArrangedSubview(includeSourceCheckbox)
-        captureOptionsRow.addArrangedSubview(includeDocumentSourceCheckbox)
-
-        stack.addArrangedSubview(captureOptionsRow)
-        stack.addArrangedSubview(shortcutHelpLabel)
         stack.addArrangedSubview(variablesHelpLabel)
         stack.addArrangedSubview(optionsRow)
         stack.addArrangedSubview(colorsRow)
-        stack.addArrangedSubview(slotsStack)
-        stack.addArrangedSubview(buttons)
+        stack.addArrangedSubview(shortcutsContainer)
         stack.addArrangedSubview(statusLabel)
+
+        shortcutTabStack.addArrangedSubview(shortcutMakerTabView())
 
         NSLayoutConstraint.activate([
             tabView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
@@ -2741,7 +2833,19 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
             stack.leadingAnchor.constraint(equalTo: settingsDocument.leadingAnchor, constant: 12),
             stack.trailingAnchor.constraint(lessThanOrEqualTo: settingsDocument.trailingAnchor, constant: -12),
             stack.topAnchor.constraint(equalTo: settingsDocument.topAnchor, constant: 12),
-            stack.bottomAnchor.constraint(equalTo: settingsDocument.bottomAnchor, constant: -12)
+            stack.bottomAnchor.constraint(equalTo: settingsDocument.bottomAnchor, constant: -12),
+
+            shortcutTabScrollView.leadingAnchor.constraint(equalTo: shortcutTabContainer.leadingAnchor),
+            shortcutTabScrollView.trailingAnchor.constraint(equalTo: shortcutTabContainer.trailingAnchor),
+            shortcutTabScrollView.topAnchor.constraint(equalTo: shortcutTabContainer.topAnchor),
+            shortcutTabScrollView.bottomAnchor.constraint(equalTo: shortcutTabContainer.bottomAnchor),
+
+            shortcutTabDocument.widthAnchor.constraint(equalTo: shortcutTabScrollView.contentView.widthAnchor),
+
+            shortcutTabStack.leadingAnchor.constraint(equalTo: shortcutTabDocument.leadingAnchor, constant: 12),
+            shortcutTabStack.trailingAnchor.constraint(lessThanOrEqualTo: shortcutTabDocument.trailingAnchor, constant: -12),
+            shortcutTabStack.topAnchor.constraint(equalTo: shortcutTabDocument.topAnchor, constant: 12),
+            shortcutTabStack.bottomAnchor.constraint(equalTo: shortcutTabDocument.bottomAnchor, constant: -12)
         ])
         contentView.layoutSubtreeIfNeeded()
         let fitting = stack.fittingSize
@@ -2770,6 +2874,151 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         default:
             window?.title = "Note Droopy — Préférences"
         }
+    }
+
+    func selectPreferencesTab(_ identifier: String) {
+        showWindow(nil)
+        guard let tabView = preferencesTabView,
+              let item = tabView.tabViewItems.first(where: { ($0.identifier as? String) == identifier }) else {
+            return
+        }
+        tabView.selectTabViewItem(item)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func savePreferencesFromMenu() {
+        saveSettings()
+    }
+
+    func exportPreferencesFromMenu() {
+        exportPreferencesJSON()
+    }
+
+    func importPreferencesFromMenu() {
+        importPreferencesJSON()
+    }
+
+    func openCaptureRulesFromMenu() {
+        openCaptureRulesJSON()
+    }
+
+    func openCaptureRulesHelpFromMenu() {
+        openCaptureRulesHelp()
+    }
+
+    func openAccessibilityFromMenu() {
+        openAccessibilitySettings()
+    }
+
+    func editServiceNameFromMenu() {
+        guard let value = promptPreferenceValue(
+            title: "Nom du Service",
+            message: "Nom affiché dans le menu Services macOS.",
+            currentValue: serviceNameField.stringValue
+        ) else { return }
+        serviceNameField.stringValue = value
+        saveSettings()
+    }
+
+    func editServiceTagFromMenu() {
+        guard let value = promptPreferenceValue(
+            title: "Tag de la tâche via service",
+            message: "Tags ajoutés aux captures envoyées par le Service macOS.",
+            currentValue: tagField.stringValue
+        ) else { return }
+        tagField.stringValue = value
+        saveSettings()
+    }
+
+    func chooseNotesRootFromMenu() {
+        chooseNotesRoot()
+        autosaveSettings(message: "Dossier Notes enregistré.")
+    }
+
+    func toggleOpenNoteFromMenu() {
+        openNoteCheckbox.state = openNoteCheckbox.state == .on ? .off : .on
+        autosaveSettings(message: "Option Ouvrir NotePlan mise à jour.")
+    }
+
+    func toggleAutoSaveFromMenu() {
+        autoSaveCheckbox.state = autoSaveCheckbox.state == .on ? .off : .on
+        shortcutAutoSaveCheckbox.state = autoSaveCheckbox.state
+        autosaveSettings(message: "Auto save mis à jour.")
+    }
+
+    func toggleIncludeSourceFromMenu() {
+        includeSourceCheckbox.state = includeSourceCheckbox.state == .on ? .off : .on
+        autosaveSettings(message: "Option Ajouter le lien mise à jour.")
+    }
+
+    func toggleIncludeDocumentSourceFromMenu() {
+        includeDocumentSourceCheckbox.state = includeDocumentSourceCheckbox.state == .on ? .off : .on
+        autosaveSettings(message: "Option Ajouter le doc mise à jour.")
+    }
+
+    func resetSlot1ToTodayFromMenu() {
+        var slot = Settings.shortcutSlot(1)
+        slot.enabled = true
+        slot.engine = .notePlan
+        slot.destination = .today
+        slot.folder = ""
+        slot.noteReference = ""
+        Settings.setShortcutSlot(slot)
+        shortcutRows.first(where: { $0.index == 1 })?.apply(slot: slot)
+        autosaveSettings(message: "Ligne 1 configurée sur NotePlan Today.")
+    }
+
+    func chooseShortcutMakerNoteFromMenu() {
+        chooseShortcutMakerNote()
+    }
+
+    func chooseShortcutMakerDestinationFromMenu() {
+        chooseShortcutMakerDestination()
+    }
+
+    func generateShortcutMakerAppFromMenu() {
+        generateShortcutMakerApp()
+    }
+
+    func revealShortcutMakerAppFromMenu() {
+        revealShortcutMakerApp()
+    }
+
+    func showShortcutMakerRecentsFromMenu() {
+        refreshShortcutMakerFields()
+        let recent = shortcutMakerRecentShortcuts()
+        let alert = NSAlert()
+        alert.messageText = "Derniers raccourcis créés"
+        alert.informativeText = recent.isEmpty ? "Aucun raccourci créé." : recent.map { "• \($0)" }.joined(separator: "\n")
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
+    func chooseCommanderRootFromMenu() {
+        nc2Controller.chooseRootFromMenu()
+    }
+
+    func applyCommanderRootFromMenu() {
+        nc2Controller.applyRootFromMenu()
+    }
+
+    func showCommanderFunctionsFromMenu() {
+        nc2Controller.showFunctionsFromMenu()
+    }
+
+    private func promptPreferenceValue(title: String, message: String, currentValue: String) -> String? {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.addButton(withTitle: "Appliquer")
+        alert.addButton(withTitle: "Annuler")
+
+        let field = NSTextField(string: currentValue)
+        field.frame = NSRect(x: 0, y: 0, width: 420, height: 24)
+        alert.accessoryView = field
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+        return field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func functionsTabView() -> NSView {
@@ -2842,46 +3091,9 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         shortcutMakerDropView.widthAnchor.constraint(equalToConstant: 760).isActive = true
         refreshShortcutMakerFields()
 
-        let chooseNoteButton = NSButton(title: "Choisir une note .md", target: self, action: #selector(chooseShortcutMakerNote))
-        let chooseDestinationButton = NSButton(title: "Choisir destination", target: self, action: #selector(chooseShortcutMakerDestination))
-        let generateButton = NSButton(title: "Créer le raccourci .app", target: self, action: #selector(generateShortcutMakerApp))
-        let revealButton = NSButton(title: "Révéler le dernier raccourci", target: self, action: #selector(revealShortcutMakerApp))
-        let recentTitle = NSTextField(labelWithString: "Derniers raccourcis créés")
-        recentTitle.font = .boldSystemFont(ofSize: 13)
-
-        shortcutMakerRecentTextView.isEditable = false
-        shortcutMakerRecentTextView.isSelectable = true
-        shortcutMakerRecentTextView.drawsBackground = false
-        shortcutMakerRecentTextView.font = .systemFont(ofSize: 12)
-        shortcutMakerRecentTextView.textColor = .secondaryLabelColor
-
-        let recentScroll = NSScrollView()
-        recentScroll.hasVerticalScroller = true
-        recentScroll.drawsBackground = false
-        recentScroll.borderType = .lineBorder
-        recentScroll.documentView = shortcutMakerRecentTextView
-        recentScroll.translatesAutoresizingMaskIntoConstraints = false
-        recentScroll.widthAnchor.constraint(equalToConstant: 760).isActive = true
-        recentScroll.heightAnchor.constraint(equalToConstant: 110).isActive = true
-
-        [chooseNoteButton, chooseDestinationButton, generateButton, revealButton].forEach { button in
-            button.bezelStyle = .rounded
-            button.translatesAutoresizingMaskIntoConstraints = false
-            button.widthAnchor.constraint(equalToConstant: 260).isActive = true
-        }
-
         stack.addArrangedSubview(title)
         stack.addArrangedSubview(detail)
-        stack.addArrangedSubview(shortcutAutoSaveCheckbox)
         stack.addArrangedSubview(shortcutMakerDropView)
-        stack.addArrangedSubview(shortcutMakerInfoRow(title: "Note", value: shortcutMakerNoteField))
-        stack.addArrangedSubview(chooseNoteButton)
-        stack.addArrangedSubview(shortcutMakerInfoRow(title: "Destination", value: shortcutMakerDestinationField))
-        stack.addArrangedSubview(chooseDestinationButton)
-        stack.addArrangedSubview(generateButton)
-        stack.addArrangedSubview(revealButton)
-        stack.addArrangedSubview(recentTitle)
-        stack.addArrangedSubview(recentScroll)
 
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 18),
@@ -3632,7 +3844,7 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         let serviceName = serviceNameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let tag = tagField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        UserDefaults.standard.set(serviceName.isEmpty ? "NotePlan : ajouter en tâche" : serviceName, forKey: Settings.serviceNameKey)
+        UserDefaults.standard.set(serviceName.isEmpty ? "-> Today" : serviceName, forKey: Settings.serviceNameKey)
         UserDefaults.standard.set(tag.isEmpty ? "#capture" : tag, forKey: Settings.taskTagKey)
         UserDefaults.standard.set(openNoteCheckbox.state == .on, forKey: Settings.openNoteKey)
         shortcutAutoSaveCheckbox.state = autoSaveCheckbox.state
@@ -3643,7 +3855,7 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         UserDefaults.standard.synchronize()
         NotificationCenter.default.post(name: .settingsDidChange, object: nil)
 
-        if applyServiceNameToBundle(serviceName.isEmpty ? "NotePlan : ajouter en tâche" : serviceName) {
+        if applyServiceNameToBundle(serviceName.isEmpty ? "-> Today" : serviceName) {
             statusLabel.stringValue = "Réglages enregistrés. Le menu Services peut demander quelques secondes pour se rafraîchir."
         } else {
             statusLabel.stringValue = "Réglages enregistrés. Nom du Service gardé pour l'app, mais macOS n'a pas pu être rafraîchi."
@@ -3703,7 +3915,7 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
     private func saveCurrentControlsToDefaults() {
         let serviceName = serviceNameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let tag = tagField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        UserDefaults.standard.set(serviceName.isEmpty ? "NotePlan : ajouter en tâche" : serviceName, forKey: Settings.serviceNameKey)
+        UserDefaults.standard.set(serviceName.isEmpty ? "-> Today" : serviceName, forKey: Settings.serviceNameKey)
         UserDefaults.standard.set(tag.isEmpty ? "#capture" : tag, forKey: Settings.taskTagKey)
         UserDefaults.standard.set(openNoteCheckbox.state == .on, forKey: Settings.openNoteKey)
         shortcutAutoSaveCheckbox.state = autoSaveCheckbox.state
@@ -4183,6 +4395,132 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func showSettingsWindowFromMenu(_ sender: Any?) {
         showSettingsWindow()
+    }
+
+    @objc func showCapturePreferencesFromMenu(_ sender: Any?) {
+        showSettingsWindow(tab: "settings")
+    }
+
+    @objc func showShortcutPreferencesFromMenu(_ sender: Any?) {
+        showSettingsWindow(tab: "shortcutMaker")
+    }
+
+    @objc func showCommanderPreferencesFromMenu(_ sender: Any?) {
+        showSettingsWindow(tab: "nc2")
+    }
+
+    @objc func savePreferencesFromMenu(_ sender: Any?) {
+        showSettingsWindow()
+        settingsWindowController?.savePreferencesFromMenu()
+    }
+
+    @objc func exportPreferencesFromMenu(_ sender: Any?) {
+        showSettingsWindow()
+        settingsWindowController?.exportPreferencesFromMenu()
+    }
+
+    @objc func importPreferencesFromMenu(_ sender: Any?) {
+        showSettingsWindow()
+        settingsWindowController?.importPreferencesFromMenu()
+    }
+
+    @objc func openCaptureRulesFromMenu(_ sender: Any?) {
+        showSettingsWindow()
+        settingsWindowController?.openCaptureRulesFromMenu()
+    }
+
+    @objc func openCaptureRulesHelpFromMenu(_ sender: Any?) {
+        showSettingsWindow()
+        settingsWindowController?.openCaptureRulesHelpFromMenu()
+    }
+
+    @objc func openAccessibilityFromMenu(_ sender: Any?) {
+        showSettingsWindow()
+        settingsWindowController?.openAccessibilityFromMenu()
+    }
+
+    @objc func editServiceNameFromMenu(_ sender: Any?) {
+        showSettingsWindow()
+        settingsWindowController?.editServiceNameFromMenu()
+    }
+
+    @objc func editServiceTagFromMenu(_ sender: Any?) {
+        showSettingsWindow()
+        settingsWindowController?.editServiceTagFromMenu()
+    }
+
+    @objc func chooseNotesRootFromMenu(_ sender: Any?) {
+        showSettingsWindow()
+        settingsWindowController?.chooseNotesRootFromMenu()
+    }
+
+    @objc func toggleOpenNoteFromMenu(_ sender: Any?) {
+        showSettingsWindow()
+        settingsWindowController?.toggleOpenNoteFromMenu()
+        (sender as? NSMenuItem)?.state = Settings.openNote ? .on : .off
+    }
+
+    @objc func toggleAutoSaveFromMenu(_ sender: Any?) {
+        showSettingsWindow()
+        settingsWindowController?.toggleAutoSaveFromMenu()
+        (sender as? NSMenuItem)?.state = Settings.autoSave ? .on : .off
+    }
+
+    @objc func toggleIncludeSourceFromMenu(_ sender: Any?) {
+        showSettingsWindow()
+        settingsWindowController?.toggleIncludeSourceFromMenu()
+        (sender as? NSMenuItem)?.state = Settings.includeSource ? .on : .off
+    }
+
+    @objc func toggleIncludeDocumentSourceFromMenu(_ sender: Any?) {
+        showSettingsWindow()
+        settingsWindowController?.toggleIncludeDocumentSourceFromMenu()
+        (sender as? NSMenuItem)?.state = Settings.includeDocumentSource ? .on : .off
+    }
+
+    @objc func resetSlot1ToTodayFromMenu(_ sender: Any?) {
+        showSettingsWindow()
+        settingsWindowController?.resetSlot1ToTodayFromMenu()
+    }
+
+    @objc func chooseShortcutMakerNoteFromMenu(_ sender: Any?) {
+        showSettingsWindow()
+        settingsWindowController?.chooseShortcutMakerNoteFromMenu()
+    }
+
+    @objc func chooseShortcutMakerDestinationFromMenu(_ sender: Any?) {
+        showSettingsWindow()
+        settingsWindowController?.chooseShortcutMakerDestinationFromMenu()
+    }
+
+    @objc func generateShortcutMakerAppFromMenu(_ sender: Any?) {
+        showSettingsWindow()
+        settingsWindowController?.generateShortcutMakerAppFromMenu()
+    }
+
+    @objc func revealShortcutMakerAppFromMenu(_ sender: Any?) {
+        showSettingsWindow()
+        settingsWindowController?.revealShortcutMakerAppFromMenu()
+    }
+
+    @objc func showShortcutMakerRecentsFromMenu(_ sender: Any?) {
+        showSettingsWindow()
+        settingsWindowController?.showShortcutMakerRecentsFromMenu()
+    }
+
+    @objc func chooseCommanderRootFromMenu(_ sender: Any?) {
+        showSettingsWindow()
+        settingsWindowController?.chooseCommanderRootFromMenu()
+    }
+
+    @objc func applyCommanderRootFromMenu(_ sender: Any?) {
+        showSettingsWindow()
+        settingsWindowController?.applyCommanderRootFromMenu()
+    }
+
+    @objc func showCommanderFunctionsFromMenu(_ sender: Any?) {
+        showSettingsWindow()
+        settingsWindowController?.showCommanderFunctionsFromMenu()
     }
 
     @objc func showEditorWindowFromMenu(_ sender: Any?) {
@@ -5169,11 +5507,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func showSettingsWindow() {
+    private func showSettingsWindow(tab identifier: String? = nil) {
         if settingsWindowController == nil {
             settingsWindowController = SettingsWindowController()
         }
         settingsWindowController?.showWindow(nil)
+        if let identifier {
+            settingsWindowController?.selectPreferencesTab(identifier)
+        }
         NSApp.activate(ignoringOtherApps: true)
     }
 }
@@ -5309,6 +5650,7 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
     private var isFoldView = false
     private var isNotePlanPreviewVisible = false
     private var isApplyingHighlight = false
+    private var pendingHighlightWorkItem: DispatchWorkItem?
     private var autoSaveTimer: Timer?
 
     private struct LoadedFile {
@@ -5453,9 +5795,6 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         let content = NSView(frame: NSRect(x: 0, y: 0, width: 1100, height: 760))
         content.translatesAutoresizingMaskIntoConstraints = true
 
-        let rootLabel = NSTextField(labelWithString: "Dossier NotePlan")
-        rootLabel.font = .systemFont(ofSize: 12, weight: .medium)
-
         rootField.stringValue = rootURL.path
         rootField.lineBreakMode = .byTruncatingMiddle
         rootField.target = self
@@ -5468,8 +5807,6 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         fileField.target = self
         fileField.action = #selector(loadFileFromField)
 
-        let chooseButton = NSButton(title: "Choisir...", target: self, action: #selector(chooseRoot))
-        let applyButton = NSButton(title: "Valider dossier", target: self, action: #selector(applyRootFromField))
         let loadButton = NSButton(title: "Charger", target: self, action: #selector(loadFileFromField))
         let previousDayButton = NSButton(title: "← Jour", target: self, action: #selector(loadPreviousDay))
         let todayButton = NSButton(title: "Aujourd'hui", target: self, action: #selector(loadTodayAction))
@@ -5526,21 +5863,6 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         rangeStartField.placeholderString = "YYYYMMDD"
         rangeEndField.placeholderString = "YYYYMMDD"
         let flattenRangeButton = NSButton(title: "Aplatir plage", target: self, action: #selector(flattenDateRange))
-        let functionsButton = NSButton(title: "FONCTIONS", target: self, action: #selector(showFunctionsWindow))
-        functionsButton.bezelStyle = .rounded
-        functionsButton.isBordered = false
-        functionsButton.font = .systemFont(ofSize: 13, weight: .bold)
-        functionsButton.wantsLayer = true
-        functionsButton.layer?.backgroundColor = NSColor.systemGreen.cgColor
-        functionsButton.layer?.cornerRadius = 6
-        functionsButton.attributedTitle = NSAttributedString(
-            string: "FONCTIONS",
-            attributes: [
-                .foregroundColor: NSColor.white,
-                .font: NSFont.systemFont(ofSize: 13, weight: .bold)
-            ]
-        )
-
         statusLabel.textColor = .secondaryLabelColor
         statusLabel.font = .systemFont(ofSize: 12)
         pathLabel.textColor = .secondaryLabelColor
@@ -5612,11 +5934,6 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         notePlanPreviewScrollView.borderType = .bezelBorder
         notePlanPreviewScrollView.isHidden = true
 
-        let topRow = NSStackView(views: [rootLabel, rootField, chooseButton, applyButton, functionsButton])
-        topRow.orientation = .horizontal
-        topRow.spacing = 8
-        topRow.alignment = .centerY
-
         let fileRow = NSStackView(views: [fileLabel, fileField, loadButton])
         fileRow.orientation = .horizontal
         fileRow.spacing = 8
@@ -5647,7 +5964,7 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         rangeRow.spacing = 8
         rangeRow.alignment = .centerY
 
-        let header = NSStackView(views: [topRow, fileRow, fileActionRow, sortRow, viewRow, searchRow, rangeRow, pathLabel, statusLabel])
+        let header = NSStackView(views: [fileRow, fileActionRow, sortRow, viewRow, searchRow, rangeRow, pathLabel, statusLabel])
         header.orientation = .vertical
         header.spacing = 8
         header.alignment = .leading
@@ -5661,13 +5978,10 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
             header.topAnchor.constraint(equalTo: content.topAnchor, constant: 14),
             header.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 14),
             header.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -14),
-            rootField.widthAnchor.constraint(greaterThanOrEqualToConstant: 620),
             fileField.widthAnchor.constraint(greaterThanOrEqualToConstant: 620),
             searchField.widthAnchor.constraint(greaterThanOrEqualToConstant: 360),
             rangeStartField.widthAnchor.constraint(equalToConstant: 110),
             rangeEndField.widthAnchor.constraint(equalToConstant: 110),
-            functionsButton.widthAnchor.constraint(equalToConstant: 112),
-            functionsButton.heightAnchor.constraint(equalToConstant: 28),
             scrollView.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 12),
             scrollView.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 14),
             scrollView.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -14),
@@ -5682,6 +5996,18 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
 
     @objc private func closeEmbeddedSort() {
         onCloseEmbeddedSort?()
+    }
+
+    func chooseRootFromMenu() {
+        chooseRoot()
+    }
+
+    func applyRootFromMenu() {
+        applyRootFromField()
+    }
+
+    func showFunctionsFromMenu() {
+        showFunctionsWindow()
     }
 
     private func loadInitialFileIfNeeded() {
@@ -5972,6 +6298,7 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         fileField.stringValue = loaded.relativePath
         setVisibleTitle("Note Commander - \(loaded.relativePath)")
         textView.window?.makeFirstResponder(textView)
+        scheduleSyntaxHighlighting()
         setSaveButtonState(.clean)
         status("\(statusText) - \(cleanContent.count) caractères")
     }
@@ -6605,7 +6932,7 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         if !isApplyingHighlight && !isFoldView {
             sourceMarkdown = textView.string
         }
-        applySyntaxHighlighting()
+        scheduleSyntaxHighlighting()
         setSaveButtonState(currentFileURL != nil && currentEditorMarkdown() != loadedContent ? .dirty : .clean)
         scheduleAutoSaveIfNeeded()
     }
@@ -6669,7 +6996,7 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         textView.isEditable = true
         textView.string = sourceMarkdown
         displayedSourceLines = Array(0..<sourceLines().count)
-        applySyntaxHighlighting()
+        scheduleSyntaxHighlighting()
         setSaveButtonState(currentFileURL != nil && sourceMarkdown != loadedContent ? .dirty : .clean)
         status("Tout déplié: Markdown complet éditable")
     }
@@ -6723,6 +7050,7 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         scrollView.isHidden = false
         isNotePlanPreviewVisible = false
         textView.window?.makeFirstResponder(textView)
+        scheduleSyntaxHighlighting()
         setSaveButtonState(currentFileURL != nil && currentEditorMarkdown() != loadedContent ? .dirty : .clean)
         status(statusText)
     }
@@ -6791,7 +7119,7 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         displayedSourceLines = result.sourceLineIndexes
         textView.isEditable = false
         textView.string = result.text
-        applySyntaxHighlighting()
+        scheduleSyntaxHighlighting()
         setSaveButtonState(.foldView)
         status("\(statusText) - vue NotePlan, Markdown conservé")
     }
@@ -6961,10 +7289,22 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
     private func applySyntaxHighlighting() {
         guard !isApplyingHighlight, let storage = textView.textStorage else { return }
         isApplyingHighlight = true
+        defer {
+            isApplyingHighlight = false
+            textView.needsDisplay = true
+        }
         let selectedRanges = textView.selectedRanges
         EditorMarkdownHighlighter.apply(to: storage)
         textView.selectedRanges = selectedRanges
-        isApplyingHighlight = false
+    }
+
+    private func scheduleSyntaxHighlighting() {
+        pendingHighlightWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.applySyntaxHighlighting()
+        }
+        pendingHighlightWorkItem = workItem
+        DispatchQueue.main.async(execute: workItem)
     }
 
     private func status(_ text: String) {
@@ -8192,6 +8532,124 @@ appMenu.addItem(NSMenuItem.separator())
 appMenu.addItem(withTitle: "Quitter NoteDroppy", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
 appMenuItem.submenu = appMenu
 app.mainMenu = mainMenu
+
+let preferencesMenuItem = NSMenuItem()
+mainMenu.addItem(preferencesMenuItem)
+let preferencesMenu = NSMenu(title: "Préférences")
+
+let capturePrefsItem = NSMenuItem(title: "Capture", action: nil, keyEquivalent: "")
+let capturePrefsMenu = NSMenu(title: "Capture")
+let serviceNamePrefsItem = NSMenuItem(title: "Nom du Service...", action: #selector(AppDelegate.editServiceNameFromMenu(_:)), keyEquivalent: "")
+serviceNamePrefsItem.target = delegate
+capturePrefsMenu.addItem(serviceNamePrefsItem)
+let serviceTagPrefsItem = NSMenuItem(title: "Tag service...", action: #selector(AppDelegate.editServiceTagFromMenu(_:)), keyEquivalent: "")
+serviceTagPrefsItem.target = delegate
+capturePrefsMenu.addItem(serviceTagPrefsItem)
+let notesRootPrefsItem = NSMenuItem(title: "Dossier Notes...", action: #selector(AppDelegate.chooseNotesRootFromMenu(_:)), keyEquivalent: "")
+notesRootPrefsItem.target = delegate
+capturePrefsMenu.addItem(notesRootPrefsItem)
+capturePrefsMenu.addItem(NSMenuItem.separator())
+let openNotePrefsItem = NSMenuItem(title: "Ouvrir NotePlan", action: #selector(AppDelegate.toggleOpenNoteFromMenu(_:)), keyEquivalent: "")
+openNotePrefsItem.target = delegate
+openNotePrefsItem.state = Settings.openNote ? .on : .off
+capturePrefsMenu.addItem(openNotePrefsItem)
+let autoSavePrefsItem = NSMenuItem(title: "Auto save", action: #selector(AppDelegate.toggleAutoSaveFromMenu(_:)), keyEquivalent: "")
+autoSavePrefsItem.target = delegate
+autoSavePrefsItem.state = Settings.autoSave ? .on : .off
+capturePrefsMenu.addItem(autoSavePrefsItem)
+let sourcePrefsItem = NSMenuItem(title: "Ajouter le lien", action: #selector(AppDelegate.toggleIncludeSourceFromMenu(_:)), keyEquivalent: "")
+sourcePrefsItem.target = delegate
+sourcePrefsItem.state = Settings.includeSource ? .on : .off
+capturePrefsMenu.addItem(sourcePrefsItem)
+let documentSourcePrefsItem = NSMenuItem(title: "Ajouter le doc", action: #selector(AppDelegate.toggleIncludeDocumentSourceFromMenu(_:)), keyEquivalent: "")
+documentSourcePrefsItem.target = delegate
+documentSourcePrefsItem.state = Settings.includeDocumentSource ? .on : .off
+capturePrefsMenu.addItem(documentSourcePrefsItem)
+let slot1TodayPrefsItem = NSMenuItem(title: "Ligne 1 -> NotePlan Today", action: #selector(AppDelegate.resetSlot1ToTodayFromMenu(_:)), keyEquivalent: "")
+slot1TodayPrefsItem.target = delegate
+capturePrefsMenu.addItem(slot1TodayPrefsItem)
+preferencesMenu.setSubmenu(capturePrefsMenu, for: capturePrefsItem)
+preferencesMenu.addItem(capturePrefsItem)
+
+let shortcutPrefsItem = NSMenuItem(title: "Shortcut", action: nil, keyEquivalent: "")
+let shortcutPrefsMenu = NSMenu(title: "Shortcut")
+let shortcutNotePrefsItem = NSMenuItem(title: "Choisir une note .md...", action: #selector(AppDelegate.chooseShortcutMakerNoteFromMenu(_:)), keyEquivalent: "")
+shortcutNotePrefsItem.target = delegate
+shortcutPrefsMenu.addItem(shortcutNotePrefsItem)
+let shortcutDestinationPrefsItem = NSMenuItem(title: "Choisir destination...", action: #selector(AppDelegate.chooseShortcutMakerDestinationFromMenu(_:)), keyEquivalent: "")
+shortcutDestinationPrefsItem.target = delegate
+shortcutPrefsMenu.addItem(shortcutDestinationPrefsItem)
+let shortcutGeneratePrefsItem = NSMenuItem(title: "Créer le raccourci .app", action: #selector(AppDelegate.generateShortcutMakerAppFromMenu(_:)), keyEquivalent: "")
+shortcutGeneratePrefsItem.target = delegate
+shortcutPrefsMenu.addItem(shortcutGeneratePrefsItem)
+let shortcutRevealPrefsItem = NSMenuItem(title: "Révéler le dernier raccourci", action: #selector(AppDelegate.revealShortcutMakerAppFromMenu(_:)), keyEquivalent: "")
+shortcutRevealPrefsItem.target = delegate
+shortcutPrefsMenu.addItem(shortcutRevealPrefsItem)
+let shortcutRecentsPrefsItem = NSMenuItem(title: "Derniers raccourcis créés", action: #selector(AppDelegate.showShortcutMakerRecentsFromMenu(_:)), keyEquivalent: "")
+shortcutRecentsPrefsItem.target = delegate
+shortcutPrefsMenu.addItem(shortcutRecentsPrefsItem)
+shortcutPrefsMenu.addItem(NSMenuItem.separator())
+let shortcutSlot1TodayPrefsItem = NSMenuItem(title: "Ligne 1 -> NotePlan Today", action: #selector(AppDelegate.resetSlot1ToTodayFromMenu(_:)), keyEquivalent: "")
+shortcutSlot1TodayPrefsItem.target = delegate
+shortcutPrefsMenu.addItem(shortcutSlot1TodayPrefsItem)
+preferencesMenu.setSubmenu(shortcutPrefsMenu, for: shortcutPrefsItem)
+preferencesMenu.addItem(shortcutPrefsItem)
+
+let commanderPrefsItem = NSMenuItem(title: "Commander", action: nil, keyEquivalent: "")
+let commanderPrefsMenu = NSMenu(title: "Commander")
+let commanderRootPrefsItem = NSMenuItem(title: "Dossier NotePlan...", action: #selector(AppDelegate.chooseCommanderRootFromMenu(_:)), keyEquivalent: "")
+commanderRootPrefsItem.target = delegate
+commanderPrefsMenu.addItem(commanderRootPrefsItem)
+let commanderApplyRootPrefsItem = NSMenuItem(title: "Valider dossier", action: #selector(AppDelegate.applyCommanderRootFromMenu(_:)), keyEquivalent: "")
+commanderApplyRootPrefsItem.target = delegate
+commanderPrefsMenu.addItem(commanderApplyRootPrefsItem)
+let commanderFunctionsPrefsItem = NSMenuItem(title: "Fonctions...", action: #selector(AppDelegate.showCommanderFunctionsFromMenu(_:)), keyEquivalent: "")
+commanderFunctionsPrefsItem.target = delegate
+commanderPrefsMenu.addItem(commanderFunctionsPrefsItem)
+commanderPrefsMenu.addItem(NSMenuItem.separator())
+let commanderAutoSavePrefsItem = NSMenuItem(title: "Auto save", action: #selector(AppDelegate.toggleAutoSaveFromMenu(_:)), keyEquivalent: "")
+commanderAutoSavePrefsItem.target = delegate
+commanderAutoSavePrefsItem.state = Settings.autoSave ? .on : .off
+commanderPrefsMenu.addItem(commanderAutoSavePrefsItem)
+preferencesMenu.setSubmenu(commanderPrefsMenu, for: commanderPrefsItem)
+preferencesMenu.addItem(commanderPrefsItem)
+
+preferencesMenu.addItem(NSMenuItem.separator())
+let allPrefsItem = NSMenuItem(title: "Toutes les préférences...", action: #selector(AppDelegate.showSettingsWindowFromMenu(_:)), keyEquivalent: ",")
+allPrefsItem.target = delegate
+preferencesMenu.addItem(allPrefsItem)
+preferencesMenu.addItem(NSMenuItem.separator())
+let savePrefsItem = NSMenuItem(title: "Enregistrer", action: #selector(AppDelegate.savePreferencesFromMenu(_:)), keyEquivalent: "s")
+savePrefsItem.target = delegate
+preferencesMenu.addItem(savePrefsItem)
+let editorPrefsItem = NSMenuItem(title: "Éditeur NotePlan...", action: #selector(AppDelegate.showEditorWindowFromMenu(_:)), keyEquivalent: "e")
+editorPrefsItem.target = delegate
+preferencesMenu.addItem(editorPrefsItem)
+preferencesMenu.addItem(NSMenuItem.separator())
+let exportPrefsItem = NSMenuItem(title: "Exporter JSON...", action: #selector(AppDelegate.exportPreferencesFromMenu(_:)), keyEquivalent: "")
+exportPrefsItem.target = delegate
+preferencesMenu.addItem(exportPrefsItem)
+let importPrefsItem = NSMenuItem(title: "Importer JSON...", action: #selector(AppDelegate.importPreferencesFromMenu(_:)), keyEquivalent: "")
+importPrefsItem.target = delegate
+preferencesMenu.addItem(importPrefsItem)
+preferencesMenu.addItem(NSMenuItem.separator())
+let rulesPrefsItem = NSMenuItem(title: "Règles capture JSON", action: #selector(AppDelegate.openCaptureRulesFromMenu(_:)), keyEquivalent: "")
+rulesPrefsItem.target = delegate
+preferencesMenu.addItem(rulesPrefsItem)
+let formatsPrefsItem = NSMenuItem(title: "Doc formats", action: #selector(AppDelegate.openCaptureRulesHelpFromMenu(_:)), keyEquivalent: "")
+formatsPrefsItem.target = delegate
+preferencesMenu.addItem(formatsPrefsItem)
+let accessibilityPrefsItem = NSMenuItem(title: "Autoriser Accessibilité", action: #selector(AppDelegate.openAccessibilityFromMenu(_:)), keyEquivalent: "")
+accessibilityPrefsItem.target = delegate
+preferencesMenu.addItem(accessibilityPrefsItem)
+preferencesMenu.addItem(NSMenuItem.separator())
+let helpPrefsItem = NSMenuItem(title: "Aide / Formats / Variables", action: #selector(AppDelegate.openHelp(_:)), keyEquivalent: "?")
+helpPrefsItem.target = delegate
+preferencesMenu.addItem(helpPrefsItem)
+let githubPrefsItem = NSMenuItem(title: "GitHub / Releases", action: #selector(AppDelegate.openGitHubRepository(_:)), keyEquivalent: "")
+githubPrefsItem.target = delegate
+preferencesMenu.addItem(githubPrefsItem)
+preferencesMenuItem.submenu = preferencesMenu
 
 let helpMenuItem = NSMenuItem()
 mainMenu.addItem(helpMenuItem)
