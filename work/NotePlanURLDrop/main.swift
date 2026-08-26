@@ -1002,8 +1002,31 @@ struct KeyCombo {
     }
 }
 
+struct ShortcutConflict {
+    let title: String
+    let detail: String
+}
+
+private func registerHotKeyProbe(_ combo: KeyCombo) -> OSStatus {
+    var ref: EventHotKeyRef?
+    let hotKeyID = EventHotKeyID(signature: fourCharCode("NDPR"), id: 9999)
+    let status = RegisterEventHotKey(
+        combo.keyCode,
+        combo.carbonModifiers,
+        hotKeyID,
+        GetApplicationEventTarget(),
+        0,
+        &ref
+    )
+    if let ref {
+        UnregisterEventHotKey(ref)
+    }
+    return status
+}
+
 final class ShortcutRecorderButton: NSButton {
     fileprivate var onChange: ((KeyCombo) -> Void)?
+    fileprivate var onValidate: ((KeyCombo) -> ShortcutConflict?)?
     private var localMonitor: Any?
     private var isRecording = false
     private var combo: KeyCombo
@@ -1061,9 +1084,26 @@ final class ShortcutRecorderButton: NSButton {
             return
         }
         let combo = KeyCombo(keyCode: UInt32(event.keyCode), carbonModifiers: modifiers)
+        if let conflict = onValidate?(combo) {
+            NSSound.beep()
+            title = "Déjà pris"
+            showShortcutConflictAlert(conflict)
+            title = "Tape le nouveau raccourci..."
+            window?.makeFirstResponder(self)
+            return
+        }
         setCombo(combo)
         onChange?(combo)
         stopRecording(updateTitle: false)
+    }
+
+    private func showShortcutConflictAlert(_ conflict: ShortcutConflict) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = conflict.title
+        alert.informativeText = conflict.detail
+        alert.addButton(withTitle: "Choisir un autre raccourci")
+        alert.runModal()
     }
 
     fileprivate func setCombo(_ combo: KeyCombo) {
@@ -2784,6 +2824,10 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
 
         shortcutRows = Settings.allShortcutSlots().map { slot in
             let row = ShortcutSlotRow(slot: slot)
+            row.recorder.onValidate = { [weak self, weak row] combo in
+                guard let self, let row else { return nil }
+                return self.shortcutConflict(for: combo, editedRow: row)
+            }
             row.recorder.onChange = { [weak self, weak row] combo in
                 guard let row else { return }
                 row.setCombo(combo)
@@ -2966,6 +3010,27 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         Settings.setShortcutSlot(slot)
         shortcutRows.first(where: { $0.index == 1 })?.apply(slot: slot)
         autosaveSettings(message: "Ligne 1 configurée sur NotePlan Today.")
+    }
+
+    private func shortcutConflict(for combo: KeyCombo, editedRow: ShortcutSlotRow) -> ShortcutConflict? {
+        if let duplicate = shortcutRows.first(where: {
+            $0.index != editedRow.index &&
+            $0.slot.enabled &&
+            $0.slot.combo.keyCode == combo.keyCode &&
+            $0.slot.combo.carbonModifiers == combo.carbonModifiers
+        }) {
+            return ShortcutConflict(
+                title: "Raccourci déjà utilisé",
+                detail: "\(combo.display) est déjà utilisé par Note Droopy, ligne \(duplicate.index)."
+            )
+        }
+
+        let status = registerHotKeyProbe(combo)
+        guard status != noErr else { return nil }
+        return ShortcutConflict(
+            title: "Raccourci déjà pris",
+            detail: "\(combo.display) est refusé par macOS. Il est probablement utilisé par macOS ou une autre app. macOS ne fournit pas le nom de l'app propriétaire via cette API. Code: \(status)."
+        )
     }
 
     func chooseShortcutMakerNoteFromMenu() {
