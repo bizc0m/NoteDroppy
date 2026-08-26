@@ -10,6 +10,7 @@ private enum Settings {
     static let repositoryURL = "https://github.com/bizc0m/NoteDroppy"
     static let taskTagKey = "taskTag"
     static let openNoteKey = "openNote"
+    static let autoSaveKey = "autoSave"
     static let includeSourceKey = "includeSource"
     static let includeDocumentSourceKey = "includeDocumentSource"
     static let serviceNameKey = "serviceName"
@@ -20,8 +21,8 @@ private enum Settings {
     static let shortcutModifiersKey = "shortcutModifiers"
     static let didShowFirstLaunchSettingsKey = "didShowFirstLaunchSettings"
     static let shortcutLayoutVersionKey = "shortcutLayoutVersion"
-    static let shortcutSlotCount = 10
-    static let currentShortcutLayoutVersion = 2
+    static let shortcutSlotCount = 20
+    static let currentShortcutLayoutVersion = 3
 
     static var taskTag: String {
         let value = UserDefaults.standard.string(forKey: taskTagKey) ?? "#capture"
@@ -34,6 +35,13 @@ private enum Settings {
             return true
         }
         return UserDefaults.standard.bool(forKey: openNoteKey)
+    }
+
+    static var autoSave: Bool {
+        if UserDefaults.standard.object(forKey: autoSaveKey) == nil {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: autoSaveKey)
     }
 
     static var includeSource: Bool {
@@ -204,7 +212,9 @@ private enum Settings {
     static func defaultShortcutCombo(_ index: Int) -> KeyCombo {
         let codes: [UInt32] = [
             UInt32(kVK_ANSI_1), UInt32(kVK_ANSI_2), UInt32(kVK_ANSI_3), UInt32(kVK_ANSI_4), UInt32(kVK_ANSI_5),
-            UInt32(kVK_ANSI_6), UInt32(kVK_ANSI_7), UInt32(kVK_ANSI_8), UInt32(kVK_ANSI_9), UInt32(kVK_ANSI_0)
+            UInt32(kVK_ANSI_6), UInt32(kVK_ANSI_7), UInt32(kVK_ANSI_8), UInt32(kVK_ANSI_9), UInt32(kVK_ANSI_0),
+            UInt32(kVK_F1), UInt32(kVK_F2), UInt32(kVK_F3), UInt32(kVK_F4), UInt32(kVK_F5),
+            UInt32(kVK_F6), UInt32(kVK_F7), UInt32(kVK_F8), UInt32(kVK_F9), UInt32(kVK_F10)
         ]
         return KeyCombo(keyCode: codes[max(0, min(index - 1, codes.count - 1))], carbonModifiers: UInt32(controlKey | optionKey | cmdKey))
     }
@@ -223,7 +233,7 @@ private enum Settings {
         ]
         let defaultModifiers = UInt32(controlKey | optionKey | cmdKey)
 
-        for index in 1...shortcutSlotCount {
+        for index in 1...min(shortcutSlotCount, legacyCodes.count, newCodes.count) {
             let keyCodeKey = "shortcutSlot\(index).keyCode"
             let modifiersKey = "shortcutSlot\(index).modifiers"
             let hasKey = defaults.object(forKey: keyCodeKey) != nil
@@ -443,6 +453,7 @@ private enum CaptureRulesStore {
 struct PreferencesFile: Codable {
     var version: Int
     var openNote: Bool
+    var autoSave: Bool?
     var includeSource: Bool?
     var includeDocumentSource: Bool?
     var serviceName: String
@@ -454,6 +465,7 @@ struct PreferencesFile: Codable {
         PreferencesFile(
             version: 1,
             openNote: Settings.openNote,
+            autoSave: Settings.autoSave,
             includeSource: Settings.includeSource,
             includeDocumentSource: Settings.includeDocumentSource,
             serviceName: Settings.serviceName,
@@ -465,6 +477,7 @@ struct PreferencesFile: Codable {
 
     func apply() {
         UserDefaults.standard.set(openNote, forKey: Settings.openNoteKey)
+        UserDefaults.standard.set(autoSave ?? true, forKey: Settings.autoSaveKey)
         UserDefaults.standard.set(includeSource ?? true, forKey: Settings.includeSourceKey)
         UserDefaults.standard.set(includeDocumentSource ?? false, forKey: Settings.includeDocumentSourceKey)
         UserDefaults.standard.set(serviceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "NotePlan : ajouter en tâche" : serviceName, forKey: Settings.serviceNameKey)
@@ -621,6 +634,7 @@ private func normalizedPreferenceTags(_ value: String) -> [String] {
         .split(separator: ",")
         .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         .filter { !$0.isEmpty }
+        .filter { !$0.hasPrefix("!") && !$0.hasPrefix("$") }
         .map { $0.hasPrefix("#") || $0.hasPrefix("@") ? $0 : "#\($0)" }
 }
 
@@ -805,6 +819,75 @@ private func horizontalRow(spacing: CGFloat = 8) -> NSStackView {
     row.alignment = .centerY
     row.translatesAutoresizingMaskIntoConstraints = false
     return row
+}
+
+private func coloredVariableHelp(_ text: String) -> NSAttributedString {
+    let attributed = NSMutableAttributedString(
+        string: text,
+        attributes: [
+            .foregroundColor: NSColor.secondaryLabelColor,
+            .font: NSFont.systemFont(ofSize: 13, weight: .regular)
+        ]
+    )
+    let nsText = text as NSString
+    let regex = try? NSRegularExpression(pattern: #"\$[A-Za-z][A-Za-z0-9_]*"#)
+    regex?.enumerateMatches(in: text, range: NSRange(location: 0, length: nsText.length)) { match, _, _ in
+        guard let range = match?.range else { return }
+        attributed.addAttributes([
+            .foregroundColor: NSColor.systemBlue,
+            .font: NSFont.systemFont(ofSize: 13, weight: .semibold)
+        ], range: range)
+    }
+    return attributed
+}
+
+private func tokenLegend(_ text: String, _ color: NSColor) -> NSTextField {
+    let label = NSTextField(labelWithString: text)
+    label.font = .systemFont(ofSize: 13, weight: .bold)
+    label.textColor = color
+    label.drawsBackground = true
+    label.backgroundColor = color.withAlphaComponent(0.16)
+    label.alignment = .center
+    label.wantsLayer = true
+    label.layer?.cornerRadius = 5
+    label.translatesAutoresizingMaskIntoConstraints = false
+    label.widthAnchor.constraint(equalToConstant: 104).isActive = true
+    return label
+}
+
+private func styleConfigField(_ field: NSTextField) {
+    styleFillableField(field)
+    field.wantsLayer = true
+    field.layer?.borderWidth = 1
+    field.layer?.borderColor = NSColor.systemBlue.withAlphaComponent(0.35).cgColor
+    field.layer?.cornerRadius = 5
+}
+
+private func applyTagsConfigColors(to field: NSTextField) {
+    let text = field.stringValue
+    let attributed = NSMutableAttributedString(
+        string: text,
+        attributes: [
+            .foregroundColor: NSColor.labelColor,
+            .font: NSFont.systemFont(ofSize: 13, weight: .semibold)
+        ]
+    )
+    let nsText = text as NSString
+    let fullRange = NSRange(location: 0, length: nsText.length)
+    let rules: [(String, NSColor)] = [
+        (#"#[\p{L}\p{N}_/-]+"#, .systemGreen),
+        (#"\$[A-Za-z][A-Za-z0-9_:-]*"#, .systemBlue),
+        (#"!{1,5}|![A-Za-z][A-Za-z0-9_:-]*"#, .systemIndigo),
+        (#"@[\p{L}\p{N}_/-]+"#, .systemOrange)
+    ]
+    for (pattern, color) in rules {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
+        regex.enumerateMatches(in: text, range: fullRange) { match, _, _ in
+            guard let range = match?.range else { return }
+            attributed.addAttribute(.foregroundColor, value: color, range: range)
+        }
+    }
+    field.attributedStringValue = attributed
 }
 
 struct KeyCombo {
@@ -1230,6 +1313,10 @@ final class ShortcutMakerDropView: NSView {
     }
 }
 
+final class FlippedView: NSView {
+    override var isFlipped: Bool { true }
+}
+
 final class ShortcutSlotDropStack: NSStackView {
     var acceptsDrop = true
     var onDropTarget: ((ShortcutTarget) -> Bool)?
@@ -1618,10 +1705,13 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
     let searchButton = NSButton(title: "Rechercher", target: nil, action: nil)
     let targetField = ShortcutTargetField()
     let tagsField: NSTextField
+    let advancedButton = NSButton(title: "+", target: nil, action: nil)
     var onSearch: ((ShortcutSlotRow) -> Void)?
     var onTargetDrop: ((ShortcutSlotRow, ShortcutTarget) -> Bool)?
     var onPasteTarget: ((ShortcutSlotRow) -> Void)?
+    var onFocus: ((ShortcutSlotRow) -> Void)?
     var onChange: ((ShortcutSlotRow) -> Void)?
+    private weak var rowView: NSStackView?
     private var storedCombo: KeyCombo
     private var displayIndex: String { index == 10 ? "0" : "\(index)" }
 
@@ -1678,9 +1768,25 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         tagsField.delegate = self
         tagsField.target = self
         tagsField.action = #selector(rowChanged)
-        [folderField, noteField, tagsField].forEach(styleFillableField)
+        advancedButton.target = self
+        advancedButton.action = #selector(openAdvancedConfig)
+        advancedButton.bezelStyle = .rounded
+        advancedButton.isBordered = false
+        advancedButton.wantsLayer = true
+        advancedButton.layer?.backgroundColor = NSColor.systemRed.cgColor
+        advancedButton.layer?.cornerRadius = 6
+        advancedButton.attributedTitle = NSAttributedString(
+            string: "+",
+            attributes: [
+                .foregroundColor: NSColor.white,
+                .font: NSFont.systemFont(ofSize: 14, weight: .bold)
+            ]
+        )
+        [folderField, noteField].forEach(styleFillableField)
+        styleConfigField(tagsField)
+        refreshTagsConfigDisplay()
 
-        [enabledCheckbox, recorder, enginePopup, destinationPopup, folderField, noteField, searchButton, targetField, tagsField].forEach {
+        [enabledCheckbox, recorder, enginePopup, destinationPopup, folderField, noteField, searchButton, targetField, tagsField, advancedButton].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
         }
         enabledCheckbox.widthAnchor.constraint(equalToConstant: Self.columnWidths[0]).isActive = true
@@ -1689,13 +1795,15 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         destinationPopup.widthAnchor.constraint(equalToConstant: 142).isActive = true
         targetField.widthAnchor.constraint(equalToConstant: 286).isActive = true
         searchButton.widthAnchor.constraint(equalToConstant: 88).isActive = true
-        tagsField.widthAnchor.constraint(equalToConstant: Self.columnWidths[3]).isActive = true
+        tagsField.widthAnchor.constraint(equalToConstant: 212).isActive = true
+        advancedButton.widthAnchor.constraint(equalToConstant: 28).isActive = true
+        advancedButton.heightAnchor.constraint(equalToConstant: 26).isActive = true
         refreshNoteFieldState()
     }
 
     static let columnSpacing: CGFloat = 12
-    static let columnTitles = ["Actif", "Raccourci", "App / Cible", "Tags"]
-    static let columnWidths: [CGFloat] = [44, 92, 560, 240]
+    static let columnTitles = ["Actif", "Raccourci", "App / Cible", "Tag & Config"]
+    static let columnWidths: [CGFloat] = [44, 92, 560, 252]
 
     static func headerView() -> NSView {
         let row = NSStackView()
@@ -1743,10 +1851,13 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         row.spacing = Self.columnSpacing
         row.alignment = .centerY
         row.acceptsDrop = true
+        row.wantsLayer = true
+        row.layer?.cornerRadius = 6
         row.onDropTarget = { [weak self] target in
             guard let self else { return false }
             return self.onTargetDrop?(self, target) ?? false
         }
+        rowView = row
         let targetStack = ShortcutSlotDropStack()
         targetStack.orientation = .horizontal
         targetStack.spacing = 8
@@ -1764,8 +1875,22 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         row.addArrangedSubview(enabledCheckbox)
         row.addArrangedSubview(recorder)
         row.addArrangedSubview(targetStack)
-        row.addArrangedSubview(tagsField)
+        let configStack = NSStackView()
+        configStack.orientation = .horizontal
+        configStack.spacing = 6
+        configStack.alignment = .centerY
+        configStack.translatesAutoresizingMaskIntoConstraints = false
+        configStack.widthAnchor.constraint(equalToConstant: Self.columnWidths[3]).isActive = true
+        configStack.addArrangedSubview(tagsField)
+        configStack.addArrangedSubview(advancedButton)
+        row.addArrangedSubview(configStack)
         return row
+    }
+
+    func setActive(_ active: Bool) {
+        rowView?.layer?.backgroundColor = active ? NSColor.controlAccentColor.withAlphaComponent(0.12).cgColor : NSColor.clear.cgColor
+        tagsField.layer?.borderColor = active ? NSColor.controlAccentColor.cgColor : NSColor.systemBlue.withAlphaComponent(0.35).cgColor
+        tagsField.layer?.borderWidth = active ? 1.6 : 1.0
     }
 
     func applySelectedNote(_ result: NoteSearchResult) {
@@ -1776,6 +1901,7 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         if tagsField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             tagsField.stringValue = result.tags.prefix(4).joined(separator: ", ")
         }
+        refreshTagsConfigDisplay()
         refreshNoteFieldState()
     }
 
@@ -1792,6 +1918,7 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         noteField.stringValue = slot.noteReference
         applyTargetDisplay(targetDisplay(for: destination, folder: slot.folder, note: slot.noteReference))
         tagsField.stringValue = slot.tags
+        refreshTagsConfigDisplay()
         noteField.placeholderString = placeholder(for: destination)
         refreshNoteFieldState()
     }
@@ -1816,10 +1943,124 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         onChange?(self)
     }
 
+    func refreshTagsConfigDisplay() {
+        applyTagsConfigColors(to: tagsField)
+    }
+
+    @objc private func openAdvancedConfig() {
+        let menu = NSMenu(title: "Tag & Config")
+        addMenuSection("Tags visibles", to: menu)
+        addToken("#capture", color: .systemGreen, to: menu)
+        addToken("@contexte", color: .systemOrange, to: menu)
+        addMenuSection("Variables", to: menu)
+        ["$date", "$day", "$time", "$datetime", "$month", "$year", "$source", "$url", "$file", "$LLM"].forEach {
+            addToken($0, color: .systemBlue, to: menu)
+        }
+        addMenuSection("Options capture", to: menu)
+        ["!Open", "!Web", "!NoWeb", "!File", "!NoFile"].forEach {
+            addToken($0, color: .systemIndigo, to: menu)
+        }
+        addMenuSection("Format ligne", to: menu)
+        ["!Star", "!Plus", "!Text"].forEach {
+            addToken($0, color: .systemIndigo, to: menu)
+        }
+        addMenuSection("Priorité NotePlan", to: menu)
+        ["!", "!!", "!!!", "!!!!", "!!!!!"].forEach {
+            addToken($0, color: .systemRed, to: menu)
+        }
+        addMenuSection("Date NotePlan", to: menu)
+        ["!Demain", "!Weekend", "!SemainePro", "!MoisProchain", "!Dans6Mois"].forEach {
+            addToken($0, color: .systemPink, to: menu)
+        }
+        menu.addItem(.separator())
+        let clearItem = NSMenuItem(title: "Effacer Tag & Config", action: #selector(clearTagsConfig), keyEquivalent: "")
+        clearItem.target = self
+        clearItem.attributedTitle = NSAttributedString(
+            string: clearItem.title,
+            attributes: [
+                .foregroundColor: NSColor.systemRed,
+                .font: NSFont.systemFont(ofSize: 13, weight: .semibold)
+            ]
+        )
+        menu.addItem(clearItem)
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: advancedButton.bounds.height + 4), in: advancedButton)
+    }
+
+    private func addMenuSection(_ title: String, to menu: NSMenu) {
+        if menu.items.isEmpty == false {
+            menu.addItem(.separator())
+        }
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        item.isEnabled = false
+        item.attributedTitle = NSAttributedString(
+            string: title,
+            attributes: [
+                .foregroundColor: NSColor.secondaryLabelColor,
+                .font: NSFont.systemFont(ofSize: 12, weight: .bold)
+            ]
+        )
+        menu.addItem(item)
+    }
+
+    private func addToken(_ token: String, color: NSColor, to menu: NSMenu) {
+        let item = NSMenuItem(title: token, action: #selector(addConfigToken(_:)), keyEquivalent: "")
+        item.target = self
+        item.representedObject = token
+        item.attributedTitle = NSAttributedString(
+            string: token,
+            attributes: [
+                .foregroundColor: color,
+                .font: NSFont.systemFont(ofSize: 13, weight: .semibold)
+            ]
+        )
+        menu.addItem(item)
+    }
+
+    @objc private func addConfigToken(_ sender: NSMenuItem) {
+        guard let token = sender.representedObject as? String else { return }
+        let existing = tagsField.stringValue
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        if existing.contains(where: { $0.caseInsensitiveCompare(token) == .orderedSame }) {
+            refreshTagsConfigDisplay()
+            return
+        }
+        tagsField.stringValue = (existing + [token]).joined(separator: ", ")
+        refreshTagsConfigDisplay()
+        rowChanged()
+    }
+
+    @objc private func clearTagsConfig() {
+        tagsField.stringValue = ""
+        refreshTagsConfigDisplay()
+        rowChanged()
+    }
+
+    func controlTextDidBeginEditing(_ obj: Notification) {
+        if let field = obj.object as? NSTextField,
+           field === targetField || field === tagsField || field === noteField || field === folderField {
+            onFocus?(self)
+        }
+    }
+
+    func controlTextDidChange(_ obj: Notification) {
+        guard let field = obj.object as? NSTextField else { return }
+        if field === tagsField {
+            refreshTagsConfigDisplay()
+        }
+        if field === targetField || field === tagsField || field === noteField || field === folderField {
+            onFocus?(self)
+        }
+    }
+
     func controlTextDidEndEditing(_ obj: Notification) {
         if let field = obj.object as? NSTextField, field === targetField {
             syncTargetTextIfNeeded()
             applyTargetDisplay(targetDisplay(for: selectedDestination(), folder: folderField.stringValue, note: noteField.stringValue))
+        }
+        if let field = obj.object as? NSTextField, field === tagsField {
+            refreshTagsConfigDisplay()
         }
         onChange?(self)
     }
@@ -2187,9 +2428,11 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
     private let tagField = NSTextField(string: Settings.taskTag)
     private let notesRootField = NSTextField(string: Settings.notesRootPath)
     private let chooseNotesRootButton = NSButton(title: "Choisir dossier Notes", target: nil, action: nil)
-    private let openNoteCheckbox = NSButton(checkboxWithTitle: "Ouvrir NotePlan après l'ajout", target: nil, action: nil)
-    private let includeSourceCheckbox = NSButton(checkboxWithTitle: "Ajouter la source (lien capturé)", target: nil, action: nil)
-    private let includeDocumentSourceCheckbox = NSButton(checkboxWithTitle: "Ajouter la source document (titre + lien fichier)", target: nil, action: nil)
+    private let openNoteCheckbox = NSButton(checkboxWithTitle: "Ouvrir NotePlan", target: nil, action: nil)
+    private let autoSaveCheckbox = NSButton(checkboxWithTitle: "Auto save", target: nil, action: nil)
+    private let shortcutAutoSaveCheckbox = NSButton(checkboxWithTitle: "Auto save", target: nil, action: nil)
+    private let includeSourceCheckbox = NSButton(checkboxWithTitle: "Ajouter le lien", target: nil, action: nil)
+    private let includeDocumentSourceCheckbox = NSButton(checkboxWithTitle: "Ajouter le doc (titre + lien fichier)", target: nil, action: nil)
     private var shortcutRows: [ShortcutSlotRow] = []
     private let shortcutHelpLabel = NSTextField(labelWithString: "Ligne 1 par défaut : NotePlan + Aujourd'hui (NotePlan). Sinon choisir Standard, déposer depuis Finder une note .md, ou coller un lien NotePlan.")
     private let variablesHelpLabel = NSTextField(labelWithString: "Variables : $date, $day, $time, $datetime, $month, $year")
@@ -2199,6 +2442,10 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
     private let importButton = NSButton(title: "Importer JSON", target: nil, action: nil)
     private let captureRulesButton = NSButton(title: "Règles capture", target: nil, action: nil)
     private let captureRulesHelpButton = NSButton(title: "Doc formats", target: nil, action: nil)
+    private let sourceWebPopup = NSPopUpButton()
+    private let sourceFilePopup = NSPopUpButton()
+    private let addConfigButton = NSButton(title: "Ajouter tokens", target: nil, action: nil)
+    private let replaceConfigButton = NSButton(title: "Réappliquer", target: nil, action: nil)
     private let statusLabel = NSTextField(labelWithString: "")
     private let saveButton = NSButton(title: "Enregistrer", target: nil, action: nil)
     private let shortcutMakerNoteField = NSTextField(labelWithString: "")
@@ -2207,6 +2454,7 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
     private let shortcutMakerRecentTextView = NSTextView()
     private let nc2Controller = NotePlanEditorWindowController()
     private var generatedShortcutURL: URL?
+    private weak var activeTagConfigRow: ShortcutSlotRow?
     private let shortcutMakerNotePathKey = "noteplanShortcutMaker.notePath"
     private let shortcutMakerNoteURLKey = "noteplanShortcutMaker.noteURL"
     private let shortcutMakerNoteDisplayKey = "noteplanShortcutMaker.noteDisplay"
@@ -2216,7 +2464,7 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
     private var pasteMonitor: Any?
 
     convenience init() {
-        let window = centeredWindow("Préférences NoteDroppy", width: 1220, height: 860, style: [.titled, .closable, .miniaturizable, .resizable])
+        let window = centeredWindow("Note Droopy — Préférences", width: 1220, height: 860, style: [.titled, .closable, .miniaturizable, .resizable])
         window.minSize = NSSize(width: 1220, height: 860)
         window.setContentSize(NSSize(width: 1220, height: 860))
         self.init(window: window)
@@ -2251,16 +2499,29 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
                   let settingsTab = tabView.tabViewItems.first(where: { ($0.identifier as? String) == "settings" }) else { return }
             tabView.selectTabViewItem(settingsTab)
         }
-        tabView.selectTabViewItem(nc2Tab)
+        tabView.selectTabViewItem(settingsTab)
+
+        let settingsScrollView = NSScrollView()
+        settingsScrollView.translatesAutoresizingMaskIntoConstraints = false
+        settingsScrollView.hasVerticalScroller = true
+        settingsScrollView.hasHorizontalScroller = false
+        settingsScrollView.autohidesScrollers = false
+        settingsScrollView.drawsBackground = false
+        settingsScrollView.borderType = .noBorder
+        settingsContainer.addSubview(settingsScrollView)
+
+        let settingsDocument = FlippedView()
+        settingsDocument.translatesAutoresizingMaskIntoConstraints = false
+        settingsScrollView.documentView = settingsDocument
 
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 12
         stack.translatesAutoresizingMaskIntoConstraints = false
-        settingsContainer.addSubview(stack)
+        settingsDocument.addSubview(stack)
 
-        let title = NSTextField(labelWithString: "NoteDroppy")
+        let title = NSTextField(labelWithString: "Note Droopy")
         title.font = .boldSystemFont(ofSize: 18)
 
         let tagline = NSTextField(labelWithString: "Time is precious.\nSpend it with those you love")
@@ -2310,14 +2571,49 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         notesRootRow.addArrangedSubview(chooseNotesRootButton)
 
         openNoteCheckbox.state = Settings.openNote ? .on : .off
+        autoSaveCheckbox.state = Settings.autoSave ? .on : .off
         includeSourceCheckbox.state = Settings.includeSource ? .on : .off
         includeDocumentSourceCheckbox.state = Settings.includeDocumentSource ? .on : .off
+        [openNoteCheckbox, autoSaveCheckbox, includeSourceCheckbox, includeDocumentSourceCheckbox].forEach { checkbox in
+            checkbox.target = self
+            checkbox.action = #selector(autosaveSettingsFromControl(_:))
+        }
         shortcutHelpLabel.textColor = .secondaryLabelColor
         shortcutHelpLabel.lineBreakMode = .byWordWrapping
         shortcutHelpLabel.maximumNumberOfLines = 2
-        variablesHelpLabel.textColor = .secondaryLabelColor
+        variablesHelpLabel.attributedStringValue = coloredVariableHelp("Variables : $date, $day, $time, $datetime, $month, $year")
         variablesHelpLabel.lineBreakMode = .byWordWrapping
         variablesHelpLabel.maximumNumberOfLines = 1
+
+        [sourceWebPopup, sourceFilePopup].forEach { popup in
+            popup.addItems(withTitles: ["Global", "Oui", "Non"])
+            popup.selectItem(withTitle: "Global")
+            popup.toolTip = "Global = réglage général, Oui/Non ajoute un token dans Tag & Config"
+            popup.translatesAutoresizingMaskIntoConstraints = false
+            popup.widthAnchor.constraint(equalToConstant: 110).isActive = true
+        }
+        addConfigButton.target = self
+        addConfigButton.action = #selector(addConfigTokens)
+        addConfigButton.bezelStyle = .rounded
+        replaceConfigButton.target = self
+        replaceConfigButton.action = #selector(replaceConfigTokens)
+        replaceConfigButton.bezelStyle = .rounded
+
+        let optionsRow = horizontalRow(spacing: 12)
+        optionsRow.addArrangedSubview(formLabel("Options -> Tags", width: 128))
+        optionsRow.addArrangedSubview(formLabel("Source web", width: 92))
+        optionsRow.addArrangedSubview(sourceWebPopup)
+        optionsRow.addArrangedSubview(formLabel("Source fichier", width: 112))
+        optionsRow.addArrangedSubview(sourceFilePopup)
+        optionsRow.addArrangedSubview(addConfigButton)
+        optionsRow.addArrangedSubview(replaceConfigButton)
+
+        let colorsRow = horizontalRow(spacing: 10)
+        colorsRow.addArrangedSubview(formLabel("Couleurs", width: 128))
+        colorsRow.addArrangedSubview(tokenLegend("#tag", .systemGreen))
+        colorsRow.addArrangedSubview(tokenLegend("$variable", .systemBlue))
+        colorsRow.addArrangedSubview(tokenLegend("!config", .systemIndigo))
+        colorsRow.addArrangedSubview(tokenLegend("@contexte", .systemOrange))
 
         statusLabel.textColor = .secondaryLabelColor
         statusLabel.lineBreakMode = .byWordWrapping
@@ -2401,6 +2697,9 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
             row.onPasteTarget = { [weak self] row in
                 self?.pasteTarget(for: self?.activeShortcutRow(defaultingTo: row) ?? row)
             }
+            row.onFocus = { [weak self] row in
+                self?.setActiveTagConfigRow(row)
+            }
             row.onChange = { [weak self] _ in
                 self?.autosaveSettings(message: "Réglages enregistrés.")
             }
@@ -2411,11 +2710,17 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         stack.addArrangedSubview(titleStack)
         stack.addArrangedSubview(serviceTagRow)
         stack.addArrangedSubview(notesRootRow)
-        stack.addArrangedSubview(openNoteCheckbox)
-        stack.addArrangedSubview(includeSourceCheckbox)
-        stack.addArrangedSubview(includeDocumentSourceCheckbox)
+        let captureOptionsRow = horizontalRow(spacing: 14)
+        captureOptionsRow.addArrangedSubview(openNoteCheckbox)
+        captureOptionsRow.addArrangedSubview(autoSaveCheckbox)
+        captureOptionsRow.addArrangedSubview(includeSourceCheckbox)
+        captureOptionsRow.addArrangedSubview(includeDocumentSourceCheckbox)
+
+        stack.addArrangedSubview(captureOptionsRow)
         stack.addArrangedSubview(shortcutHelpLabel)
         stack.addArrangedSubview(variablesHelpLabel)
+        stack.addArrangedSubview(optionsRow)
+        stack.addArrangedSubview(colorsRow)
         stack.addArrangedSubview(slotsStack)
         stack.addArrangedSubview(buttons)
         stack.addArrangedSubview(statusLabel)
@@ -2426,15 +2731,33 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
             tabView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
             tabView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -12),
 
-            stack.leadingAnchor.constraint(equalTo: settingsContainer.leadingAnchor, constant: 12),
-            stack.trailingAnchor.constraint(equalTo: settingsContainer.trailingAnchor, constant: -12),
-            stack.topAnchor.constraint(equalTo: settingsContainer.topAnchor, constant: 12)
+            settingsScrollView.leadingAnchor.constraint(equalTo: settingsContainer.leadingAnchor),
+            settingsScrollView.trailingAnchor.constraint(equalTo: settingsContainer.trailingAnchor),
+            settingsScrollView.topAnchor.constraint(equalTo: settingsContainer.topAnchor),
+            settingsScrollView.bottomAnchor.constraint(equalTo: settingsContainer.bottomAnchor),
+
+            settingsDocument.widthAnchor.constraint(equalTo: settingsScrollView.contentView.widthAnchor),
+
+            stack.leadingAnchor.constraint(equalTo: settingsDocument.leadingAnchor, constant: 12),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: settingsDocument.trailingAnchor, constant: -12),
+            stack.topAnchor.constraint(equalTo: settingsDocument.topAnchor, constant: 12),
+            stack.bottomAnchor.constraint(equalTo: settingsDocument.bottomAnchor, constant: -12)
         ])
         contentView.layoutSubtreeIfNeeded()
         let fitting = stack.fittingSize
-        let contentSize = NSSize(width: max(1220, fitting.width + 72), height: max(860, fitting.height + 92))
+        let screenFrame = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let contentSize = NSSize(
+            width: max(1220, min(fitting.width + 72, screenFrame.width - 80)),
+            height: max(760, min(860, screenFrame.height - 80))
+        )
         window?.setContentSize(contentSize)
-        window?.minSize = NSSize(width: 1220, height: 860)
+        window?.minSize = NSSize(width: 1100, height: 720)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(settingsDidChange),
+            name: .settingsDidChange,
+            object: nil
+        )
         refreshAccessibilityStatus()
         markPendingChanges(false)
         installPasteMonitorIfNeeded()
@@ -2445,7 +2768,7 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         case "nc2":
             nc2Controller.activateEmbeddedSort()
         default:
-            window?.title = "Préférences NoteDroppy"
+            window?.title = "Note Droopy — Préférences"
         }
     }
 
@@ -2506,6 +2829,10 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         detail.lineBreakMode = .byWordWrapping
         detail.maximumNumberOfLines = 2
 
+        shortcutAutoSaveCheckbox.state = Settings.autoSave ? .on : .off
+        shortcutAutoSaveCheckbox.target = self
+        shortcutAutoSaveCheckbox.action = #selector(autosaveSettingsFromControl(_:))
+
         shortcutMakerNoteField.lineBreakMode = .byTruncatingMiddle
         shortcutMakerDestinationField.lineBreakMode = .byTruncatingMiddle
         shortcutMakerDropView.translatesAutoresizingMaskIntoConstraints = false
@@ -2545,6 +2872,7 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
 
         stack.addArrangedSubview(title)
         stack.addArrangedSubview(detail)
+        stack.addArrangedSubview(shortcutAutoSaveCheckbox)
         stack.addArrangedSubview(shortcutMakerDropView)
         stack.addArrangedSubview(shortcutMakerInfoRow(title: "Note", value: shortcutMakerNoteField))
         stack.addArrangedSubview(chooseNoteButton)
@@ -2806,10 +3134,74 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         }
     }
 
+    private func setActiveTagConfigRow(_ row: ShortcutSlotRow) {
+        activeTagConfigRow?.setActive(false)
+        activeTagConfigRow = row
+        row.setActive(true)
+        statusLabel.stringValue = "Ligne \(row.index) sélectionnée pour Tag & Config."
+    }
+
+    private func selectedConfigRow() -> ShortcutSlotRow? {
+        activeTagConfigRow ?? shortcutRows.first
+    }
+
+    private func configTokensFromControls() -> [String] {
+        var tokens: [String] = []
+        switch sourceWebPopup.titleOfSelectedItem ?? "Global" {
+        case "Oui": tokens.append("!Web")
+        case "Non": tokens.append("!NoWeb")
+        default: break
+        }
+        switch sourceFilePopup.titleOfSelectedItem ?? "Global" {
+        case "Oui": tokens.append("!File")
+        case "Non": tokens.append("!NoFile")
+        default: break
+        }
+        return tokens
+    }
+
+    @objc private func addConfigTokens() {
+        applyConfigTokens(replace: false)
+    }
+
+    @objc private func replaceConfigTokens() {
+        applyConfigTokens(replace: true)
+    }
+
+    private func applyConfigTokens(replace: Bool) {
+        guard let row = selectedConfigRow() else {
+            statusLabel.stringValue = "Clique d'abord dans une case Tag & Config."
+            NSSound.beep()
+            return
+        }
+        setActiveTagConfigRow(row)
+        let tokens = configTokensFromControls()
+        guard !tokens.isEmpty else {
+            statusLabel.stringValue = "Choisis Oui ou Non dans Source web/fichier."
+            NSSound.beep()
+            return
+        }
+        var parts = row.tagsField.stringValue
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        if replace {
+            let replaced = Set(["!Web", "!NoWeb", "!File", "!NoFile"].map { $0.lowercased() })
+            parts.removeAll { replaced.contains($0.lowercased()) }
+        }
+        for token in tokens where !parts.contains(where: { $0.caseInsensitiveCompare(token) == .orderedSame }) {
+            parts.append(token)
+        }
+        row.tagsField.stringValue = parts.joined(separator: ", ")
+        row.refreshTagsConfigDisplay()
+        autosaveSettings(message: replace ? "Options réappliquées dans Tag & Config ligne \(row.index)." : "Tokens ajoutés dans Tag & Config ligne \(row.index).")
+    }
+
     deinit {
         if let pasteMonitor {
             NSEvent.removeMonitor(pasteMonitor)
         }
+        NotificationCenter.default.removeObserver(self)
     }
 
     private func installPasteMonitorIfNeeded() {
@@ -3030,7 +3422,7 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
           end if
         end tell
         delay 0.2
-        tell application "NoteDroppy" to activate
+        tell application "Note Droopy" to activate
         return copied
         """
 
@@ -3243,6 +3635,8 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         UserDefaults.standard.set(serviceName.isEmpty ? "NotePlan : ajouter en tâche" : serviceName, forKey: Settings.serviceNameKey)
         UserDefaults.standard.set(tag.isEmpty ? "#capture" : tag, forKey: Settings.taskTagKey)
         UserDefaults.standard.set(openNoteCheckbox.state == .on, forKey: Settings.openNoteKey)
+        shortcutAutoSaveCheckbox.state = autoSaveCheckbox.state
+        UserDefaults.standard.set(autoSaveCheckbox.state == .on, forKey: Settings.autoSaveKey)
         UserDefaults.standard.set(includeSourceCheckbox.state == .on, forKey: Settings.includeSourceKey)
         UserDefaults.standard.set(includeDocumentSourceCheckbox.state == .on, forKey: Settings.includeDocumentSourceKey)
         shortcutRows.forEach { Settings.setShortcutSlot($0.slot) }
@@ -3312,6 +3706,8 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         UserDefaults.standard.set(serviceName.isEmpty ? "NotePlan : ajouter en tâche" : serviceName, forKey: Settings.serviceNameKey)
         UserDefaults.standard.set(tag.isEmpty ? "#capture" : tag, forKey: Settings.taskTagKey)
         UserDefaults.standard.set(openNoteCheckbox.state == .on, forKey: Settings.openNoteKey)
+        shortcutAutoSaveCheckbox.state = autoSaveCheckbox.state
+        UserDefaults.standard.set(autoSaveCheckbox.state == .on, forKey: Settings.autoSaveKey)
         UserDefaults.standard.set(includeSourceCheckbox.state == .on, forKey: Settings.includeSourceKey)
         UserDefaults.standard.set(includeDocumentSourceCheckbox.state == .on, forKey: Settings.includeDocumentSourceKey)
         shortcutRows.forEach { Settings.setShortcutSlot($0.slot) }
@@ -3327,6 +3723,25 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         markPendingChanges(true)
     }
 
+    @objc private func autosaveSettingsFromControl(_ sender: Any?) {
+        if let checkbox = sender as? NSButton,
+           checkbox === autoSaveCheckbox || checkbox === shortcutAutoSaveCheckbox {
+            autoSaveCheckbox.state = checkbox.state
+            shortcutAutoSaveCheckbox.state = checkbox.state
+        }
+        autosaveSettings(message: "Réglages enregistrés.")
+    }
+
+    @objc private func settingsDidChange() {
+        syncAutoSaveCheckboxes()
+    }
+
+    private func syncAutoSaveCheckboxes() {
+        let state: NSControl.StateValue = Settings.autoSave ? .on : .off
+        autoSaveCheckbox.state = state
+        shortcutAutoSaveCheckbox.state = state
+    }
+
     private func markPendingChanges(_ pending: Bool) {
         hasPendingChanges = pending
         saveButton.bezelColor = pending ? .systemOrange : .systemGreen
@@ -3337,6 +3752,7 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         tagField.stringValue = Settings.taskTag
         notesRootField.stringValue = Settings.notesRootPath
         openNoteCheckbox.state = Settings.openNote ? .on : .off
+        syncAutoSaveCheckboxes()
         includeSourceCheckbox.state = Settings.includeSource ? .on : .off
         includeDocumentSourceCheckbox.state = Settings.includeDocumentSource ? .on : .off
         let slots = Settings.allShortcutSlots()
@@ -3740,8 +4156,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         log("launch")
         Settings.migrateShortcutLayoutIfNeeded()
         if !isAccessibilityTrusted(prompt: false) {
-            log("accessibility:prompt-on-launch")
-            _ = isAccessibilityTrusted(prompt: true)
+            log("accessibility:not-granted")
         }
         shortcutMonitor = GlobalShortcutMonitor { [weak self] slotIndex in
             self?.captureSelectedTextWithShortcut(slotIndex: slotIndex)
@@ -3754,7 +4169,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.log("show-settings:first-launch")
                     self.showSettingsWindow()
                 } else {
-                    self.log("hide-settings:normal-launch")
+                    self.log("show-settings:normal-launch")
+                    self.showSettingsWindow()
                 }
             }
         }
@@ -3776,7 +4192,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func showAbout(_ sender: Any?) {
         let alert = NSAlert()
         alert.icon = noteDroopyLogoImage(size: NSSize(width: 96, height: 96))
-        alert.messageText = "NoteDroppy"
+        alert.messageText = "Note Droopy"
         alert.informativeText = """
         Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")
 
@@ -3801,7 +4217,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func openEnglishHelp(_ sender: Any?) {
-        showHelpDocument(named: "HELP.en", title: "NoteDroppy Help")
+        showHelpDocument(named: "HELP.en", title: "Note Droopy Help")
     }
 
     @objc func openGitHubRepository(_ sender: Any?) {
@@ -4376,7 +4792,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func formattedTask(from content: String, tags: String, sourceURL: String? = nil, sourceTitle: String? = nil) -> String {
-        let tag = normalizedTags(expandedVariables(tags), extra: llmTags(in: [content, sourceURL].compactMap { $0 }))
+        let expandedConfig = expandedVariables(tags)
+        let tag = normalizedTags(expandedConfig, extra: llmTags(in: [content, sourceURL].compactMap { $0 }))
+        let prefix = captureLinePrefix(from: expandedConfig)
+        let priority = capturePriority(from: expandedConfig)
+        let schedule = captureSchedule(from: expandedConfig)
         var lines = content.components(separatedBy: .newlines)
         while lines.first?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true {
             lines.removeFirst()
@@ -4386,7 +4806,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         guard let first = lines.first else {
-            return "- [ ] \(tag)"
+            return emptyCaptureLine(prefix: prefix, tags: tag, priority: priority, schedule: schedule)
         }
         let firstLine = first.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -4397,7 +4817,152 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             continuation.append(sourceLine)
         }
         let suffix = tag.isEmpty ? "" : " \(tag)"
-        return (["- [ ] \(firstLine)\(suffix)"] + continuation).joined(separator: "\n")
+        return ([captureLine(prefix: prefix, content: firstLine, suffix: suffix, priority: priority, schedule: schedule)] + continuation).joined(separator: "\n")
+    }
+
+    private enum CaptureLinePrefix {
+        case task
+        case star
+        case plus
+        case plain
+    }
+
+    private func captureLinePrefix(from config: String) -> CaptureLinePrefix {
+        let tokens = configTokens(config)
+        if tokens.contains("!star") || tokens.contains("!bulletstar") || tokens.contains("$mark:*") || tokens.contains("$marker:*") {
+            return .star
+        }
+        if tokens.contains("!plus") || tokens.contains("!bulletplus") || tokens.contains("$mark:+") || tokens.contains("$marker:+") {
+            return .plus
+        }
+        if tokens.contains("!text") || tokens.contains("!plain") || tokens.contains("$mark:text") || tokens.contains("$marker:text") {
+            return .plain
+        }
+        return .task
+    }
+
+    private func configTokens(_ config: String) -> [String] {
+        config
+            .replacingOccurrences(of: ",", with: " ")
+            .split(whereSeparator: { $0.isWhitespace || $0.isNewline })
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .filter { !$0.isEmpty }
+    }
+
+    private func normalizedConfigText(_ config: String) -> String {
+        config
+            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "fr_FR"))
+            .lowercased()
+            .replacingOccurrences(of: ",", with: "")
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "-", with: "")
+            .replacingOccurrences(of: "_", with: "")
+    }
+
+    private func capturePriority(from config: String) -> String {
+        for token in configTokens(config) {
+            if token.allSatisfy({ $0 == "!" }), (1...5).contains(token.count) {
+                return String(repeating: "!", count: token.count)
+            }
+            if token.hasPrefix("!p"),
+               let value = Int(token.dropFirst(2)),
+               (1...5).contains(value) {
+                return String(repeating: "!", count: value)
+            }
+            if token.hasPrefix("$prio:") {
+                let rawValue = String(token.dropFirst("$prio:".count))
+                if rawValue.allSatisfy({ $0 == "!" }), (1...5).contains(rawValue.count) {
+                    return String(repeating: "!", count: rawValue.count)
+                }
+                if let value = Int(rawValue), (1...5).contains(value) {
+                    return String(repeating: "!", count: value)
+                }
+            }
+        }
+        return ""
+    }
+
+    private func captureSchedule(from config: String, date: Date = Date()) -> String {
+        let normalized = normalizedConfigText(config)
+        let aliases: [(keys: [String], offset: () -> Date?)] = [
+            (["!demain", "$date:demain", "$date:tomorrow"], { Calendar.current.date(byAdding: .day, value: 1, to: date) }),
+            (["!weekend", "!weekend", "$date:weekend"], { self.upcomingSaturday(from: date) }),
+            (["!semainepro", "$date:semainepro", "$date:nextweek"], { self.nextMonday(from: date) }),
+            (["!moisprochain", "$date:moisprochain", "$date:nextmonth"], { self.firstDayOfNextMonth(from: date) }),
+            (["!dans6mois", "!6mois", "$date:dans6mois", "$date:6mois", "$date:6months"], { Calendar.current.date(byAdding: .month, value: 6, to: date) })
+        ]
+        for alias in aliases {
+            if alias.keys.contains(where: { normalized.contains($0.replacingOccurrences(of: "-", with: "")) }),
+               let target = alias.offset() {
+                return notePlanDateToken(for: target)
+            }
+        }
+        return ""
+    }
+
+    private func upcomingSaturday(from date: Date) -> Date? {
+        let calendar = Calendar.current
+        let weekday = calendar.component(.weekday, from: date)
+        let saturday = 7
+        let daysUntilSaturday = (saturday - weekday + 7) % 7
+        return calendar.date(byAdding: .day, value: daysUntilSaturday == 0 ? 0 : daysUntilSaturday, to: date)
+    }
+
+    private func nextMonday(from date: Date) -> Date? {
+        let calendar = Calendar.current
+        let weekday = calendar.component(.weekday, from: date)
+        let monday = 2
+        let daysUntilMonday = (monday - weekday + 7) % 7
+        return calendar.date(byAdding: .day, value: daysUntilMonday == 0 ? 7 : daysUntilMonday, to: date)
+    }
+
+    private func firstDayOfNextMonth(from date: Date) -> Date? {
+        let calendar = Calendar.current
+        guard let nextMonth = calendar.date(byAdding: .month, value: 1, to: date) else { return nil }
+        return calendar.date(from: calendar.dateComponents([.year, .month], from: nextMonth))
+    }
+
+    private func notePlanDateToken(for date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "fr_FR")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return ">\(formatter.string(from: date))"
+    }
+
+    private func decoratedCaptureContent(_ content: String, priority: String, schedule: String) -> String {
+        [schedule, priority, content]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+    }
+
+    private func captureLine(prefix: CaptureLinePrefix, content: String, suffix: String, priority: String, schedule: String) -> String {
+        let decoratedContent = decoratedCaptureContent(content, priority: priority, schedule: schedule)
+        switch prefix {
+        case .task:
+            return "- [ ] \(decoratedContent)\(suffix)"
+        case .star:
+            return "* \(decoratedContent)\(suffix)"
+        case .plus:
+            return "+ \(decoratedContent)\(suffix)"
+        case .plain:
+            return "\(decoratedContent)\(suffix)"
+        }
+    }
+
+    private func emptyCaptureLine(prefix: CaptureLinePrefix, tags: String, priority: String, schedule: String) -> String {
+        let decoratedContent = decoratedCaptureContent("", priority: priority, schedule: schedule)
+        let suffix = tags.isEmpty ? "" : " \(tags)"
+        switch prefix {
+        case .task:
+            return decoratedContent.isEmpty ? "- [ ]\(suffix)" : "- [ ] \(decoratedContent)\(suffix)"
+        case .star:
+            return decoratedContent.isEmpty ? "*\(suffix)" : "* \(decoratedContent)\(suffix)"
+        case .plus:
+            return decoratedContent.isEmpty ? "+\(suffix)" : "+ \(decoratedContent)\(suffix)"
+        case .plain:
+            return decoratedContent.isEmpty ? tags : "\(decoratedContent)\(suffix)"
+        }
     }
 
     private func llmTags(in values: [String]) -> [String] {
@@ -4617,6 +5182,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 final class NotePlanSortTextView: NSTextView {
     var onDroppedPath: ((String) -> Bool)?
+    var onFoldMarkerClick: ((Int) -> Bool)?
 
     convenience init() {
         self.init(frame: NSRect(x: 0, y: 0, width: 900, height: 500), textContainer: nil)
@@ -4647,6 +5213,25 @@ final class NotePlanSortTextView: NSTextView {
         return onDroppedPath?(path) ?? false
     }
 
+    override func mouseDown(with event: NSEvent) {
+        if let characterIndex = characterIndex(at: event),
+           onFoldMarkerClick?(characterIndex) == true {
+            return
+        }
+        super.mouseDown(with: event)
+    }
+
+    private func characterIndex(at event: NSEvent) -> Int? {
+        guard let layoutManager, let textContainer else { return nil }
+        let point = convert(event.locationInWindow, from: nil)
+        let origin = textContainerOrigin
+        let containerPoint = NSPoint(x: point.x - origin.x, y: point.y - origin.y)
+        guard containerPoint.x >= 0, containerPoint.y >= 0 else { return nil }
+        let glyphIndex = layoutManager.glyphIndex(for: containerPoint, in: textContainer)
+        let characterIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
+        return min(characterIndex, max((string as NSString).length - 1, 0))
+    }
+
     private func droppedPath(from pasteboard: NSPasteboard) -> String? {
         if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL],
            let url = urls.first {
@@ -4669,6 +5254,9 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
     static func show() {
         if let shared {
             shared.showMainWindow()
+            if shared.textView.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                shared.loadTodayDirect(reason: "réouverture")
+            }
             return
         }
         let controller = NotePlanEditorWindowController()
@@ -4677,7 +5265,8 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         controller.window.delegate = controller
         shared = controller
         controller.showMainWindow()
-        controller.loadInitialFileIfNeeded()
+        controller.loadTodayDirect(reason: "lancement")
+        controller.didLoadInitialFile = true
         controller.window.makeFirstResponder(controller.textView)
     }
 
@@ -4697,7 +5286,10 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
     private let pathLabel = NSTextField(labelWithString: "Aucun fichier ouvert")
     private let textView = NSTextView()
     private let scrollView = NSScrollView()
+    private let notePlanPreviewView = NSTextView()
+    private let notePlanPreviewScrollView = NSScrollView()
     private let saveButton = NSButton(title: "Sauvegarder", target: nil, action: nil)
+    private let commanderAutoSaveCheckbox = NSButton(checkboxWithTitle: "Auto save", target: nil, action: nil)
     private let reloadButton = NSButton(title: "Recharger", target: nil, action: nil)
     var onCloseEmbeddedSort: (() -> Void)?
     private var functionsWindow: NSWindow?
@@ -4715,7 +5307,9 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
     private var initialCollapsedBlockStarts = Set<Int>()
     private var displayedSourceLines: [Int] = []
     private var isFoldView = false
+    private var isNotePlanPreviewVisible = false
     private var isApplyingHighlight = false
+    private var autoSaveTimer: Timer?
 
     private struct LoadedFile {
         let relativePath: String
@@ -4725,15 +5319,41 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
 
     override init() {
         let defaultRoot = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Containers/co.noteplan.NotePlan-setapp/Data/Library/Application Support/co.noteplan.NotePlan-setapp")
+            .appendingPathComponent("Documents")
         rootURL = Settings.selectedNotesRoot().map(Self.normalizedNotePlanRoot)
-            ?? UserDefaults.standard.string(forKey: "noteplanRoot").map(URL.init(fileURLWithPath:))
             ?? defaultRoot
         super.init()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(settingsDidChange),
+            name: .settingsDidChange,
+            object: nil
+        )
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 
     private func showMainWindow() {
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        if window.frame.width < 900 || window.frame.height < 600 {
+            let screenFrame = NSScreen.main?.visibleFrame ?? NSRect(x: 80, y: 80, width: 1440, height: 900)
+            let size = NSSize(width: min(1280, screenFrame.width - 80), height: min(820, screenFrame.height - 80))
+            let origin = NSPoint(
+                x: screenFrame.midX - size.width / 2,
+                y: screenFrame.midY - size.height / 2
+            )
+            window.setFrame(NSRect(origin: origin, size: size), display: true)
+        }
+        window.setIsVisible(true)
+        if window.isMiniaturized {
+            window.deminiaturize(nil)
+        }
+        window.setFrame(window.frame, display: true)
         window.makeKeyAndOrderFront(nil)
+        window.order(.above, relativeTo: 0)
+        window.orderFrontRegardless()
         NSApp.activate(ignoringOtherApps: true)
     }
 
@@ -4748,6 +5368,7 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
     }
 
     func activateEmbeddedSort() {
+        commanderAutoSaveCheckbox.state = Settings.autoSave ? .on : .off
         if let selectedRoot = Settings.selectedNotesRoot() {
             let normalized = Self.normalizedNotePlanRoot(selectedRoot)
             if rootURL.path != normalized.path {
@@ -4780,6 +5401,9 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         appMenu.addItem(NSMenuItem(title: "About NoteDroppy", action: #selector(showAbout), keyEquivalent: ""))
         appMenu.addItem(NSMenuItem(title: "Changelog", action: #selector(showChangelog), keyEquivalent: ""))
         appMenu.addItem(NSMenuItem(title: "Fonctions NoteDroppy / NoteplanShorty", action: #selector(showFunctionsWindow), keyEquivalent: ""))
+        let settingsItem = NSMenuItem(title: "Réglages...", action: #selector(AppDelegate.showSettingsWindowFromMenu(_:)), keyEquivalent: ",")
+        settingsItem.target = NSApp.delegate
+        appMenu.addItem(settingsItem)
         appMenu.addItem(.separator())
         appMenu.addItem(NSMenuItem(title: "Fermer l'éditeur", action: #selector(closeEditorWindow), keyEquivalent: "w"))
         appMenu.addItem(NSMenuItem(title: "Quitter NoteDroppy", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
@@ -4817,12 +5441,17 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         window.title = "NoteDroppy - Éditeur NotePlan"
         window.isReleasedWhenClosed = false
         window.isRestorable = false
+        window.minSize = NSSize(width: 1100, height: 760)
+        window.setContentSize(NSSize(width: 1100, height: 760))
+        window.center()
         window.contentView = buildEditorContentView()
+        window.setContentSize(NSSize(width: 1100, height: 760))
+        window.center()
     }
 
     private func buildEditorContentView() -> NSView {
-        let content = NSView()
-        content.translatesAutoresizingMaskIntoConstraints = false
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 1100, height: 760))
+        content.translatesAutoresizingMaskIntoConstraints = true
 
         let rootLabel = NSTextField(labelWithString: "Dossier NotePlan")
         rootLabel.font = .systemFont(ofSize: 12, weight: .medium)
@@ -4851,6 +5480,9 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         reloadButton.action = #selector(reloadFile)
         saveButton.target = self
         saveButton.action = #selector(saveFile)
+        commanderAutoSaveCheckbox.state = Settings.autoSave ? .on : .off
+        commanderAutoSaveCheckbox.target = self
+        commanderAutoSaveCheckbox.action = #selector(toggleCommanderAutoSave(_:))
         setSaveButtonState(.clean)
         let sortButton = NSButton(title: "Trier priorités", target: self, action: #selector(sortPriorities))
         let sortAtButton = NSButton(title: "Trier @", target: self, action: #selector(sortAtContext))
@@ -4870,6 +5502,7 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         let foldAllButton = NSButton(title: "Tout plier", target: self, action: #selector(foldAllBlocks))
         let unfoldAllButton = NSButton(title: "Tout déplier", target: self, action: #selector(unfoldAllBlocks))
         let restoreFoldButton = NSButton(title: "État initial", target: self, action: #selector(restoreInitialFoldState))
+        let notePlanPreviewButton = NSButton(title: "Vue NotePlan", target: self, action: #selector(toggleNotePlanPreview))
         let fileActionsLabel = NSTextField(labelWithString: "Fichier")
         fileActionsLabel.font = .systemFont(ofSize: 12, weight: .medium)
         let sortLabel = NSTextField(labelWithString: "Tris")
@@ -4946,7 +5579,8 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         textView.setAccessibilityLabel("Contenu de la note")
         textView.delegate = self
         textView.string = ""
-        applySyntaxHighlighting()
+        // Keep the initial load path boring and reliable: text first, styling later through explicit NotePlan view actions.
+        // Calling the rich highlighter here can leave the NSTextView visually blank while the status says the file loaded.
 
         scrollView.documentView = textView
         scrollView.hasVerticalScroller = true
@@ -4955,6 +5589,28 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         scrollView.drawsBackground = true
         scrollView.backgroundColor = .textBackgroundColor
         scrollView.borderType = .bezelBorder
+
+        notePlanPreviewView.isRichText = true
+        notePlanPreviewView.isEditable = false
+        notePlanPreviewView.isSelectable = true
+        notePlanPreviewView.allowsUndo = false
+        notePlanPreviewView.linkTextAttributes = [
+            .foregroundColor: NSColor.systemBlue,
+            .underlineStyle: NSUnderlineStyle.single.rawValue
+        ]
+        notePlanPreviewView.font = .systemFont(ofSize: 15, weight: .regular)
+        notePlanPreviewView.textColor = .labelColor
+        notePlanPreviewView.backgroundColor = .textBackgroundColor
+        notePlanPreviewView.textContainerInset = NSSize(width: 28, height: 22)
+        notePlanPreviewView.delegate = self
+        notePlanPreviewScrollView.documentView = notePlanPreviewView
+        notePlanPreviewScrollView.hasVerticalScroller = true
+        notePlanPreviewScrollView.hasHorizontalScroller = false
+        notePlanPreviewScrollView.autohidesScrollers = false
+        notePlanPreviewScrollView.drawsBackground = true
+        notePlanPreviewScrollView.backgroundColor = .textBackgroundColor
+        notePlanPreviewScrollView.borderType = .bezelBorder
+        notePlanPreviewScrollView.isHidden = true
 
         let topRow = NSStackView(views: [rootLabel, rootField, chooseButton, applyButton, functionsButton])
         topRow.orientation = .horizontal
@@ -4966,7 +5622,7 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         fileRow.spacing = 8
         fileRow.alignment = .centerY
 
-        let fileActionRow = NSStackView(views: [fileActionsLabel, previousDayButton, todayButton, nextDayButton, reloadButton, refreshButton, saveButton, closeSortButton])
+        let fileActionRow = NSStackView(views: [fileActionsLabel, previousDayButton, todayButton, nextDayButton, reloadButton, refreshButton, saveButton, commanderAutoSaveCheckbox, closeSortButton])
         fileActionRow.orientation = .horizontal
         fileActionRow.spacing = 8
         fileActionRow.alignment = .centerY
@@ -4976,7 +5632,7 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         sortRow.spacing = 8
         sortRow.alignment = .centerY
 
-        let viewRow = NSStackView(views: [paletteLabel, palettePopup, foldBlockButton, unfoldBlockButton, foldAllButton, unfoldAllButton, restoreFoldButton])
+        let viewRow = NSStackView(views: [paletteLabel, palettePopup, notePlanPreviewButton, foldBlockButton, unfoldBlockButton, foldAllButton, unfoldAllButton, restoreFoldButton])
         viewRow.orientation = .horizontal
         viewRow.spacing = 8
         viewRow.alignment = .centerY
@@ -4996,7 +5652,7 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         header.spacing = 8
         header.alignment = .leading
 
-        for view in [header, scrollView] {
+        for view in [header, scrollView, notePlanPreviewScrollView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             content.addSubview(view)
         }
@@ -5015,7 +5671,11 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
             scrollView.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 12),
             scrollView.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 14),
             scrollView.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -14),
-            scrollView.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -14)
+            scrollView.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -14),
+            notePlanPreviewScrollView.topAnchor.constraint(equalTo: scrollView.topAnchor),
+            notePlanPreviewScrollView.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor),
+            notePlanPreviewScrollView.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor),
+            notePlanPreviewScrollView.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor)
         ])
         return content
     }
@@ -5282,16 +5942,21 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
     }
 
     private func applyLoadedFile(_ loaded: LoadedFile, statusText: String = "Fichier chargé et éditable") {
+        let cleanContent = markdownWithoutFoldPresentation(loaded.content)
         currentFileURL = loaded.fileURL
-        loadedContent = loaded.content
-        sourceMarkdown = loaded.content
+        loadedContent = cleanContent
+        sourceMarkdown = cleanContent
         collapsedBlockStarts.removeAll()
         initialCollapsedBlockStarts.removeAll()
         isFoldView = false
-        displayedSourceLines = Array(0..<loaded.content.components(separatedBy: "\n").count)
+        isNotePlanPreviewVisible = false
+        autoSaveTimer?.invalidate()
+        autoSaveTimer = nil
+        notePlanPreviewScrollView.isHidden = true
+        scrollView.isHidden = false
+        displayedSourceLines = Array(0..<cleanContent.components(separatedBy: "\n").count)
         textView.isEditable = true
-        textView.string = loaded.content
-        applySyntaxHighlighting()
+        textView.string = cleanContent
         let contentWidth = max(scrollView.contentSize.width, 1100)
         textView.frame = NSRect(x: 0, y: 0, width: contentWidth, height: max(scrollView.contentSize.height, 640))
         textView.textContainer?.containerSize = NSSize(width: contentWidth, height: CGFloat.greatestFiniteMagnitude)
@@ -5308,7 +5973,7 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         setVisibleTitle("Note Commander - \(loaded.relativePath)")
         textView.window?.makeFirstResponder(textView)
         setSaveButtonState(.clean)
-        status("\(statusText) - \(loaded.content.count) caractères")
+        status("\(statusText) - \(cleanContent.count) caractères")
     }
 
     @objc private func reloadFile() {
@@ -5317,26 +5982,64 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
     }
 
     @objc private func saveFile() {
+        saveCurrentFile(isAutoSave: false)
+    }
+
+    @objc private func toggleCommanderAutoSave(_ sender: NSButton) {
+        let enabled = sender.state == .on
+        UserDefaults.standard.set(enabled, forKey: Settings.autoSaveKey)
+        UserDefaults.standard.synchronize()
+        NotificationCenter.default.post(name: .settingsDidChange, object: nil)
+        if enabled {
+            status("Auto save actif")
+            scheduleAutoSaveIfNeeded()
+        } else {
+            autoSaveTimer?.invalidate()
+            autoSaveTimer = nil
+            status("Auto save désactivé")
+        }
+    }
+
+    @objc private func settingsDidChange() {
+        commanderAutoSaveCheckbox.state = Settings.autoSave ? .on : .off
+        if !Settings.autoSave {
+            autoSaveTimer?.invalidate()
+            autoSaveTimer = nil
+        }
+    }
+
+    private func saveCurrentFile(isAutoSave: Bool) {
         guard let fileURL = currentFileURL else { return }
         do {
             if isFoldView {
                 status("Déplie avant de sauvegarder: le pliage est un affichage.")
                 return
             }
+            if isNotePlanPreviewVisible {
+                status("Reviens au Markdown éditable avant de sauvegarder.")
+                return
+            }
+            let markdown = currentEditorMarkdown()
+            guard markdown != loadedContent else {
+                if !isAutoSave {
+                    setSaveButtonState(.clean)
+                    status("Déjà sauvegardé")
+                }
+                return
+            }
             let disk = try String(contentsOf: fileURL, encoding: .utf8)
             guard disk == loadedContent else {
-                status("Le fichier a changé sur disque. Recharge avant de sauvegarder.")
+                status(isAutoSave ? "Auto save bloqué: fichier changé sur disque. Recharge avant d'écrire." : "Le fichier a changé sur disque. Recharge avant de sauvegarder.")
                 return
             }
             try backup(fileURL: fileURL, content: disk)
-            let markdown = currentEditorMarkdown()
             try markdown.write(to: fileURL, atomically: true, encoding: .utf8)
             loadedContent = markdown
             sourceMarkdown = markdown
             setSaveButtonState(.saved)
-            status("Sauvegardé")
+            status(isAutoSave ? "Auto save" : "Sauvegardé")
         } catch {
-            status("Erreur sauvegarde: \(error.localizedDescription)")
+            status(isAutoSave ? "Erreur auto save: \(error.localizedDescription)" : "Erreur sauvegarde: \(error.localizedDescription)")
         }
     }
 
@@ -5748,42 +6451,46 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         guard ensureEditableMarkdownView() else { return }
         replaceEditorText(EditorPrioritySorter.sort(currentEditorMarkdown()))
         textDidChange(Notification(name: NSText.didChangeNotification))
-        status("Tri appliqué en mémoire. Clique Sauvegarder pour écrire.")
+        status(editWriteStatus("Tri appliqué"))
     }
 
     @objc private func sortMinutes() {
         guard ensureEditableMarkdownView() else { return }
         replaceEditorText(EditorTaskSorter.sort(currentEditorMarkdown(), mode: .minutes))
         textDidChange(Notification(name: NSText.didChangeNotification))
-        status("Tri -- appliqué en mémoire. Clique Sauvegarder pour écrire.")
+        status(editWriteStatus("Tri -- appliqué"))
     }
 
     @objc private func sortAtContext() {
         guard ensureEditableMarkdownView() else { return }
         replaceEditorText(EditorTaskSorter.sort(currentEditorMarkdown(), mode: .atContext))
         textDidChange(Notification(name: NSText.didChangeNotification))
-        status("Tri @ appliqué en mémoire. Clique Sauvegarder pour écrire.")
+        status(editWriteStatus("Tri @ appliqué"))
     }
 
     @objc private func sortHashContext() {
         guard ensureEditableMarkdownView() else { return }
         replaceEditorText(EditorTaskSorter.sort(currentEditorMarkdown(), mode: .hashTag))
         textDidChange(Notification(name: NSText.didChangeNotification))
-        status("Tri # appliqué en mémoire. Clique Sauvegarder pour écrire.")
+        status(editWriteStatus("Tri # appliqué"))
     }
 
     @objc private func sortImportance() {
         guard ensureEditableMarkdownView() else { return }
         replaceEditorText(EditorTaskSorter.sort(currentEditorMarkdown(), mode: .importance))
         textDidChange(Notification(name: NSText.didChangeNotification))
-        status("Tri ^^ appliqué en mémoire. Clique Sauvegarder pour écrire.")
+        status(editWriteStatus("Tri ^^ appliqué"))
     }
 
     @objc private func flattenChapters() {
         guard ensureEditableMarkdownView() else { return }
         replaceEditorText(EditorChapterFlattener.flatten(currentEditorMarkdown()))
         textDidChange(Notification(name: NSText.didChangeNotification))
-        status("Chapitres aplatis en mémoire. Clique Sauvegarder pour écrire.")
+        status(editWriteStatus("Chapitres aplatis"))
+    }
+
+    private func editWriteStatus(_ action: String) -> String {
+        Settings.autoSave ? "\(action). Auto save actif." : "\(action) en mémoire. Clique Sauvegarder pour écrire."
     }
 
     @objc private func flattenDateRange() {
@@ -5900,6 +6607,22 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         }
         applySyntaxHighlighting()
         setSaveButtonState(currentFileURL != nil && currentEditorMarkdown() != loadedContent ? .dirty : .clean)
+        scheduleAutoSaveIfNeeded()
+    }
+
+    private func scheduleAutoSaveIfNeeded() {
+        autoSaveTimer?.invalidate()
+        guard Settings.autoSave,
+              currentFileURL != nil,
+              !isFoldView,
+              !isNotePlanPreviewVisible,
+              currentEditorMarkdown() != loadedContent else {
+            autoSaveTimer = nil
+            return
+        }
+        autoSaveTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { [weak self] _ in
+            self?.saveCurrentFile(isAutoSave: true)
+        }
     }
 
     func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
@@ -5961,6 +6684,9 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
     }
 
     private func ensureEditableMarkdownView() -> Bool {
+        if isNotePlanPreviewVisible {
+            hideNotePlanPreview(statusText: "Markdown éditable")
+        }
         if isFoldView {
             status("Déplie avant modification: le Markdown complet est protégé.")
             return false
@@ -5972,12 +6698,45 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         isFoldView ? sourceMarkdown : textView.string
     }
 
+    @objc private func toggleNotePlanPreview() {
+        if isNotePlanPreviewVisible {
+            hideNotePlanPreview(statusText: "Markdown éditable")
+        } else {
+            showNotePlanPreview()
+        }
+    }
+
+    private func showNotePlanPreview() {
+        if !isFoldView {
+            sourceMarkdown = markdownWithoutFoldPresentation(textView.string)
+        }
+        notePlanPreviewView.textStorage?.setAttributedString(NotePlanVisualRenderer.render(sourceMarkdown))
+        notePlanPreviewScrollView.isHidden = false
+        scrollView.isHidden = true
+        isNotePlanPreviewVisible = true
+        setSaveButtonState(currentFileURL != nil && currentEditorMarkdown() != loadedContent ? .dirty : .clean)
+        status("Vue NotePlan - lecture seule, Markdown conservé")
+    }
+
+    private func hideNotePlanPreview(statusText: String) {
+        notePlanPreviewScrollView.isHidden = true
+        scrollView.isHidden = false
+        isNotePlanPreviewVisible = false
+        textView.window?.makeFirstResponder(textView)
+        setSaveButtonState(currentFileURL != nil && currentEditorMarkdown() != loadedContent ? .dirty : .clean)
+        status(statusText)
+    }
+
     private func sourceLines() -> [String] {
-        sourceMarkdown.components(separatedBy: "\n")
+        markdownWithoutFoldPresentation(sourceMarkdown).components(separatedBy: "\n")
     }
 
     private func currentSourceLineIndex() -> Int {
-        let selected = textView.selectedRange().location
+        sourceLineIndex(atVisibleCharacterIndex: textView.selectedRange().location)
+    }
+
+    private func sourceLineIndex(atVisibleCharacterIndex characterIndex: Int) -> Int {
+        let selected = characterIndex
         let visible = textView.string as NSString
         let clamped = min(max(selected, 0), visible.length)
         let prefix = visible.substring(with: NSRange(location: 0, length: clamped))
@@ -5988,43 +6747,161 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         return displayedSourceLines[displayLine]
     }
 
-    private func renderFoldView(statusText: String) {
-        sourceMarkdown = currentEditorMarkdown()
-        let result = foldedMarkdown(lines: sourceLines(), collapsed: collapsedBlockStarts)
-        isFoldView = !collapsedBlockStarts.isEmpty
-        displayedSourceLines = result.sourceLineIndexes
-        textView.isEditable = !isFoldView
-        textView.string = result.text
-        applySyntaxHighlighting()
-        setSaveButtonState(currentFileURL != nil && sourceMarkdown != loadedContent ? .dirty : .clean)
-        status(isFoldView ? "\(statusText) - affichage seul, Markdown conservé" : statusText)
+    private func displayLineIndex(atVisibleCharacterIndex characterIndex: Int) -> Int {
+        let visible = textView.string as NSString
+        let clamped = min(max(characterIndex, 0), visible.length)
+        let prefix = visible.substring(with: NSRange(location: 0, length: clamped))
+        return prefix.reduce(0) { $1 == "\n" ? $0 + 1 : $0 }
     }
 
-    private func foldedMarkdown(lines: [String], collapsed: Set<Int>) -> (text: String, sourceLineIndexes: [Int]) {
+    private func toggleFoldMarker(atVisibleCharacterIndex characterIndex: Int) -> Bool {
+        guard isFoldView else { return false }
+        let visible = textView.string as NSString
+        guard visible.length > 0 else { return false }
+        let clamped = min(max(characterIndex, 0), visible.length - 1)
+        let lineRange = visible.lineRange(for: NSRange(location: clamped, length: 0))
+        let line = visible.substring(with: lineRange)
+        let indentCount = line.prefix { $0 == " " || $0 == "\t" }.count
+        guard line.dropFirst(indentCount).hasPrefix("▾ ") || line.dropFirst(indentCount).hasPrefix("▸ ") else {
+            return false
+        }
+        let markerStart = lineRange.location + indentCount
+        guard clamped >= markerStart, clamped <= markerStart + 1 else { return false }
+        let displayLine = displayLineIndex(atVisibleCharacterIndex: clamped)
+        guard displayLine >= 0, displayLine < displayedSourceLines.count else { return false }
+        let sourceLine = displayedSourceLines[displayLine]
+        let lines = sourceLines()
+        guard hasChildLine(after: sourceLine, in: lines) else { return false }
+        if collapsedBlockStarts.contains(sourceLine) {
+            collapsedBlockStarts.remove(sourceLine)
+            renderFoldView(statusText: "Bloc déplié")
+        } else {
+            collapsedBlockStarts.insert(sourceLine)
+            renderFoldView(statusText: "Bloc plié")
+        }
+        return true
+    }
+
+    private func renderFoldView(statusText: String) {
+        if !isFoldView {
+            sourceMarkdown = markdownWithoutFoldPresentation(textView.string)
+        }
+        let result = notePlanDisplayMarkdown(lines: sourceLines(), collapsed: collapsedBlockStarts)
+        isFoldView = true
+        displayedSourceLines = result.sourceLineIndexes
+        textView.isEditable = false
+        textView.string = result.text
+        applySyntaxHighlighting()
+        setSaveButtonState(.foldView)
+        status("\(statusText) - vue NotePlan, Markdown conservé")
+    }
+
+    private func notePlanDisplayMarkdown(lines: [String], collapsed: Set<Int>) -> (text: String, sourceLineIndexes: [Int]) {
         var visible: [String] = []
         var map: [Int] = []
         var hiddenUntilIndent: Int?
         for index in lines.indices {
-            let indent = lineIndent(lines[index])
+            let line = markdownLineWithoutFoldPresentation(lines[index])
+            let indent = lineIndent(line)
             if let hiddenIndent = hiddenUntilIndent {
-                if lines[index].trimmingCharacters(in: .whitespaces).isEmpty || indent > hiddenIndent {
+                if line.trimmingCharacters(in: .whitespaces).isEmpty || indent > hiddenIndent {
                     continue
                 }
                 hiddenUntilIndent = nil
             }
-            let marker: String
             if hasChildLine(after: index, in: lines) {
-                marker = collapsed.contains(index) ? "▸ " : "▾ "
+                let marker = collapsed.contains(index) ? "▸ " : "▾ "
+                visible.append(notePlanDisplayLine(line, marker: marker))
             } else {
-                marker = ""
+                visible.append(notePlanDisplayLine(line, marker: ""))
             }
-            visible.append(marker + lines[index])
             map.append(index)
             if collapsed.contains(index) {
                 hiddenUntilIndent = indent
             }
         }
         return (visible.joined(separator: "\n"), map)
+    }
+
+    private func notePlanDisplayLine(_ line: String, marker: String) -> String {
+        let indent = String(line.prefix { $0 == " " || $0 == "\t" })
+        let body = String(line.dropFirst(indent.count))
+        let interpreted = notePlanRenderedBody(body)
+        if interpreted.isEmpty {
+            return ""
+        }
+        return indent + marker + interpreted
+    }
+
+    private func notePlanRenderedBody(_ body: String) -> String {
+        var text = body.trimmingCharacters(in: .whitespaces)
+        if text.isEmpty { return "" }
+
+        if text.hasPrefix("###") {
+            return text
+        }
+        if text.hasPrefix("##") {
+            return text
+        }
+        if text.hasPrefix("#") {
+            return text
+        }
+
+        let taskPrefixes: [(String, String)] = [
+            ("- [x] ", "✓"),
+            ("- [X] ", "✓"),
+            ("* [x] ", "✓"),
+            ("* [X] ", "✓"),
+            ("- [ ] ", "○"),
+            ("* [ ] ", "○"),
+            ("- [x]", "✓"),
+            ("- [X]", "✓"),
+            ("* [x]", "✓"),
+            ("* [X]", "✓"),
+            ("- [ ]", "○"),
+            ("* [ ]", "○")
+        ]
+        for (prefix, symbol) in taskPrefixes {
+            let exactPrefix = prefix.trimmingCharacters(in: .whitespaces)
+            if text == exactPrefix {
+                return symbol
+            }
+            if text.hasPrefix(prefix) {
+                text = text.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces)
+                return "\(symbol) \(text)"
+            }
+        }
+        let listPrefixes: [(String, String)] = [
+            ("- ", "○"),
+            ("* ", "○"),
+            ("+ ", "+")
+        ]
+        for (prefix, symbol) in listPrefixes where text.hasPrefix(prefix) {
+            text = text.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces)
+            return "\(symbol) \(text)"
+        }
+        return text
+    }
+
+    private func markdownWithoutFoldPresentation(_ markdown: String) -> String {
+        markdown
+            .components(separatedBy: "\n")
+            .map(markdownLineWithoutFoldPresentation)
+            .joined(separator: "\n")
+    }
+
+    private func markdownLineWithoutFoldPresentation(_ line: String) -> String {
+        let indent = String(line.prefix { $0 == " " || $0 == "\t" })
+        var body = String(line.dropFirst(indent.count))
+        var didStrip = false
+        while body.hasPrefix("▾ ") || body.hasPrefix("▸ ") || body.hasPrefix("▼ ") || body.hasPrefix("▶ ") {
+            body.removeFirst(2)
+            didStrip = true
+            while body.hasPrefix(" ") {
+                body.removeFirst()
+            }
+        }
+        return didStrip ? indent + body : line
     }
 
     private func hasChildLine(after index: Int, in lines: [String]) -> Bool {
@@ -6050,6 +6927,7 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         case clean
         case dirty
         case saved
+        case foldView
     }
 
     private func setSaveButtonState(_ state: SaveButtonState) {
@@ -6060,6 +6938,8 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
             styleButton(saveButton, title: "Sauvegarder", background: .systemOrange, foreground: .white, enabled: true)
         case .saved:
             styleButton(saveButton, title: "Sauvegardé", background: .systemGreen, foreground: .white, enabled: true)
+        case .foldView:
+            styleButton(saveButton, title: "Vue NotePlan", background: .controlColor, foreground: .secondaryLabelColor, enabled: false)
         }
     }
 
@@ -6115,6 +6995,225 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
     }
 }
 
+private enum NotePlanVisualRenderer {
+    private static let bodyFont = NSFont.systemFont(ofSize: 15, weight: .semibold)
+    private static let completedFont = NSFont.systemFont(ofSize: 15, weight: .medium)
+    private static let headingFont = NSFont.systemFont(ofSize: 26, weight: .bold)
+    private static let smallFont = NSFont.systemFont(ofSize: 13, weight: .semibold)
+    private static let background = NSColor.textBackgroundColor
+    private static let yellow = NSColor(calibratedRed: 1.0, green: 0.75, blue: 0.23, alpha: 1)
+    private static let orange = NSColor(calibratedRed: 1.0, green: 0.52, blue: 0.16, alpha: 1)
+    private static let green = NSColor(calibratedRed: 0.45, green: 0.68, blue: 0.48, alpha: 1)
+    private static let red = NSColor(calibratedRed: 0.82, green: 0.24, blue: 0.27, alpha: 1)
+
+    static func render(_ markdown: String) -> NSAttributedString {
+        let output = NSMutableAttributedString()
+        let lines = markdown.components(separatedBy: "\n")
+        for (index, line) in lines.enumerated() {
+            if index > 0 {
+                output.append(NSAttributedString(string: "\n", attributes: baseAttributes(indent: 0)))
+            }
+            output.append(renderLine(line))
+        }
+        return output
+    }
+
+    private static func renderLine(_ line: String) -> NSAttributedString {
+        let indentText = String(line.prefix { $0 == " " || $0 == "\t" })
+        let indent = indentText.reduce(0) { $0 + ($1 == "\t" ? 2 : 1) }
+        var body = String(line.dropFirst(indentText.count)).trimmingCharacters(in: .whitespaces)
+
+        guard !body.isEmpty else {
+            return NSAttributedString(string: "", attributes: baseAttributes(indent: indent))
+        }
+
+        if body.hasPrefix("#") {
+            let level = min(body.prefix { $0 == "#" }.count, 6)
+            body = body.dropFirst(level).trimmingCharacters(in: .whitespaces)
+            let rendered = NSMutableAttributedString(string: body, attributes: [
+                .font: headingFont,
+                .foregroundColor: orange,
+                .backgroundColor: background,
+                .paragraphStyle: paragraph(indent: indent, spacing: 8)
+            ])
+            return rendered
+        }
+
+        let task = parseTaskPrefix(body)
+        body = task.body
+        let text = NSMutableAttributedString()
+        let attrs = lineAttributes(indent: indent, completed: task.completed, urgency: urgencyLevel(in: body))
+
+        if let symbol = task.symbol {
+            text.append(NSAttributedString(string: symbol + " ", attributes: [
+                .font: NSFont.systemFont(ofSize: 17, weight: .bold),
+                .foregroundColor: task.completed ? green : yellow,
+                .backgroundColor: attrs.background
+            ]))
+        }
+
+        text.append(renderInlineMarkdown(body, base: attrs.text))
+        text.addAttributes([
+            .paragraphStyle: paragraph(indent: indent, spacing: 5),
+            .backgroundColor: attrs.background
+        ], range: NSRange(location: 0, length: text.length))
+        if task.completed {
+            text.addAttributes([
+                .foregroundColor: green,
+                .strikethroughStyle: NSUnderlineStyle.single.rawValue
+            ], range: NSRange(location: min(task.symbol == nil ? 0 : 2, text.length), length: max(text.length - (task.symbol == nil ? 0 : 2), 0)))
+        }
+        colorTokens(in: text)
+        return text
+    }
+
+    private static func parseTaskPrefix(_ input: String) -> (symbol: String?, completed: Bool, body: String) {
+        let completedPrefixes = ["- [x] ", "- [X] ", "* [x] ", "* [X] ", "- [x]", "- [X]", "* [x]", "* [X]"]
+        for prefix in completedPrefixes where input == prefix.trimmingCharacters(in: .whitespaces) || input.hasPrefix(prefix) {
+            return ("✓", true, String(input.dropFirst(min(prefix.count, input.count))).trimmingCharacters(in: .whitespaces))
+        }
+
+        let openPrefixes = ["- [ ] ", "* [ ] ", "- [ ]", "* [ ]"]
+        for prefix in openPrefixes where input == prefix.trimmingCharacters(in: .whitespaces) || input.hasPrefix(prefix) {
+            return ("○", false, String(input.dropFirst(min(prefix.count, input.count))).trimmingCharacters(in: .whitespaces))
+        }
+
+        if input.hasPrefix("- ") || input.hasPrefix("* ") {
+            return ("○", false, String(input.dropFirst(2)).trimmingCharacters(in: .whitespaces))
+        }
+        if input.hasPrefix("+ ") {
+            return ("+", false, String(input.dropFirst(2)).trimmingCharacters(in: .whitespaces))
+        }
+        return (nil, false, input)
+    }
+
+    private static func renderInlineMarkdown(_ text: String, base: [NSAttributedString.Key: Any]) -> NSAttributedString {
+        guard let regex = try? NSRegularExpression(pattern: #"\[([^\]\n]+)\]\(([^)\s]+)\)"#) else {
+            return NSAttributedString(string: text, attributes: base)
+        }
+
+        let nsText = text as NSString
+        let fullRange = NSRange(location: 0, length: nsText.length)
+        let result = NSMutableAttributedString()
+        var cursor = 0
+
+        regex.enumerateMatches(in: text, range: fullRange) { match, _, _ in
+            guard let match,
+                  match.range(at: 1).location != NSNotFound,
+                  match.range(at: 2).location != NSNotFound else { return }
+            if match.range.location > cursor {
+                result.append(NSAttributedString(
+                    string: nsText.substring(with: NSRange(location: cursor, length: match.range.location - cursor)),
+                    attributes: base
+                ))
+            }
+            let title = nsText.substring(with: match.range(at: 1))
+            let urlText = nsText.substring(with: match.range(at: 2))
+            var linkAttrs = base
+            if let url = URL(string: urlText) {
+                linkAttrs[.link] = url
+            }
+            linkAttrs[.foregroundColor] = yellow
+            linkAttrs[.underlineStyle] = NSUnderlineStyle.single.rawValue
+            result.append(NSAttributedString(string: "\(title)(↗)", attributes: linkAttrs))
+            cursor = match.range.location + match.range.length
+        }
+
+        if cursor < nsText.length {
+            result.append(NSAttributedString(
+                string: nsText.substring(with: NSRange(location: cursor, length: nsText.length - cursor)),
+                attributes: base
+            ))
+        }
+        return result
+    }
+
+    private static func colorTokens(in text: NSMutableAttributedString) {
+        let fullRange = NSRange(location: 0, length: text.length)
+        applyRegex(#"#[\p{L}\p{N}_/-]+"#, to: text, range: fullRange, color: orange)
+        applyRegex(#"(?<!\S)@[\p{L}\p{N}_/-]+"#, to: text, range: fullRange, color: NSColor.systemBlue)
+        applyRegex(#"\b\d{1,2}:\d{2}\b"#, to: text, range: fullRange, color: NSColor.systemPurple)
+        applyRegex(#"!!!"#, to: text, range: fullRange, color: NSColor.white, font: NSFont.systemFont(ofSize: 15, weight: .bold))
+        applyRegex(#"!!"#, to: text, range: fullRange, color: red, font: NSFont.systemFont(ofSize: 15, weight: .bold))
+        applyRegex(#"(?<![!])!(?![!])"#, to: text, range: fullRange, color: orange, font: NSFont.systemFont(ofSize: 15, weight: .bold))
+    }
+
+    private static func applyRegex(_ pattern: String, to text: NSMutableAttributedString, range: NSRange, color: NSColor, font: NSFont? = nil) {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return }
+        regex.enumerateMatches(in: text.string, range: range) { match, _, _ in
+            guard let match else { return }
+            text.addAttribute(.foregroundColor, value: color, range: match.range)
+            if let font {
+                text.addAttribute(.font, value: font, range: match.range)
+            }
+        }
+    }
+
+    private static func urgencyLevel(in text: String) -> Int {
+        if text.contains("!!!") { return 3 }
+        if text.contains("!!") { return 2 }
+        if text.contains("!") { return 1 }
+        return 0
+    }
+
+    private static func lineAttributes(indent: Int, completed: Bool, urgency: Int) -> (text: [NSAttributedString.Key: Any], background: NSColor) {
+        let bg: NSColor
+        switch urgency {
+        case 3:
+            bg = red.withAlphaComponent(0.82)
+        case 2:
+            bg = red.withAlphaComponent(0.20)
+        case 1:
+            bg = orange.withAlphaComponent(0.13)
+        default:
+            bg = background
+        }
+        let color: NSColor = completed ? green : colorForIndent(indent)
+        return ([
+            .font: completed ? completedFont : bodyFont,
+            .foregroundColor: color,
+            .backgroundColor: bg
+        ], bg)
+    }
+
+    private static func baseAttributes(indent: Int) -> [NSAttributedString.Key: Any] {
+        [
+            .font: bodyFont,
+            .foregroundColor: colorForIndent(indent),
+            .backgroundColor: background,
+            .paragraphStyle: paragraph(indent: indent, spacing: 5)
+        ]
+    }
+
+    private static func paragraph(indent: Int, spacing: CGFloat) -> NSParagraphStyle {
+        let style = NSMutableParagraphStyle()
+        let left = CGFloat(min(indent, 24)) * 10
+        style.firstLineHeadIndent = left
+        style.headIndent = left + 24
+        style.lineSpacing = spacing
+        style.paragraphSpacing = 2
+        return style
+    }
+
+    private static func colorForIndent(_ indent: Int) -> NSColor {
+        let level = max(0, min(indent / 2, 5))
+        switch level {
+        case 1:
+            return NSColor.labelColor
+        case 2:
+            return orange
+        case 3:
+            return NSColor.systemTeal
+        case 4:
+            return NSColor.systemBlue
+        case 5:
+            return NSColor.secondaryLabelColor
+        default:
+            return NSColor.labelColor
+        }
+    }
+}
+
 private enum EditorMarkdownHighlighter {
     enum Palette: String, CaseIterable {
         case notePlan = "NotePlan"
@@ -6159,24 +7258,38 @@ private enum EditorMarkdownHighlighter {
         guard lineRange.length > 0 else { return }
         let line = nsText.substring(with: lineRange)
         let trimmed = line.trimmingCharacters(in: .whitespaces)
+        let displayTrimmed = trimmed.removingFoldGlyphPrefix()
         let indent = line.prefix { $0 == " " || $0 == "\t" }.count
 
         let paragraph = NSMutableParagraphStyle()
-        paragraph.lineSpacing = 2
-        paragraph.paragraphSpacing = 1
-        paragraph.headIndent = CGFloat(min(indent, 12)) * 7
+        paragraph.lineSpacing = 4
+        paragraph.paragraphSpacing = 2
+        paragraph.headIndent = CGFloat(min(indent, 12)) * 12
         storage.addAttribute(.paragraphStyle, value: paragraph, range: lineRange)
 
-        if trimmed.hasPrefix("#") {
-            let level = min(trimmed.prefix { $0 == "#" }.count, 4)
+        if displayTrimmed.hasPrefix("#") {
+            let level = min(displayTrimmed.prefix { $0 == "#" }.count, 4)
             storage.addAttributes([
-                .font: NSFont.systemFont(ofSize: CGFloat(max(20 - level * 2, 14)), weight: .bold),
+                .font: NSFont.systemFont(ofSize: CGFloat(max(24 - level * 2, 16)), weight: .bold),
                 .foregroundColor: NSColor.systemOrange
             ], range: lineRange)
+            if let hashRange = line.range(of: #"^\s*(?:[▸▾]\s*)?#{1,6}\s*"#, options: .regularExpression) {
+                let nsRange = NSRange(hashRange, in: line)
+                storage.addAttributes(hiddenPrefixAttributes(), range: NSRange(location: lineRange.location + nsRange.location, length: nsRange.length))
+            }
             return
         }
 
-        if trimmed.hasPrefix("- [x]") || trimmed.hasPrefix("* [x]") || trimmed.hasPrefix("- [X]") || trimmed.hasPrefix("* [X]") {
+        if displayTrimmed.hasPrefix("✓ ") {
+            storage.addAttribute(.foregroundColor, value: NSColor.systemGreen.withAlphaComponent(0.78), range: lineRange)
+            styleLeadingGlyph(in: storage, nsText: nsText, lineRange: lineRange, glyph: "✓", color: NSColor.systemGreen)
+        } else if displayTrimmed.hasPrefix("○ ") {
+            storage.addAttribute(.foregroundColor, value: colorForIndent(indent), range: lineRange)
+            styleLeadingGlyph(in: storage, nsText: nsText, lineRange: lineRange, glyph: "○", color: NSColor.systemYellow)
+        } else if displayTrimmed.hasPrefix("+ ") {
+            storage.addAttribute(.foregroundColor, value: colorForIndent(indent), range: lineRange)
+            styleLeadingGlyph(in: storage, nsText: nsText, lineRange: lineRange, glyph: "+", color: NSColor.systemRed)
+        } else if trimmed.hasPrefix("- [x]") || trimmed.hasPrefix("* [x]") || trimmed.hasPrefix("- [X]") || trimmed.hasPrefix("* [X]") {
             storage.addAttributes([
                 .foregroundColor: NSColor.secondaryLabelColor,
                 .strikethroughStyle: NSUnderlineStyle.single.rawValue
@@ -6186,6 +7299,15 @@ private enum EditorMarkdownHighlighter {
         }
 
         styleUrgency(in: storage, nsText: nsText, lineRange: lineRange, line: line)
+    }
+
+    private static func styleLeadingGlyph(in storage: NSTextStorage, nsText: NSString, lineRange: NSRange, glyph: String, color: NSColor) {
+        let found = nsText.range(of: glyph, options: [], range: lineRange)
+        guard found.location != NSNotFound else { return }
+        storage.addAttributes([
+            .foregroundColor: color,
+            .font: NSFont.systemFont(ofSize: 16, weight: .semibold)
+        ], range: found)
     }
 
     private static func styleUrgency(in storage: NSTextStorage, nsText: NSString, lineRange: NSRange, line: String) {
@@ -6296,6 +7418,13 @@ private enum EditorMarkdownHighlighter {
         ]
     }
 
+    private static func hiddenPrefixAttributes() -> [NSAttributedString.Key: Any] {
+        [
+            .foregroundColor: NSColor.clear,
+            .font: NSFont.systemFont(ofSize: 0.1, weight: .regular)
+        ]
+    }
+
     private static func baseAttributes() -> [NSAttributedString.Key: Any] {
         [
             .font: baseFont,
@@ -6317,6 +7446,16 @@ private enum EditorMarkdownHighlighter {
             let colors: [NSColor] = [.labelColor, .systemBrown, .systemMint, .systemCyan, .systemGray, .secondaryLabelColor]
             return colors[level]
         }
+    }
+}
+
+private extension String {
+    func removingFoldGlyphPrefix() -> String {
+        var value = self
+        if value.hasPrefix("▸ ") || value.hasPrefix("▾ ") {
+            value.removeFirst(2)
+        }
+        return value.trimmingCharacters(in: .whitespaces)
     }
 }
 
@@ -6351,8 +7490,6 @@ enum EditorPrioritySorter {
                 let startCount = output.count
                 while i < lines.count && !isHeading(lines[i]) {
                     if lines[i].trimmingCharacters(in: .whitespaces).isEmpty {
-                        flush(blocks: &blocks, into: &output, finished: &finished)
-                        output.append(lines[i])
                         i += 1
                     } else if isTopBullet(lines[i]) {
                         var blockLines = [normalizeMain(lines[i])]
@@ -6425,7 +7562,10 @@ enum EditorPrioritySorter {
     }
 
     private static func priority(_ line: String) -> Int {
-        guard let range = line.range(of: #"^[-*]\s+(?:\[[ xX]\]\s*)?(!{1,3})(?=\s|$)"#, options: .regularExpression) else {
+        guard let range = line.range(
+            of: #"^[-*]\s+(?:\[[ xX]\]\s*)?(?:(?:\d{1,2}:\d{2}|>\d{4}-\d{2}-\d{2}(?:\s+\d{1,2}:\d{2})?)\s+)?(!{1,3})(?=\s|$)"#,
+            options: .regularExpression
+        ) else {
             return 0
         }
         return line[range].filter { $0 == "!" }.count
@@ -6754,6 +7894,7 @@ enum EditorChapterFlattener {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: #"^\s*[-*]\s+"#, with: "", options: .regularExpression)
             .replacingOccurrences(of: #"^\[[ xX]\]\s+"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"^(?:\d{1,2}:\d{2}|>\d{4}-\d{2}-\d{2}(?:\s+\d{1,2}:\d{2})?)\s+"#, with: "", options: .regularExpression)
         guard let range = cleaned.range(of: #"^!{1,3}(?=\s|$)"#, options: .regularExpression) else {
             return 0
         }
@@ -7028,6 +8169,7 @@ struct EditorNotePlanShortcutGenerator {
 }
 
 let app = NSApplication.shared
+app.setActivationPolicy(.regular)
 let delegate = AppDelegate()
 app.delegate = delegate
 app.servicesProvider = delegate
@@ -7036,10 +8178,16 @@ let mainMenu = NSMenu()
 let appMenuItem = NSMenuItem()
 mainMenu.addItem(appMenuItem)
 let appMenu = NSMenu()
-appMenu.addItem(withTitle: "À propos de NoteDroppy", action: #selector(AppDelegate.showAbout(_:)), keyEquivalent: "")
+let aboutItem = NSMenuItem(title: "À propos de NoteDroppy", action: #selector(AppDelegate.showAbout(_:)), keyEquivalent: "")
+aboutItem.target = delegate
+appMenu.addItem(aboutItem)
 appMenu.addItem(NSMenuItem.separator())
-appMenu.addItem(withTitle: "Réglages...", action: #selector(AppDelegate.showSettingsWindowFromMenu(_:)), keyEquivalent: ",")
-appMenu.addItem(withTitle: "Éditeur NotePlan...", action: #selector(AppDelegate.showEditorWindowFromMenu(_:)), keyEquivalent: "e")
+let settingsMenuItem = NSMenuItem(title: "Réglages...", action: #selector(AppDelegate.showSettingsWindowFromMenu(_:)), keyEquivalent: ",")
+settingsMenuItem.target = delegate
+appMenu.addItem(settingsMenuItem)
+let editorMenuItem = NSMenuItem(title: "Éditeur NotePlan...", action: #selector(AppDelegate.showEditorWindowFromMenu(_:)), keyEquivalent: "e")
+editorMenuItem.target = delegate
+appMenu.addItem(editorMenuItem)
 appMenu.addItem(NSMenuItem.separator())
 appMenu.addItem(withTitle: "Quitter NoteDroppy", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
 appMenuItem.submenu = appMenu
