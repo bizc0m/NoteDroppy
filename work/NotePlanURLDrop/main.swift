@@ -1173,51 +1173,10 @@ private func isReservedMenuShortcut(keyCode: UInt32, modifiers: UInt32) -> Bool 
     return false
 }
 
-/// Shared drag-and-drop plumbing for the various Shortcut Maker / Shortcut
-/// Slot targets below (a text field, two plain views, a stack view, a popup
-/// button). AppKit requires each host to implement its own
-/// draggingEntered/Updated/prepareForDragOperation/performDragOperation
-/// overrides (they're overrides of different base-class methods, not a
-/// protocol Swift can default), but the actual "is this pasteboard a valid
-/// target, what operation to offer, what to log, what to do on drop" logic
-/// was previously copy-pasted five times with only the log prefix and the
-/// presence of an `acceptsDrop` gate differing. Consolidated here; hosts
-/// that also change their own appearance on hover (ShortcutTargetField,
-/// ShortcutMakerDropView) keep that bit locally and call into this for the
-/// accept-check/log/dispatch part.
-private struct ShortcutDropSite {
-    let logID: String
-
-    private func accepts(_ sender: NSDraggingInfo, gate: Bool) -> Bool {
-        gate && shortcutTarget(from: sender.draggingPasteboard) != nil
-    }
-
-    func operation(for sender: NSDraggingInfo, gate: Bool, logEntry: Bool) -> NSDragOperation {
-        if logEntry {
-            writeDebugLog("\(logID):entered:\(pasteboardDebugDescription(sender.draggingPasteboard))")
-        }
-        return accepts(sender, gate: gate) ? preferredDragOperation(from: sender.draggingSourceOperationMask) : NSDragOperation()
-    }
-
-    func canAccept(_ sender: NSDraggingInfo, gate: Bool) -> Bool {
-        accepts(sender, gate: gate)
-    }
-
-    func perform(_ sender: NSDraggingInfo, gate: Bool, onDropTarget: ((ShortcutTarget) -> Bool)?) -> Bool {
-        writeDebugLog("\(logID):perform:\(pasteboardDebugDescription(sender.draggingPasteboard))")
-        guard gate, let target = shortcutTarget(from: sender.draggingPasteboard) else {
-            NSSound.beep()
-            return false
-        }
-        return onDropTarget?(target) ?? false
-    }
-}
-
 final class ShortcutTargetField: NSTextField {
     var acceptsDrop = true
     var onDropTarget: ((ShortcutTarget) -> Bool)?
     var onPasteTarget: (() -> Void)?
-    private let dropSite = ShortcutDropSite(logID: "shortcut-drop:field")
 
     init() {
         super.init(frame: .zero)
@@ -1272,11 +1231,12 @@ final class ShortcutTargetField: NSTextField {
     }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        dragOperation(for: sender, logEntry: true)
+        writeDebugLog("shortcut-drop:field:entered:\(pasteboardDebugDescription(sender.draggingPasteboard))")
+        return dragOperation(for: sender)
     }
 
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        dragOperation(for: sender, logEntry: false)
+        dragOperation(for: sender)
     }
 
     override func draggingExited(_ sender: NSDraggingInfo?) {
@@ -1284,12 +1244,17 @@ final class ShortcutTargetField: NSTextField {
     }
 
     override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        dropSite.canAccept(sender, gate: acceptsDrop)
+        acceptsDrop && shortcutTarget(from: sender.draggingPasteboard) != nil
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        writeDebugLog("shortcut-drop:field:perform:\(pasteboardDebugDescription(sender.draggingPasteboard))")
         layer?.borderWidth = 0
-        return dropSite.perform(sender, gate: acceptsDrop, onDropTarget: onDropTarget)
+        guard acceptsDrop, let target = shortcutTarget(from: sender.draggingPasteboard) else {
+            NSSound.beep()
+            return false
+        }
+        return onDropTarget?(target) ?? false
     }
 
     private func configurePasteMenu() {
@@ -1301,22 +1266,20 @@ final class ShortcutTargetField: NSTextField {
         toolTip = "Déposer une note .md, ou cliquer ici puis Cmd+V depuis Finder/NotePlan"
     }
 
-    private func dragOperation(for sender: NSDraggingInfo, logEntry: Bool) -> NSDragOperation {
-        let op = dropSite.operation(for: sender, gate: acceptsDrop, logEntry: logEntry)
-        if op.isEmpty {
+    private func dragOperation(for sender: NSDraggingInfo) -> NSDragOperation {
+        guard acceptsDrop, shortcutTarget(from: sender.draggingPasteboard) != nil else {
             layer?.borderWidth = 0
-        } else {
-            layer?.cornerRadius = 5
-            layer?.borderWidth = 2
-            layer?.borderColor = NSColor.controlAccentColor.cgColor
+            return NSDragOperation()
         }
-        return op
+        layer?.cornerRadius = 5
+        layer?.borderWidth = 2
+        layer?.borderColor = NSColor.controlAccentColor.cgColor
+        return preferredDragOperation(from: sender.draggingSourceOperationMask)
     }
 }
 
 final class ShortcutMakerDropView: NSView {
     var onDropTarget: ((ShortcutTarget) -> Bool)?
-    private let dropSite = ShortcutDropSite(logID: "shortcut-maker-drop")
     private let titleLabel = NSTextField(labelWithString: "Déposer une note NotePlan ici")
     private let detailLabel = NSTextField(labelWithString: "Glisser une note .md depuis Finder, ou un lien noteplan:// depuis NotePlan.")
 
@@ -1370,16 +1333,17 @@ final class ShortcutMakerDropView: NSView {
     }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        let op = dropSite.operation(for: sender, gate: true, logEntry: true)
-        if !op.isEmpty {
-            layer?.borderColor = NSColor.controlAccentColor.cgColor
-            layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.12).cgColor
-        }
-        return op
+        writeDebugLog("shortcut-maker-drop:entered:\(pasteboardDebugDescription(sender.draggingPasteboard))")
+        guard shortcutTarget(from: sender.draggingPasteboard) != nil else { return NSDragOperation() }
+        layer?.borderColor = NSColor.controlAccentColor.cgColor
+        layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.12).cgColor
+        return preferredDragOperation(from: sender.draggingSourceOperationMask)
     }
 
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        dropSite.operation(for: sender, gate: true, logEntry: false)
+        shortcutTarget(from: sender.draggingPasteboard) == nil
+            ? NSDragOperation()
+            : preferredDragOperation(from: sender.draggingSourceOperationMask)
     }
 
     override func draggingExited(_ sender: NSDraggingInfo?) {
@@ -1387,12 +1351,17 @@ final class ShortcutMakerDropView: NSView {
     }
 
     override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        dropSite.canAccept(sender, gate: true)
+        shortcutTarget(from: sender.draggingPasteboard) != nil
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        writeDebugLog("shortcut-maker-drop:perform:\(pasteboardDebugDescription(sender.draggingPasteboard))")
         resetDropStyle()
-        return dropSite.perform(sender, gate: true, onDropTarget: onDropTarget)
+        guard let target = shortcutTarget(from: sender.draggingPasteboard) else {
+            NSSound.beep()
+            return false
+        }
+        return onDropTarget?(target) ?? false
     }
 
     private func resetDropStyle() {
@@ -1403,7 +1372,6 @@ final class ShortcutMakerDropView: NSView {
 
 final class ShortcutMakerTabDropView: NSView {
     var onDropTarget: ((ShortcutTarget) -> Bool)?
-    private let dropSite = ShortcutDropSite(logID: "shortcut-maker-tab")
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -1416,19 +1384,29 @@ final class ShortcutMakerTabDropView: NSView {
     }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        dropSite.operation(for: sender, gate: true, logEntry: true)
+        writeDebugLog("shortcut-maker-tab:entered:\(pasteboardDebugDescription(sender.draggingPasteboard))")
+        return shortcutTarget(from: sender.draggingPasteboard) == nil
+            ? NSDragOperation()
+            : preferredDragOperation(from: sender.draggingSourceOperationMask)
     }
 
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        dropSite.operation(for: sender, gate: true, logEntry: false)
+        shortcutTarget(from: sender.draggingPasteboard) == nil
+            ? NSDragOperation()
+            : preferredDragOperation(from: sender.draggingSourceOperationMask)
     }
 
     override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        dropSite.canAccept(sender, gate: true)
+        shortcutTarget(from: sender.draggingPasteboard) != nil
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        dropSite.perform(sender, gate: true, onDropTarget: onDropTarget)
+        writeDebugLog("shortcut-maker-tab:perform:\(pasteboardDebugDescription(sender.draggingPasteboard))")
+        guard let target = shortcutTarget(from: sender.draggingPasteboard) else {
+            NSSound.beep()
+            return false
+        }
+        return onDropTarget?(target) ?? false
     }
 }
 
@@ -1439,7 +1417,6 @@ final class FlippedView: NSView {
 final class ShortcutSlotDropStack: NSStackView {
     var acceptsDrop = true
     var onDropTarget: ((ShortcutTarget) -> Bool)?
-    private let dropSite = ShortcutDropSite(logID: "shortcut-drop:row")
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -1452,26 +1429,35 @@ final class ShortcutSlotDropStack: NSStackView {
     }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        dropSite.operation(for: sender, gate: acceptsDrop, logEntry: true)
+        writeDebugLog("shortcut-drop:row:entered:\(pasteboardDebugDescription(sender.draggingPasteboard))")
+        return acceptsDrop && shortcutTarget(from: sender.draggingPasteboard) != nil
+            ? preferredDragOperation(from: sender.draggingSourceOperationMask)
+            : NSDragOperation()
     }
 
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        dropSite.operation(for: sender, gate: acceptsDrop, logEntry: false)
+        acceptsDrop && shortcutTarget(from: sender.draggingPasteboard) != nil
+            ? preferredDragOperation(from: sender.draggingSourceOperationMask)
+            : NSDragOperation()
     }
 
     override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        dropSite.canAccept(sender, gate: acceptsDrop)
+        acceptsDrop && shortcutTarget(from: sender.draggingPasteboard) != nil
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        dropSite.perform(sender, gate: acceptsDrop, onDropTarget: onDropTarget)
+        writeDebugLog("shortcut-drop:row:perform:\(pasteboardDebugDescription(sender.draggingPasteboard))")
+        guard acceptsDrop, let target = shortcutTarget(from: sender.draggingPasteboard) else {
+            NSSound.beep()
+            return false
+        }
+        return onDropTarget?(target) ?? false
     }
 }
 
 final class ShortcutTargetPopUpButton: NSPopUpButton {
     var acceptsDrop = true
     var onDropTarget: ((ShortcutTarget) -> Bool)?
-    private let dropSite = ShortcutDropSite(logID: "shortcut-drop:popup")
 
     convenience init() {
         self.init(frame: .zero, pullsDown: false)
@@ -1488,19 +1474,29 @@ final class ShortcutTargetPopUpButton: NSPopUpButton {
     }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        dropSite.operation(for: sender, gate: acceptsDrop, logEntry: true)
+        writeDebugLog("shortcut-drop:popup:entered:\(pasteboardDebugDescription(sender.draggingPasteboard))")
+        return acceptsDrop && shortcutTarget(from: sender.draggingPasteboard) != nil
+            ? preferredDragOperation(from: sender.draggingSourceOperationMask)
+            : NSDragOperation()
     }
 
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        dropSite.operation(for: sender, gate: acceptsDrop, logEntry: false)
+        acceptsDrop && shortcutTarget(from: sender.draggingPasteboard) != nil
+            ? preferredDragOperation(from: sender.draggingSourceOperationMask)
+            : NSDragOperation()
     }
 
     override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        dropSite.canAccept(sender, gate: acceptsDrop)
+        acceptsDrop && shortcutTarget(from: sender.draggingPasteboard) != nil
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        dropSite.perform(sender, gate: acceptsDrop, onDropTarget: onDropTarget)
+        writeDebugLog("shortcut-drop:popup:perform:\(pasteboardDebugDescription(sender.draggingPasteboard))")
+        guard acceptsDrop, let target = shortcutTarget(from: sender.draggingPasteboard) else {
+            NSSound.beep()
+            return false
+        }
+        return onDropTarget?(target) ?? false
     }
 }
 
