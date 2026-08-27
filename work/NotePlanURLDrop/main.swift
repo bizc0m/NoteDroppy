@@ -3386,25 +3386,18 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
     }
 
     private func applyShortcutMakerDrop(_ target: ShortcutTarget) -> Bool {
-        // Note: never call generateShortcutMakerApp() synchronously from here — this
-        // runs from inside NSDraggingDestination.performDragOperation, and
-        // generateShortcutMakerApp() can present NSAlert.runModal() (confirm-replace,
-        // reveal prompt). Nesting a modal alert inside AppKit's drag-session callback
-        // is a known source of stuck/unresponsive controls after a drop. Defer the
-        // actual generation to the next run loop turn, once the drag session itself
-        // has fully finished.
         if let url = target.url {
             if url.scheme?.lowercased() == "noteplan" {
                 let urlString = url.absoluteString
                 setShortcutMakerNote(notePlanURL: urlString, displayName: shortcutMakerAppName(fromNotePlanURL: urlString))
                 statusLabel.stringValue = "NotePlan enregistré : \(shortcutMakerAppName(fromNotePlanURL: urlString))"
-                deferGenerateShortcutMakerApp()
+                generateShortcutMakerApp()
                 return true
             }
             if url.isFileURL, url.pathExtension.lowercased() == "md" {
                 setShortcutMakerNote(path: url.standardizedFileURL.path)
                 statusLabel.stringValue = "Note choisie : \(url.lastPathComponent)"
-                deferGenerateShortcutMakerApp()
+                generateShortcutMakerApp()
                 return true
             }
         }
@@ -3413,13 +3406,13 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
             if let notePlanURL = notePlanURLCandidate(from: text) {
                 setShortcutMakerNote(notePlanURL: notePlanURL, displayName: shortcutMakerAppName(fromNotePlanURL: notePlanURL))
                 statusLabel.stringValue = "NotePlan enregistré : \(shortcutMakerAppName(fromNotePlanURL: notePlanURL))"
-                deferGenerateShortcutMakerApp()
+                generateShortcutMakerApp()
                 return true
             }
             if let path = existingFinderPath(from: text), path.lowercased().hasSuffix(".md") {
                 setShortcutMakerNote(path: path)
                 statusLabel.stringValue = "Note choisie : \(URL(fileURLWithPath: path).lastPathComponent)"
-                deferGenerateShortcutMakerApp()
+                generateShortcutMakerApp()
                 return true
             }
         }
@@ -3427,12 +3420,6 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         statusLabel.stringValue = "Dépose une note .md ou un lien noteplan://."
         NSSound.beep()
         return false
-    }
-
-    private func deferGenerateShortcutMakerApp() {
-        DispatchQueue.main.async { [weak self] in
-            self?.generateShortcutMakerApp()
-        }
     }
 
     private func notePlanURLCandidate(from text: String) -> String? {
@@ -6614,15 +6601,11 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         let relativePath: String
         let fileURL: URL
         if pathString.hasPrefix("/") {
-            // Standardize before the containment check: a raw path.hasPrefix comparison
-            // does not collapse ".." segments, so an absolute path crafted with ".." could
-            // otherwise pass the check while resolving outside rootURL.
-            fileURL = URL(fileURLWithPath: pathString).standardizedFileURL
-            let standardizedRoot = rootURL.standardizedFileURL
-            guard fileURL.path.hasPrefix(standardizedRoot.path + "/") else {
+            fileURL = URL(fileURLWithPath: pathString)
+            guard fileURL.path.hasPrefix(rootURL.path + "/") else {
                 throw NSError(domain: "NotePlanText", code: 3, userInfo: [NSLocalizedDescriptionKey: "Fichier hors dossier NotePlan"])
             }
-            relativePath = fileURL.path.replacingOccurrences(of: standardizedRoot.path + "/", with: "")
+            relativePath = fileURL.path.replacingOccurrences(of: rootURL.path + "/", with: "")
         } else {
             let cleanedPath = pathString.trimmingCharacters(in: .whitespacesAndNewlines)
             let resolved = resolveRelativeNotePlanFile(cleanedPath, rootURL: rootURL, createIfMissing: createIfMissing)
