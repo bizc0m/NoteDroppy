@@ -65,18 +65,26 @@
     }
   }
 
+  /**
+   * Déduit un libellé pour la ligne, en le distinguant de l'intitulé de
+   * l'élément cliquable lui-même. `generic: true` signifie qu'aucun texte
+   * propre à la ligne n'a pu être trouvé et que le libellé retenu est celui,
+   * générique, de l'élément d'action ("Télécharger", "Voir"…) : ce cas ne
+   * doit jamais servir à regrouper des documents entre eux, car plusieurs
+   * documents différents peuvent partager le même intitulé de bouton.
+   */
   function guessLabel(el, row) {
-    let label = (row.getAttribute && (row.getAttribute('aria-label') || row.getAttribute('title'))) || '';
-    label = label.trim();
-    if (!label) {
+    let rowLabel = (row.getAttribute && (row.getAttribute('aria-label') || row.getAttribute('title'))) || '';
+    rowLabel = rowLabel.trim();
+    if (!rowLabel) {
       const text = (row.innerText || row.textContent || '').trim();
-      label = text.split('\n').map(s => s.trim()).filter(Boolean)[0] || '';
-      label = label.slice(0, 160);
+      rowLabel = text.split('\n').map(s => s.trim()).filter(Boolean)[0] || '';
+      rowLabel = rowLabel.slice(0, 160);
     }
-    if (!label) {
-      label = (el.textContent || '').trim().slice(0, 160);
-    }
-    return label || 'Document sans nom détecté';
+    if (rowLabel) return { label: rowLabel, generic: false };
+
+    const fallback = (el.textContent || '').trim().slice(0, 160);
+    return { label: fallback || 'Document sans nom détecté', generic: true };
   }
 
   /**
@@ -96,8 +104,10 @@
       if (!ext || !DOC_EXTENSIONS.has(ext)) return;
       seenEls.add(a);
       const row = a.closest(ROW_SELECTOR) || a;
+      const { label, generic } = guessLabel(a, row);
       byRow.set(row, {
-        label: guessLabel(a, row),
+        label,
+        generic,
         mechanism: 'lien-direct',
         url,
         el: a
@@ -114,8 +124,10 @@
       const row = el.closest(ROW_SELECTOR) || el;
       if (byRow.has(row)) return; // une entrée "lien-direct" existe déjà pour cette ligne
       seenEls.add(el);
+      const { label, generic } = guessLabel(el, row);
       byRow.set(row, {
-        label: guessLabel(el, row),
+        label,
+        generic,
         mechanism: 'clic-declenche',
         url: null,
         el
@@ -221,7 +233,7 @@
         const entries = scan();
         sendResponse({
           ok: true,
-          items: entries.map((e, i) => ({ index: i, label: e.label, mechanism: e.mechanism }))
+          items: entries.map((e, i) => ({ index: i, label: e.label, mechanism: e.mechanism, groupable: !e.generic }))
         });
         return false;
       }

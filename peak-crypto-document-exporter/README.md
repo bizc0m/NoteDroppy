@@ -21,7 +21,12 @@ https://peakimmobilier.crypto-extranet.com/xnet#documents
 2. **Sélection** : vous cochez les documents voulus (ou « Tout
    sélectionner »). Cocher une case sélectionne aussi automatiquement toutes
    les autres entrées qui portent exactement le même nom détecté (utile
-   quand un même document apparaît plusieurs fois sur la page).
+   quand un même document apparaît plusieurs fois sur la page). Ce
+   regroupement automatique ne s'applique jamais aux entrées dont le
+   « nom » n'est en réalité que l'intitulé générique d'un bouton
+   (« Télécharger », « Voir »…, sans texte de ligne distinctif) : plusieurs
+   documents différents peuvent partager cet intitulé, donc ces entrées
+   restent toujours sélectionnées une par une.
 3. **Débit** : vous réglez le délai entre deux documents (2 secondes par
    défaut, jamais moins d'1 seconde).
 4. **Téléchargement** : en cliquant sur « Télécharger la sélection », une

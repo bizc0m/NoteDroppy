@@ -79,13 +79,18 @@ function setSelectionCount() {
  * Quand une case est cochée/décochée, applique le même état à toutes les
  * autres entrées qui partagent exactement le même libellé (même nom de
  * document détecté plusieurs fois sur la page).
+ *
+ * Ne regroupe jamais les entrées marquées `groupable: false` : leur libellé
+ * n'est pas un vrai nom de document mais l'intitulé générique du bouton
+ * ("Télécharger", "Voir"…), que plusieurs documents différents peuvent
+ * partager — les regrouper risquerait de sélectionner le mauvais document.
  */
 function onItemCheckboxChange(e) {
   const cb = e.target;
   const label = cb.dataset.label;
-  if (label) {
+  if (label && cb.dataset.groupable === '1') {
     el.resultsList.querySelectorAll('input[type="checkbox"]').forEach((other) => {
-      if (other !== cb && other.dataset.label === label) {
+      if (other !== cb && other.dataset.groupable === '1' && other.dataset.label === label) {
         other.checked = cb.checked;
       }
     });
@@ -107,6 +112,7 @@ function renderResults(items) {
     checkbox.type = 'checkbox';
     checkbox.dataset.index = String(item.index);
     checkbox.dataset.label = item.label;
+    checkbox.dataset.groupable = item.groupable ? '1' : '0';
     checkbox.addEventListener('change', onItemCheckboxChange);
 
     const text = document.createElement('span');
