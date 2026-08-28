@@ -1602,7 +1602,14 @@ private func pasteboardFilenames(from pasteboard: NSPasteboard) -> [String] {
     else {
         return []
     }
-    return strings(fromPropertyList: plist).filter { FileManager.default.fileExists(atPath: $0) }
+    var filenames = strings(fromPropertyList: plist)
+    // Ajout d'une validation supplémentaire pour éviter les chemins non valides
+    filenames = filenames.filter { filename in
+        !filename.isEmpty && 
+        !filename.hasPrefix("/.file/id=") &&
+        FileManager.default.fileExists(atPath: filename)
+    }
+    return filenames
 }
 
 private func existingFinderPath(from text: String) -> String? {
