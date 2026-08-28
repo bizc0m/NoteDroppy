@@ -748,8 +748,11 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         // Sans ceci, fermer la fenetre libere l'objet NSWindow et toute reouverture plante.
         window.isReleasedWhenClosed = false
         window.center()
+        Log.write("PHASE buildLayout debut")
         buildLayout()
+        Log.write("PHASE buildLayout fin")
         refreshRootField()
+        Log.write("PHASE dossier NotePlan resolu")
     }
 
     // MARK: Construction
@@ -1681,14 +1684,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Log.write("LAUNCH \(V4.displayName) \(V4.version) (\(V4.build))")
 
         buildMenu()
+        Log.write("PHASE menu construit")
 
         // Une seule fenetre au lancement. FONCTIONS et Preferences uniquement sur clic.
+        let started = Date()
         let controller = MainWindowController()
+        Log.write(String(format: "PHASE fenetre construite en %.1f s", Date().timeIntervalSince(started)))
         mainController = controller
         controller.showWindow()
+        Log.write(String(format: "PHASE fenetre affichee a %.1f s", Date().timeIntervalSince(started)))
         controller.loadToday()
 
         NSApp.activate(ignoringOtherApps: true)
+        Log.write(String(format: "PHASE lancement complet en %.1f s", Date().timeIntervalSince(started)))
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
