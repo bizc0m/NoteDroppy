@@ -6234,11 +6234,13 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
     var onCloseEmbeddedSort: (() -> Void)?
     private var functionsWindow: NSWindow?
     private var openAfterFunctionCheckbox: NSButton?
+    private var confirmFunctionWriteCheckbox: NSButton?
     private var generatedShortcutURL: URL?
     private var editorMenu: NSMenu!
     private var embeddedContentView: NSView?
     private var didLoadInitialFile = false
     private let selectedPromptTemplateKey = "functionsSelectedPromptTemplateID"
+    private let confirmFunctionWriteKey = "functionsConfirmBeforeNotePlanWrite"
 
     private var rootURL: URL
     private var currentFileURL: URL?
@@ -7050,7 +7052,7 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         let titleLabel = NSTextField(labelWithString: "Actions")
         titleLabel.font = .systemFont(ofSize: 18, weight: .bold)
 
-        let subtitleLabel = NSTextField(labelWithString: "Actions locales. Les écritures NotePlan demandent une validation avant modification.")
+        let subtitleLabel = NSTextField(labelWithString: "Actions locales. L’écriture NotePlan directe est active sauf si la confirmation est réactivée.")
         subtitleLabel.font = .systemFont(ofSize: 12, weight: .regular)
         subtitleLabel.textColor = .secondaryLabelColor
         subtitleLabel.lineBreakMode = .byWordWrapping
@@ -7059,10 +7061,14 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         openCheckbox.state = UserDefaults.standard.bool(forKey: "functionsOpenNotePlanAfterAction") ? .on : .off
         openAfterFunctionCheckbox = openCheckbox
 
+        let confirmCheckbox = NSButton(checkboxWithTitle: "Confirmer avant écriture NotePlan", target: self, action: #selector(toggleConfirmFunctionWrite))
+        confirmCheckbox.state = UserDefaults.standard.bool(forKey: confirmFunctionWriteKey) ? .on : .off
+        confirmFunctionWriteCheckbox = confirmCheckbox
+
         let noteDroppyRows = [
-            functionRow(title: "Ajouter une tâche à aujourd’hui", detail: "Demande le texte, confirme, puis ajoute dans Calendar/\(todayStamp()).md.", action: #selector(addTaskToToday)),
+            functionRow(title: "Ajouter une tâche à aujourd’hui", detail: "Demande le texte, puis ajoute dans Calendar/\(todayStamp()).md.", action: #selector(addTaskToToday)),
             functionRow(title: "Ajouter une URL à aujourd’hui", detail: "Demande une URL et écrit le serveur avant le lien.", action: #selector(addURLToToday)),
-            functionRow(title: "Ajouter du texte sélectionné à aujourd’hui", detail: "Récupère le texte du presse-papiers courant, demande validation, puis ajoute.", action: #selector(addSelectedTextToToday)),
+            functionRow(title: "Ajouter du texte sélectionné à aujourd’hui", detail: "Récupère le texte du presse-papiers courant, puis ajoute.", action: #selector(addSelectedTextToToday)),
             functionRow(title: "Rechercher dans les notes", detail: "Cherche localement dans Calendar et Notes.", action: #selector(searchNotesFromFunctions))
         ]
 
@@ -7076,14 +7082,14 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
 
         let promptRows = [
             functionRow(title: "Choisir un prompt", detail: "Charge les prompts actifs depuis prompts.json et mémorise le choix.", action: #selector(choosePromptTemplate)),
-            functionRow(title: "Appliquer le prompt à aujourd’hui", detail: "Remplit les variables locales, confirme, puis ajoute dans Calendar/\(todayStamp()).md.", action: #selector(applyPromptTemplateToToday)),
+            functionRow(title: "Appliquer le prompt à aujourd’hui", detail: "Remplit les variables locales, puis ajoute dans Calendar/\(todayStamp()).md.", action: #selector(applyPromptTemplateToToday)),
             functionRow(title: "Importer prompts JSON", detail: "Valide un fichier prompts.json externe puis le charge localement.", action: #selector(importPromptLibraryJSON)),
             functionRow(title: "Exporter prompts JSON", detail: "Copie la bibliothèque locale vers le dossier choisi.", action: #selector(exportPromptLibraryJSON)),
             functionRow(title: "Ouvrir prompts.json", detail: "Ouvre le fichier local modifiable sans recompiler l’app.", action: #selector(openPromptLibraryJSON)),
             functionRow(title: "Recharger prompts.json", detail: "Relit le JSON et affiche le nombre de prompts actifs.", action: #selector(reloadPromptLibrary))
         ]
 
-        let noteDroppySection = section(title: "NOTE DROPPY", rows: noteDroppyRows + [openCheckbox])
+        let noteDroppySection = section(title: "NOTE DROPPY", rows: noteDroppyRows + [openCheckbox, confirmCheckbox])
         let shortySection = section(title: "NOTEPLANSHORTY", rows: shortyRows)
         let promptSection = section(title: "PROMPTS", rows: promptRows)
 
@@ -7187,6 +7193,10 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
 
     @objc private func toggleOpenAfterFunction() {
         UserDefaults.standard.set(openAfterFunctionCheckbox?.state == .on, forKey: "functionsOpenNotePlanAfterAction")
+    }
+
+    @objc private func toggleConfirmFunctionWrite() {
+        UserDefaults.standard.set(confirmFunctionWriteCheckbox?.state == .on, forKey: confirmFunctionWriteKey)
     }
 
     @objc private func addTaskToToday() {
@@ -7440,15 +7450,17 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
 
     private func appendToTodayAfterConfirmation(_ line: String, actionName: String) {
         let fileURL = rootURL.appendingPathComponent(todayPath())
-        let alert = NSAlert()
-        alert.messageText = actionName
-        alert.informativeText = "\(todayPath())\n\n\(line)"
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "Ajouter")
-        alert.addButton(withTitle: "Annuler")
-        guard alert.runModal() == .alertFirstButtonReturn else {
-            status("Écriture annulée")
-            return
+        if UserDefaults.standard.bool(forKey: confirmFunctionWriteKey) {
+            let alert = NSAlert()
+            alert.messageText = actionName
+            alert.informativeText = "\(todayPath())\n\n\(line)"
+            alert.alertStyle = .informational
+            alert.addButton(withTitle: "Ajouter")
+            alert.addButton(withTitle: "Annuler")
+            guard alert.runModal() == .alertFirstButtonReturn else {
+                status("Écriture annulée")
+                return
+            }
         }
 
         do {
