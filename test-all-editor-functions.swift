@@ -3,7 +3,7 @@ import Foundation
 // Test automatisé des fonctions Editor*
 // Note: Ce script teste la logique, pas l'interface GUI
 
-print("NoteDroppy 3.8 - Test Suite Complet")
+print("NoteDroppy 3.7 - Test Suite Complet")
 print("Date: \(Date())")
 print(String(repeating: "=", count: 70))
 print()

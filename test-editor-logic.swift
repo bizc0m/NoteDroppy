@@ -1,6 +1,6 @@
 #!/usr/bin/env swift
 
-// Test des fonctions Editor* de NoteDroppy 3.8
+// Test des fonctions Editor* de NoteDroppy 3.7
 // Ce script teste la logique de tri sans interface GUI
 
 import Foundation
@@ -152,7 +152,7 @@ func testSortPriorities() {
 
 // MARK: - Run Tests
 
-print("NoteDroppy 3.8 - Editor Functions Test Suite")
+print("NoteDroppy 3.7 - Editor Functions Test Suite")
 print("Date: \(Date())")
 print(String(repeating: "=", count: 60))
 print()
