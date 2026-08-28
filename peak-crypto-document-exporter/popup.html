@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Peak Crypto Document Exporter</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="header">
+    <h1>Peak Crypto Document Exporter</h1>
+    <div id="domainBadge" class="badge badge-unknown">Vérification de la page…</div>
+  </header>
+
+  <main>
+    <section id="warningSection" class="section warning hidden">
+      <p>
+        Ouvrez la page <strong>Documents</strong> de votre espace
+        <code>peakimmobilier.crypto-extranet.com</code> dans l'onglet actif pour
+        utiliser l'extension.
+      </p>
+    </section>
+
+    <section class="section">
+      <h2>1. Aperçu</h2>
+      <p class="hint">Détecte les documents visibles sur la page, sans rien ouvrir ni télécharger.</p>
+      <button id="scanBtn" class="btn btn-primary">Aperçu (détecter les documents)</button>
+      <div id="scanMeta" class="hint"></div>
+    </section>
+
+    <section id="resultsSection" class="section hidden">
+      <h2>2. Sélection</h2>
+      <div class="row-between">
+        <label class="checkbox-line">
+          <input type="checkbox" id="selectAll" />
+          Tout sélectionner
+        </label>
+        <span id="selectionCount" class="hint">0 sélectionné(s)</span>
+      </div>
+      <ul id="resultsList" class="results-list"></ul>
+    </section>
+
+    <section id="settingsSection" class="section hidden">
+      <h2>3. Débit</h2>
+      <label class="field-line">
+        Délai entre chaque document (secondes, minimum 1)
+        <input type="number" id="rateLimit" min="1" step="0.5" value="2" />
+      </label>
+    </section>
+
+    <section id="downloadSection" class="section hidden">
+      <h2>4. Téléchargement</h2>
+      <button id="downloadBtn" class="btn btn-primary" disabled>Télécharger la sélection</button>
+
+      <div id="confirmPanel" class="confirm-panel hidden">
+        <p id="confirmText"></p>
+        <div class="btn-row">
+          <button id="confirmBtn" class="btn btn-danger">Confirmer le téléchargement</button>
+          <button id="cancelBtn" class="btn btn-secondary">Annuler</button>
+        </div>
+      </div>
+
+      <div id="progressPanel" class="progress-panel hidden">
+        <p id="progressText"></p>
+        <button id="stopBtn" class="btn btn-danger">Arrêt immédiat</button>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="row-between">
+        <h2>Journal</h2>
+        <button id="clearLogBtn" class="btn btn-link">Vider le journal</button>
+      </div>
+      <ul id="logList" class="log-list"></ul>
+    </section>
+  </main>
+
+  <footer class="footer">
+    Aucune donnée n'est envoyée à un service tiers. Domaine autorisé :
+    <code>peakimmobilier.crypto-extranet.com</code>.
+  </footer>
+
+  <script src="popup.js"></script>
+</body>
+</html>

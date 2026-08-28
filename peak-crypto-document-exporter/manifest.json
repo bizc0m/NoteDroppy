@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "Peak Crypto Document Exporter",
+  "version": "1.0.0",
+  "description": "Extension locale et non publiée : liste et exporte, sur demande explicite, les documents accessibles depuis votre espace personnel Peak Immobilier (crypto-extranet).",
+  "permissions": [
+    "downloads",
+    "storage",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://peakimmobilier.crypto-extranet.com/*"
+  ],
+  "background": {
+    "service_worker": "service-worker.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Peak Crypto Document Exporter"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://peakimmobilier.crypto-extranet.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
