@@ -32,6 +32,14 @@
 		<data>
 		0p2du1+L7/s05ppFUKBLm+rDLho=
 		</data>
+		<key>Resources/prompts.json</key>
+		<data>
+		cjwZW72OgLDmA/9ded2SXW0lGDI=
+		</data>
+		<key>Resources/prompts.md</key>
+		<data>
+		CONKL1PkOW1jHvCzYt+MeiuThsc=
+		</data>
 	</dict>
 	<key>files2</key>
 	<dict>
@@ -82,6 +90,20 @@
 			<key>hash2</key>
 			<data>
 			1lI4Nuh/ySNzlxIdkYtiYy13FYM3rM0FHRuO7XmLZCU=
+			</data>
+		</dict>
+		<key>Resources/prompts.json</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			nOFJluN4jyfSipDOF+y6OOG76TtmOr/FMVqcmA7klr8=
+			</data>
+		</dict>
+		<key>Resources/prompts.md</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			hwVlq9tRN/hZ7LdDqWacoKP1KGpZKOH+QSTTGCwXS8Q=
 			</data>
 		</dict>
 	</dict>
