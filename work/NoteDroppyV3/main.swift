@@ -663,7 +663,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         let alert = NSAlert()
         alert.messageText = "Note Commander"
         alert.informativeText = """
-        Version 3.7
+        Version 3.8
 
         App macOS locale pour éditer directement les fichiers Markdown NotePlan.
 
@@ -1114,8 +1114,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
 
         Version integree:
         - NoteDroppy V3
-        - version: 3.7
-        - build: 370
+        - version: 3.8
+        - build: 380
         - bundle id: local.codex.notedroppy.v3
         - source: work/NoteDroppyV3/main.swift
         - commit integre: d7f1a2f puis correctifs V3

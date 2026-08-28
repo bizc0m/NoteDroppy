@@ -1,7 +1,7 @@
-# Test Editor Functions — NoteDroppy 3.0A
+# Test Editor Functions - NoteDroppy 3.8
 
 ## Objectif
-Valider toutes les fonctions de l'éditeur intégré après fusion V3 → 3.0A.
+Valider toutes les fonctions de l'editeur integre NoteDroppy 3.8.
 
 ## Date de test
 2026-08-06
