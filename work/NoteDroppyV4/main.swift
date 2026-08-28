@@ -626,7 +626,45 @@ enum CaptureEngine {
     static func titleGuess(_ text: String, fallback: String) -> String {
         let firstLine = text.components(separatedBy: "\n").first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if firstLine.isEmpty { return fallback }
+        // Une URL n'est pas un titre : on prend son domaine plutot que de repeter le lien.
+        if let normalized = URLLineFormatter.normalizedWebURL(firstLine),
+           let host = URLComponents(string: normalized)?.host {
+            return host.replacingOccurrences(of: "^www\\.", with: "", options: .regularExpression)
+        }
         return String(firstLine.prefix(120))
+    }
+}
+
+// MARK: - Recherche Calendar + Notes
+
+/// Recherche booleenne reelle : s'appuie sur BooleanQueryParser du moteur.
+/// Une requete sans operateur se comporte comme une recherche de sous-chaine.
+enum NoteSearch {
+    struct Hit {
+        let path: String
+        let line: Int
+        let text: String
+    }
+
+    static func run(root: URL, query: String) throws -> [Hit] {
+        let matcher = try BooleanQueryParser.parse(query)
+        var hits: [Hit] = []
+        for folder in ["Calendar", "Notes"] {
+            let dir = root.appendingPathComponent(folder)
+            guard let walker = FileManager.default.enumerator(at: dir, includingPropertiesForKeys: nil) else { continue }
+            for case let url as URL in walker where url.pathExtension.lowercased() == "md" {
+                guard let content = try? String(contentsOf: url, encoding: .utf8) else { continue }
+                let relative = url.path.replacingOccurrences(of: root.path + "/", with: "")
+                for (index, line) in content.components(separatedBy: "\n").enumerated() {
+                    let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if trimmed.isEmpty { continue }
+                    if matcher.matches(trimmed) {
+                        hits.append(Hit(path: relative, line: index + 1, text: trimmed))
+                    }
+                }
+            }
+        }
+        return hits
     }
 }
 
@@ -707,6 +745,8 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         window.title = "\(V4.displayName) — \(V4.version) (\(V4.build))"
         window.delegate = self
         window.isRestorable = false
+        // Sans ceci, fermer la fenetre libere l'objet NSWindow et toute reouverture plante.
+        window.isReleasedWhenClosed = false
         window.center()
         buildLayout()
         refreshRootField()
@@ -919,7 +959,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         }
         guard let query = Dialog.input(title: "Recherche", message: "Requete (AND / OR / NOT acceptes) dans Calendar + Notes.") else { return }
         do {
-            let results = try TaskSearch.search(rootURL: root, query: query, bucket: nil, scope: .calendarAndNotes)
+            let results = try NoteSearch.run(root: root, query: query)
             guard !results.isEmpty else {
                 status("Aucun resultat pour « \(query) ».")
                 return
@@ -1043,6 +1083,7 @@ final class FunctionsWindowController: NSObject {
         super.init()
         window.title = "FONCTIONS — \(V4.displayName)"
         window.isRestorable = false
+        window.isReleasedWhenClosed = false
         buildLayout()
     }
 
