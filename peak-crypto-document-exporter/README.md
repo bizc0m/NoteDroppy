@@ -10,12 +10,18 @@ https://peakimmobilier.crypto-extranet.com/xnet#documents
 
 ## Ce que fait l'extension
 
-1. **Aperçu** : sur clic, elle analyse le DOM déjà affiché par la page
-   Documents (donc uniquement ce que votre compte connecté peut déjà voir)
-   et liste les documents détectés, avec leur mécanisme d'ouverture probable
-   (lien direct ou clic déclenché par le site). Aucune requête n'est faite,
-   aucun onglet n'est ouvert, aucun fichier n'est téléchargé à cette étape.
-2. **Sélection** : vous cochez les documents voulus (ou "Tout sélectionner").
+1. **Aperçu** : dès l'ouverture du popup, elle analyse le DOM déjà affiché
+   par la page Documents (donc uniquement ce que votre compte connecté peut
+   déjà voir) et liste les documents détectés, avec leur mécanisme
+   d'ouverture probable (lien direct ou clic déclenché par le site). Aucune
+   requête n'est faite, aucun onglet n'est ouvert, aucun fichier n'est
+   téléchargé à cette étape — c'est une lecture seule du DOM. Un bouton
+   « Actualiser l'aperçu » permet de relancer la détection à la demande
+   (ex. après un changement de page ou de filtre sur le site).
+2. **Sélection** : vous cochez les documents voulus (ou « Tout
+   sélectionner »). Cocher une case sélectionne aussi automatiquement toutes
+   les autres entrées qui portent exactement le même nom détecté (utile
+   quand un même document apparaît plusieurs fois sur la page).
 3. **Débit** : vous réglez le délai entre deux documents (2 secondes par
    défaut, jamais moins d'1 seconde).
 4. **Téléchargement** : en cliquant sur « Télécharger la sélection », une
@@ -115,7 +121,9 @@ deux cas les plus courants :
 1. Ouvrez `https://peakimmobilier.crypto-extranet.com/xnet#documents` et
    connectez-vous normalement.
 2. Cliquez sur l'icône de l'extension dans la barre d'outils.
-3. Cliquez sur **Aperçu (détecter les documents)** et vérifiez la liste.
+3. La liste des documents détectés s'affiche automatiquement ; vérifiez-la
+   (cliquez sur **Actualiser l'aperçu** si vous changez de page/filtre sur
+   le site).
 4. Cochez les documents voulus, réglez le débit si besoin.
 5. Cliquez sur **Télécharger la sélection**, puis confirmez.
 6. Suivez la progression dans le popup ; cliquez sur **Arrêt immédiat** si

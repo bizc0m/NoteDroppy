@@ -1,9 +1,10 @@
 /**
  * Peak Crypto Document Exporter — popup
  *
- * Interface de contrôle. Rien ne se lance automatiquement : chaque action
- * (aperçu, téléchargement) part d'un clic explicite dans ce popup, et le
- * téléchargement réel exige une confirmation supplémentaire.
+ * Interface de contrôle. L'aperçu (lecture seule, aucune ouverture ni
+ * téléchargement) se lance automatiquement à l'ouverture du popup ; le
+ * téléchargement réel, lui, exige toujours un clic explicite sur
+ * « Télécharger la sélection » puis une confirmation supplémentaire.
  */
 
 const ALLOWED_ORIGIN = 'https://peakimmobilier.crypto-extranet.com';
@@ -74,6 +75,24 @@ function setSelectionCount() {
   el.selectAll.checked = total > 0 && checked === total;
 }
 
+/**
+ * Quand une case est cochée/décochée, applique le même état à toutes les
+ * autres entrées qui partagent exactement le même libellé (même nom de
+ * document détecté plusieurs fois sur la page).
+ */
+function onItemCheckboxChange(e) {
+  const cb = e.target;
+  const label = cb.dataset.label;
+  if (label) {
+    el.resultsList.querySelectorAll('input[type="checkbox"]').forEach((other) => {
+      if (other !== cb && other.dataset.label === label) {
+        other.checked = cb.checked;
+      }
+    });
+  }
+  setSelectionCount();
+}
+
 function renderResults(items) {
   lastItems = items;
   el.resultsList.innerHTML = '';
@@ -87,7 +106,8 @@ function renderResults(items) {
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
     checkbox.dataset.index = String(item.index);
-    checkbox.addEventListener('change', setSelectionCount);
+    checkbox.dataset.label = item.label;
+    checkbox.addEventListener('change', onItemCheckboxChange);
 
     const text = document.createElement('span');
     text.textContent = item.label;
@@ -198,6 +218,8 @@ async function init() {
   if (!ok) {
     el.scanMeta.textContent = "Impossible d'activer l'extension sur cette page (rechargez la page puis réessayez).";
     el.scanBtn.disabled = true;
+    await loadLog();
+    return;
   }
 
   await loadLog();
@@ -207,13 +229,19 @@ async function init() {
     if (resp && resp.ok && resp.status.running) {
       startPolling();
       renderProgress(resp.status);
+      return; // un lot est déjà en cours : ne pas relancer un scan par-dessus
     }
   } catch (e) {
     // pas de run en cours
   }
+
+  // Aperçu automatique : lecture seule du DOM déjà affiché, aucune ouverture
+  // ni téléchargement. Seul le bouton « Télécharger la sélection » (+ sa
+  // confirmation) peut déclencher un téléchargement.
+  await performScan();
 }
 
-el.scanBtn.addEventListener('click', async () => {
+async function performScan() {
   if (!activeTabId) return;
   el.scanBtn.disabled = true;
   el.scanMeta.textContent = 'Analyse en cours…';
@@ -229,7 +257,9 @@ el.scanBtn.addEventListener('click', async () => {
   } finally {
     el.scanBtn.disabled = false;
   }
-});
+}
+
+el.scanBtn.addEventListener('click', performScan);
 
 el.selectAll.addEventListener('change', () => {
   const boxes = el.resultsList.querySelectorAll('input[type="checkbox"]');
