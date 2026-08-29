@@ -6,8 +6,8 @@ APP="$ROOT_DIR/outputs/Note Droopy.app"
 SRC="$ROOT_DIR/work/NotePlanURLDrop/main.swift"
 BIN="$APP/Contents/MacOS/NoteDroopy"
 PLIST="$APP/Contents/Info.plist"
-VERSION="${1:-3.8}"
-BUILD="${2:-380}"
+VERSION="${1:-4.1A}"
+BUILD="${2:-411}"
 SIGN_IDENTITY="${NOTEDROPPY_CODESIGN_IDENTITY:-NoteDroppy Local Code Signing}"
 
 if ! security find-identity -v -p codesigning | grep -Fq "\"$SIGN_IDENTITY\""; then
@@ -80,7 +80,7 @@ cat > "$PLIST" <<'PLIST'
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>3.8</string>
+  <string>4.1A</string>
   <key>CFBundleURLTypes</key>
   <array>
     <dict>
@@ -96,7 +96,7 @@ cat > "$PLIST" <<'PLIST'
     </dict>
   </array>
   <key>CFBundleVersion</key>
-  <string>380</string>
+  <string>411</string>
   <key>LSMinimumSystemVersion</key>
   <string>14.0</string>
   <key>NSServices</key>
