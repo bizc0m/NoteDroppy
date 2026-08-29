@@ -2744,20 +2744,6 @@ extension NoteSearchWindowController: NSWindowDelegate {
 }
 
 final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
-    private enum Blade: String, CaseIterable {
-        case capture
-        case shortcuts
-        case commander
-
-        var title: String {
-            switch self {
-            case .capture: return "Capture"
-            case .shortcuts: return "Raccourcis"
-            case .commander: return "Commander"
-            }
-        }
-    }
-
     private let serviceNameField = NSTextField(string: Settings.serviceName)
     private let tagField = NSTextField(string: Settings.taskTag)
     private let notesRootField = NSTextField(string: Settings.notesRootPath)
@@ -2819,25 +2805,25 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         contentView.addSubview(tabView)
 
         let settingsContainer = NSView()
-        let settingsTab = NSTabViewItem(identifier: Blade.capture.rawValue)
-        settingsTab.label = Blade.capture.title
+        let settingsTab = NSTabViewItem(identifier: "settings")
+        settingsTab.label = "Capture"
         settingsTab.view = settingsContainer
         tabView.addTabViewItem(settingsTab)
 
         let shortcutTabContainer = NSView()
-        let shortcutMakerTab = NSTabViewItem(identifier: Blade.shortcuts.rawValue)
-        shortcutMakerTab.label = Blade.shortcuts.title
+        let shortcutMakerTab = NSTabViewItem(identifier: "shortcutMaker")
+        shortcutMakerTab.label = "Raccourcis"
         shortcutMakerTab.view = shortcutTabContainer
         tabView.addTabViewItem(shortcutMakerTab)
 
-        let nc2Tab = NSTabViewItem(identifier: Blade.commander.rawValue)
-        nc2Tab.label = Blade.commander.title
+        let nc2Tab = NSTabViewItem(identifier: "nc2")
+        nc2Tab.label = "Commander"
         nc2Tab.view = nc2Controller.embeddedView()
         tabView.addTabViewItem(nc2Tab)
         nc2Controller.onCloseEmbeddedSort = { [weak tabView] in
             guard let tabView,
-                  let commanderTab = tabView.tabViewItems.first(where: { ($0.identifier as? String) == Blade.commander.rawValue }) else { return }
-            tabView.selectTabViewItem(commanderTab)
+                  let settingsTab = tabView.tabViewItems.first(where: { ($0.identifier as? String) == "settings" }) else { return }
+            tabView.selectTabViewItem(settingsTab)
         }
         tabView.selectTabViewItem(settingsTab)
 
@@ -3018,23 +3004,6 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         tagField.widthAnchor.constraint(equalToConstant: 260).isActive = true
         notesRootField.widthAnchor.constraint(equalToConstant: 560).isActive = true
 
-        let serviceRow = horizontalRow(spacing: 10)
-        serviceRow.addArrangedSubview(formLabel("Service", width: 92))
-        serviceRow.addArrangedSubview(serviceNameField)
-        serviceRow.addArrangedSubview(formLabel("Tag", width: 42))
-        serviceRow.addArrangedSubview(tagField)
-
-        let notesRootRow = horizontalRow(spacing: 10)
-        notesRootRow.addArrangedSubview(formLabel("Dossier Notes", width: 92))
-        notesRootRow.addArrangedSubview(notesRootField)
-        notesRootRow.addArrangedSubview(chooseNotesRootButton)
-
-        let captureOptionsRow = horizontalRow(spacing: 12)
-        captureOptionsRow.addArrangedSubview(openNoteCheckbox)
-        captureOptionsRow.addArrangedSubview(autoSaveCheckbox)
-        captureOptionsRow.addArrangedSubview(includeSourceCheckbox)
-        captureOptionsRow.addArrangedSubview(includeDocumentSourceCheckbox)
-
         let shortcutsContainer = NSStackView()
         shortcutsContainer.orientation = .vertical
         shortcutsContainer.spacing = 6
@@ -3122,16 +3091,12 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         }
 
         stack.addArrangedSubview(titleStack)
-        stack.addArrangedSubview(serviceRow)
-        stack.addArrangedSubview(notesRootRow)
-        stack.addArrangedSubview(captureOptionsRow)
-        stack.addArrangedSubview(buttons)
+        stack.addArrangedSubview(variablesHelpLabel)
+        stack.addArrangedSubview(optionsRow)
+        stack.addArrangedSubview(colorsRow)
+        stack.addArrangedSubview(shortcutsContainer)
         stack.addArrangedSubview(statusLabel)
 
-        shortcutTabStack.addArrangedSubview(variablesHelpLabel)
-        shortcutTabStack.addArrangedSubview(optionsRow)
-        shortcutTabStack.addArrangedSubview(colorsRow)
-        shortcutTabStack.addArrangedSubview(shortcutsContainer)
         shortcutTabStack.addArrangedSubview(shortcutMakerTabView())
 
         NSLayoutConstraint.activate([
@@ -3186,7 +3151,7 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
 
     func tabView(_ tabView: NSTabView, didSelect tabViewItem: NSTabViewItem?) {
         switch tabViewItem?.identifier as? String {
-        case Blade.commander.rawValue:
+        case "nc2":
             nc2Controller.activateEmbeddedSort()
         default:
             window?.title = "Note Droopy — Préférences"
@@ -4821,15 +4786,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func showCapturePreferencesFromMenu(_ sender: Any?) {
-        showSettingsWindow(tab: "capture")
+        showSettingsWindow(tab: "settings")
     }
 
     @objc func showShortcutPreferencesFromMenu(_ sender: Any?) {
-        showSettingsWindow(tab: "shortcuts")
+        showSettingsWindow(tab: "shortcutMaker")
     }
 
     @objc func showCommanderPreferencesFromMenu(_ sender: Any?) {
-        showSettingsWindow(tab: "commander")
+        showSettingsWindow(tab: "nc2")
     }
 
     @objc func savePreferencesFromMenu(_ sender: Any?) {
