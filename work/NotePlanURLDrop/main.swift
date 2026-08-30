@@ -5430,10 +5430,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             writeObsidianTask(task, shortcutSlot: shortcutSlot)
             return
         }
-        if let sectionTarget = captureSectionTarget(from: tagSource),
-           writeNotePlanTask(task, shortcutSlot: shortcutSlot, sectionTarget: sectionTarget) {
+        if let sectionTarget = captureSectionTarget(from: tagSource) {
+            // writeNotePlanTask est asynchrone (main.swift ~5605, notePlanFileTarget) :
+            // pour destination "Note nommee" sans dossier explicite + $section(...), la
+            // resolution du chemin peut scanner tout le dossier Notes (notePathMatchingTitleForCapture).
+            // Ce scan tourne maintenant hors du thread principal pour ne pas geler l'UI le
+            // temps de la capture ; le fallback x-callback ci-dessous reste synchrone (rapide,
+            // aucun scan disque).
+            writeNotePlanTask(task, shortcutSlot: shortcutSlot, sectionTarget: sectionTarget) { [weak self] success in
+                guard let self, !success else { return }
+                self.sendTodoViaXCallback(task: task, shortcutSlot: shortcutSlot)
+            }
             return
         }
+        sendTodoViaXCallback(task: task, shortcutSlot: shortcutSlot)
+    }
+
+    private func sendTodoViaXCallback(task: String, shortcutSlot: ShortcutSlot?) {
         let openNoteValue = Settings.openNote ? "yes" : "no"
         let noteTarget = notePlanTarget(for: shortcutSlot)
         log("sendTodoTarget:\(noteTarget)")
@@ -5519,26 +5532,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return value.isEmpty ? nil : value
     }
 
-    private func writeNotePlanTask(_ task: String, shortcutSlot: ShortcutSlot?, sectionTarget: (name: String, position: CaptureSectionPosition)) -> Bool {
-        guard let target = notePlanFileTarget(for: shortcutSlot) else {
-            log("noteplan-section:error:no-target")
-            NSSound.beep()
-            return false
-        }
-        do {
-            try FileManager.default.createDirectory(at: target.fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            let existing = (try? String(contentsOf: target.fileURL, encoding: .utf8)) ?? ""
-            let updated = markdownByInserting(task: task, in: existing, section: sectionTarget.name, position: sectionTarget.position)
-            try updated.write(to: target.fileURL, atomically: true, encoding: .utf8)
-            log("noteplan-section:write:\(target.relativePath):\(sectionTarget.name)")
-            if Settings.openNote {
-                openNotePlanFile(relativePath: target.relativePath)
+    private func writeNotePlanTask(_ task: String, shortcutSlot: ShortcutSlot?, sectionTarget: (name: String, position: CaptureSectionPosition), completion: @escaping (Bool) -> Void) {
+        notePlanFileTarget(for: shortcutSlot) { [weak self] target in
+            guard let self else { return }
+            guard let target else {
+                self.log("noteplan-section:error:no-target")
+                NSSound.beep()
+                completion(false)
+                return
             }
-            return true
-        } catch {
-            log("noteplan-section:error:\(error.localizedDescription)")
-            NSSound.beep()
-            return false
+            do {
+                try FileManager.default.createDirectory(at: target.fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                let existing = (try? String(contentsOf: target.fileURL, encoding: .utf8)) ?? ""
+                let updated = self.markdownByInserting(task: task, in: existing, section: sectionTarget.name, position: sectionTarget.position)
+                try updated.write(to: target.fileURL, atomically: true, encoding: .utf8)
+                self.log("noteplan-section:write:\(target.relativePath):\(sectionTarget.name)")
+                if Settings.openNote {
+                    self.openNotePlanFile(relativePath: target.relativePath)
+                }
+                completion(true)
+            } catch {
+                self.log("noteplan-section:error:\(error.localizedDescription)")
+                NSSound.beep()
+                completion(false)
+            }
         }
     }
 
@@ -5602,33 +5619,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .lowercased()
     }
 
-    private func notePlanFileTarget(for shortcutSlot: ShortcutSlot?) -> (relativePath: String, fileURL: URL)? {
-        guard let root = normalizedNotePlanBaseRoot() else { return nil }
-        let relativePath: String
+    /// Asynchrone uniquement parce que le cas .noteTitle sans dossier peut
+    /// declencher notePathMatchingTitleForCapture, qui scanne et ouvre
+    /// potentiellement chaque note du dossier Notes (main.swift, fonction
+    /// ci-dessous) — un vault de plusieurs milliers de notes rendrait ça
+    /// lent. Ce scan tourne sur une file d'arriere-plan ; tous les autres
+    /// cas (rapides, aucune I/O disque hors le root lui-meme) appellent
+    /// completion immediatement, sans changement de comportement/timing.
+    private func notePlanFileTarget(for shortcutSlot: ShortcutSlot?, completion: @escaping ((relativePath: String, fileURL: URL)?) -> Void) {
+        guard let root = normalizedNotePlanBaseRoot() else {
+            completion(nil)
+            return
+        }
         guard let shortcutSlot else {
-            relativePath = todayNotePlanRelativePath()
-            return (relativePath, root.appendingPathComponent(relativePath))
+            let relativePath = todayNotePlanRelativePath()
+            completion((relativePath, root.appendingPathComponent(relativePath)))
+            return
         }
         switch shortcutSlot.destination {
         case .standard, .today:
-            relativePath = todayNotePlanRelativePath()
+            let relativePath = todayNotePlanRelativePath()
+            completion((relativePath, root.appendingPathComponent(relativePath)))
         case .noteTitle:
             let noteTitle = expandedVariables(shortcutSlot.noteReference).trimmingCharacters(in: .whitespacesAndNewlines)
             let folder = expandedVariables(shortcutSlot.folder).trimmingCharacters(in: .whitespacesAndNewlines)
             let joined = joinedNotePath(folder: folder, note: noteTitle)
             if !joined.isEmpty {
-                relativePath = notePlanRelativePath(joined)
-            } else if let found = notePathMatchingTitleForCapture(noteTitle, notesRoot: root.appendingPathComponent("Notes")) {
-                relativePath = notePlanRelativePath(found)
-            } else {
-                relativePath = notePlanRelativePath(noteTitle.hasSuffix(".md") ? noteTitle : "\(noteTitle).md")
+                let relativePath = notePlanRelativePath(joined)
+                completion((relativePath, root.appendingPathComponent(relativePath)))
+                return
+            }
+            let notesRoot = root.appendingPathComponent("Notes")
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let found = self?.notePathMatchingTitleForCapture(noteTitle, notesRoot: notesRoot)
+                DispatchQueue.main.async {
+                    let relativePath: String
+                    if let found {
+                        relativePath = self?.notePlanRelativePath(found) ?? found
+                    } else {
+                        relativePath = self?.notePlanRelativePath(noteTitle.hasSuffix(".md") ? noteTitle : "\(noteTitle).md")
+                            ?? (noteTitle.hasSuffix(".md") ? noteTitle : "\(noteTitle).md")
+                    }
+                    completion((relativePath, root.appendingPathComponent(relativePath)))
+                }
             }
         case .notePath:
             let note = expandedVariables(shortcutSlot.noteReference).trimmingCharacters(in: .whitespacesAndNewlines)
             let folder = expandedVariables(shortcutSlot.folder).trimmingCharacters(in: .whitespacesAndNewlines)
-            relativePath = notePlanRelativePath(joinedNotePath(folder: folder, note: note))
+            let relativePath = notePlanRelativePath(joinedNotePath(folder: folder, note: note))
+            completion((relativePath, root.appendingPathComponent(relativePath)))
         }
-        return (relativePath, root.appendingPathComponent(relativePath))
     }
 
     private func normalizedNotePlanBaseRoot() -> URL? {
