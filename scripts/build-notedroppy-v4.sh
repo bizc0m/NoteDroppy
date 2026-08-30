@@ -34,6 +34,8 @@ swiftc -O \
   "$SRC_DIR/SlotUIHelpers.swift" \
   "$SRC_DIR/NoteSearchWindowController.swift" \
   "$SRC_DIR/HotkeyRecorder.swift" \
+  "$SRC_DIR/ShortcutSlotDropViews.swift" \
+  "$SRC_DIR/ShortcutSlotRow.swift" \
   "$SRC_DIR/main.swift" \
   -o "$BIN"
 

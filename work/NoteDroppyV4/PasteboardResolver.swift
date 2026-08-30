@@ -21,7 +21,7 @@ import Foundation
 
 // MARK: - PasteboardInspector
 
-private let shortcutDropPasteboardTypes: [NSPasteboard.PasteboardType] = [
+let shortcutDropPasteboardTypes: [NSPasteboard.PasteboardType] = [
     .fileURL,
     .URL,
     .string,
