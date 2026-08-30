@@ -5509,9 +5509,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let shortcutSlot else { return "noteDate=today" }
 
         switch shortcutSlot.destination {
-        case .standard:
-            return ""
-        case .today:
+        case .standard, .today:
+            // "Standard" behaves like "Aujourd'hui (NotePlan)" here to match
+            // notePlanFileTarget(for:), which already folds .standard into
+            // .today (Calendar/<today>.md) when a $section(...) tag routes
+            // the capture through writeNotePlanTask instead of this
+            // x-callback path. Previously .standard returned "" (no target
+            // param at all), silently deferring to NotePlan's own undocumented
+            // default — inconsistent with the file-write path for the exact
+            // same destination setting.
             return "noteDate=today"
         case .noteTitle:
             let noteTitle = expandedVariables(shortcutSlot.noteReference).trimmingCharacters(in: .whitespacesAndNewlines)
