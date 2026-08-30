@@ -797,6 +797,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             UI.button("Aujourd'hui", symbol: "calendar", target: self, action: #selector(loadToday)),
             UI.button("Sauvegarder", symbol: "square.and.arrow.down", target: self, action: #selector(saveFile)),
             UI.button("Recherche", symbol: "magnifyingglass", target: self, action: #selector(searchNotes)),
+            UI.button("Raccourcis", symbol: "keyboard", target: self, action: #selector(openShortcutSlots)),
             NSView(),
             UI.greenButton("FONCTIONS", symbol: "square.grid.2x2.fill", target: self, action: #selector(openFunctions))
         ])
@@ -981,6 +982,11 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         }
         functionsController?.show()
         status("Fenetre FONCTIONS ouverte.")
+    }
+
+    @objc private func openShortcutSlots() {
+        ShortcutSlotsWindowController.show()
+        status("Fenetre Raccourcis ouverte.")
     }
 
     // MARK: Services utilises par la fenetre FONCTIONS
@@ -1673,6 +1679,10 @@ extension FunctionsWindowController {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var mainController: MainWindowController?
+    // V5 20-slot capture system (work/NoteDroppyV4/ShortcutSlotStore.swift
+    // and friends) -- reference kept strong here or the hotkeys are
+    // unregistered as soon as this property would otherwise deinit.
+    private var shortcutMonitor: GlobalShortcutMonitor?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         _ = ContextProbe.shared
@@ -1681,6 +1691,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Paths.seedIfMissing(resource: "capture-rules", destination: Paths.captureRulesFile)
         PromptStore.reload()
         CaptureRuleStore.reload()
+        ShortcutSlotStore.migrateShortcutLayoutIfNeeded()
+        shortcutMonitor = GlobalShortcutMonitor(handler: CaptureTrigger.run)
         Log.write("LAUNCH \(V4.displayName) \(V4.version) (\(V4.build))")
 
         buildMenu()
