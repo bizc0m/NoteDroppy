@@ -223,10 +223,43 @@ enum ShortcutSlotStore {
     static let shortcutSlotCount = 20
     static let currentShortcutLayoutVersion = 3
 
+    static let openNoteKey = "openNote"
+    static let autoSaveKey = "autoSave"
+    static let includeSourceKey = "includeSource"
+    static let includeDocumentSourceKey = "includeDocumentSource"
+
     static var taskTag: String {
         let value = UserDefaults.standard.string(forKey: taskTagKey) ?? "#capture"
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "#capture" : trimmed
+    }
+
+    static var openNote: Bool {
+        if UserDefaults.standard.object(forKey: openNoteKey) == nil {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: openNoteKey)
+    }
+
+    static var autoSave: Bool {
+        if UserDefaults.standard.object(forKey: autoSaveKey) == nil {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: autoSaveKey)
+    }
+
+    static var includeSource: Bool {
+        if UserDefaults.standard.object(forKey: includeSourceKey) == nil {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: includeSourceKey)
+    }
+
+    static var includeDocumentSource: Bool {
+        if UserDefaults.standard.object(forKey: includeDocumentSourceKey) == nil {
+            return false
+        }
+        return UserDefaults.standard.bool(forKey: includeDocumentSourceKey)
     }
 
     /// Meme dossier NotePlan que Note Droopy — clef "notesRootPath" /

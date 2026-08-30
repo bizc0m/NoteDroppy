@@ -16,6 +16,31 @@ import AppKit
 import Carbon
 import Foundation
 
+func expandedVariables(_ value: String, date: Date = Date()) -> String {
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "fr_FR")
+    func format(_ template: String) -> String {
+        formatter.dateFormat = template
+        return formatter.string(from: date)
+    }
+    return value
+        .replacingOccurrences(of: "$datetime", with: format("yyyy-MM-dd HH:mm"))
+        .replacingOccurrences(of: "$date", with: format("yyyy-MM-dd"))
+        .replacingOccurrences(of: "$day", with: format("EEEE"))
+        .replacingOccurrences(of: "$time", with: format("HH:mm"))
+        .replacingOccurrences(of: "$month", with: format("yyyy-MM"))
+        .replacingOccurrences(of: "$year", with: format("yyyy"))
+}
+
+func normalizedPreferenceTags(_ value: String) -> [String] {
+    value
+        .split(separator: ",")
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
+        .filter { !$0.hasPrefix("!") && !$0.hasPrefix("$") }
+        .map { $0.hasPrefix("#") || $0.hasPrefix("@") ? $0 : "#\($0)" }
+}
+
 struct NoteSearchResult {
     let title: String
     let relativePath: String
@@ -68,7 +93,7 @@ func loadNoteSearchResults() -> [NoteSearchResult] {
     }
 }
 
-private func noteMarkdownFiles(under root: URL) -> [URL] {
+func noteMarkdownFiles(under root: URL) -> [URL] {
     let skippedDirectories = Set(["@Trash", "@Archive", ".obsidian"])
     var files: [URL] = []
     var pending: [(path: String, depth: Int)] = [(root.path, 0)]
@@ -104,7 +129,7 @@ private func noteMarkdownFiles(under root: URL) -> [URL] {
     return files
 }
 
-private func noteSearchSummary(from url: URL) -> (title: String?, tags: [String]) {
+func noteSearchSummary(from url: URL) -> (title: String?, tags: [String]) {
     guard let handle = try? FileHandle(forReadingFrom: url) else { return (nil, []) }
     defer { try? handle.close() }
     let data = handle.readData(ofLength: 65536)
