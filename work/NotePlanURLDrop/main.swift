@@ -1533,6 +1533,47 @@ final class FlippedView: NSView {
     override var isFlipped: Bool { true }
 }
 
+final class CaptureBladeDropView: NSView {
+    var onDropTarget: ((ShortcutTarget) -> Bool)?
+    override var isFlipped: Bool { true }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        registerForDraggedTypes(shortcutDropPasteboardTypes)
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        registerForDraggedTypes(shortcutDropPasteboardTypes)
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        writeDebugLog("capture-blade-drop:entered:\(pasteboardDebugDescription(sender.draggingPasteboard))")
+        return shortcutTarget(from: sender.draggingPasteboard) == nil
+            ? NSDragOperation()
+            : preferredDragOperation(from: sender.draggingSourceOperationMask)
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        shortcutTarget(from: sender.draggingPasteboard) == nil
+            ? NSDragOperation()
+            : preferredDragOperation(from: sender.draggingSourceOperationMask)
+    }
+
+    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        shortcutTarget(from: sender.draggingPasteboard) != nil
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        writeDebugLog("capture-blade-drop:perform:\(pasteboardDebugDescription(sender.draggingPasteboard))")
+        guard let target = shortcutTarget(from: sender.draggingPasteboard) else {
+            NSSound.beep()
+            return false
+        }
+        return onDropTarget?(target) ?? false
+    }
+}
+
 final class ShortcutSlotDropStack: NSStackView {
     var acceptsDrop = true
     var onDropTarget: ((ShortcutTarget) -> Bool)?
@@ -2788,7 +2829,7 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
     private weak var preferencesTabView: NSTabView?
 
     convenience init() {
-        let window = centeredWindow("Note Droopy — Préférences", width: 1220, height: 860, style: [.titled, .closable, .miniaturizable, .resizable])
+        let window = centeredWindow("Note Droopy — Capture", width: 1220, height: 860, style: [.titled, .closable, .miniaturizable, .resizable])
         window.minSize = NSSize(width: 1220, height: 860)
         window.setContentSize(NSSize(width: 1220, height: 860))
         self.init(window: window)
@@ -2798,35 +2839,6 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
     private func buildContent() {
         guard let contentView = window?.contentView else { return }
 
-        let tabView = NSTabView()
-        tabView.translatesAutoresizingMaskIntoConstraints = false
-        tabView.delegate = self
-        preferencesTabView = tabView
-        contentView.addSubview(tabView)
-
-        let settingsContainer = NSView()
-        let settingsTab = NSTabViewItem(identifier: "settings")
-        settingsTab.label = "Capture"
-        settingsTab.view = settingsContainer
-        tabView.addTabViewItem(settingsTab)
-
-        let shortcutTabContainer = NSView()
-        let shortcutMakerTab = NSTabViewItem(identifier: "shortcutMaker")
-        shortcutMakerTab.label = "Raccourcis"
-        shortcutMakerTab.view = shortcutTabContainer
-        tabView.addTabViewItem(shortcutMakerTab)
-
-        let nc2Tab = NSTabViewItem(identifier: "nc2")
-        nc2Tab.label = "Commander"
-        nc2Tab.view = nc2Controller.embeddedView()
-        tabView.addTabViewItem(nc2Tab)
-        nc2Controller.onCloseEmbeddedSort = { [weak tabView] in
-            guard let tabView,
-                  let settingsTab = tabView.tabViewItems.first(where: { ($0.identifier as? String) == "settings" }) else { return }
-            tabView.selectTabViewItem(settingsTab)
-        }
-        tabView.selectTabViewItem(settingsTab)
-
         let settingsScrollView = NSScrollView()
         settingsScrollView.translatesAutoresizingMaskIntoConstraints = false
         settingsScrollView.hasVerticalScroller = true
@@ -2834,10 +2846,14 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         settingsScrollView.autohidesScrollers = false
         settingsScrollView.drawsBackground = false
         settingsScrollView.borderType = .noBorder
-        settingsContainer.addSubview(settingsScrollView)
+        contentView.addSubview(settingsScrollView)
 
-        let settingsDocument = FlippedView()
+        let settingsDocument = CaptureBladeDropView()
         settingsDocument.translatesAutoresizingMaskIntoConstraints = false
+        settingsDocument.onDropTarget = { [weak self] target in
+            guard let self, let row = self.focusedTargetRow() ?? self.selectedConfigRow() else { return false }
+            return self.applyDroppedTarget(target, to: row)
+        }
         settingsScrollView.documentView = settingsDocument
 
         let stack = NSStackView()
@@ -3040,26 +3056,6 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
             slotsStack.bottomAnchor.constraint(equalTo: shortcutsDocument.bottomAnchor)
         ])
 
-        let shortcutTabScrollView = NSScrollView()
-        shortcutTabScrollView.translatesAutoresizingMaskIntoConstraints = false
-        shortcutTabScrollView.hasVerticalScroller = true
-        shortcutTabScrollView.hasHorizontalScroller = false
-        shortcutTabScrollView.autohidesScrollers = false
-        shortcutTabScrollView.drawsBackground = false
-        shortcutTabScrollView.borderType = .noBorder
-        shortcutTabContainer.addSubview(shortcutTabScrollView)
-
-        let shortcutTabDocument = FlippedView()
-        shortcutTabDocument.translatesAutoresizingMaskIntoConstraints = false
-        shortcutTabScrollView.documentView = shortcutTabDocument
-
-        let shortcutTabStack = NSStackView()
-        shortcutTabStack.orientation = .vertical
-        shortcutTabStack.alignment = .leading
-        shortcutTabStack.spacing = 12
-        shortcutTabStack.translatesAutoresizingMaskIntoConstraints = false
-        shortcutTabDocument.addSubview(shortcutTabStack)
-
         shortcutRows = Settings.allShortcutSlots().map { slot in
             let row = ShortcutSlotRow(slot: slot)
             row.recorder.onValidate = { [weak self, weak row] combo in
@@ -3097,37 +3093,18 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         stack.addArrangedSubview(shortcutsContainer)
         stack.addArrangedSubview(statusLabel)
 
-        shortcutTabStack.addArrangedSubview(shortcutMakerTabView())
-
         NSLayoutConstraint.activate([
-            tabView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
-            tabView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
-            tabView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
-            tabView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -12),
-
-            settingsScrollView.leadingAnchor.constraint(equalTo: settingsContainer.leadingAnchor),
-            settingsScrollView.trailingAnchor.constraint(equalTo: settingsContainer.trailingAnchor),
-            settingsScrollView.topAnchor.constraint(equalTo: settingsContainer.topAnchor),
-            settingsScrollView.bottomAnchor.constraint(equalTo: settingsContainer.bottomAnchor),
+            settingsScrollView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
+            settingsScrollView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
+            settingsScrollView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
+            settingsScrollView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -12),
 
             settingsDocument.widthAnchor.constraint(equalTo: settingsScrollView.contentView.widthAnchor),
 
             stack.leadingAnchor.constraint(equalTo: settingsDocument.leadingAnchor, constant: 12),
             stack.trailingAnchor.constraint(lessThanOrEqualTo: settingsDocument.trailingAnchor, constant: -12),
             stack.topAnchor.constraint(equalTo: settingsDocument.topAnchor, constant: 12),
-            stack.bottomAnchor.constraint(equalTo: settingsDocument.bottomAnchor, constant: -12),
-
-            shortcutTabScrollView.leadingAnchor.constraint(equalTo: shortcutTabContainer.leadingAnchor),
-            shortcutTabScrollView.trailingAnchor.constraint(equalTo: shortcutTabContainer.trailingAnchor),
-            shortcutTabScrollView.topAnchor.constraint(equalTo: shortcutTabContainer.topAnchor),
-            shortcutTabScrollView.bottomAnchor.constraint(equalTo: shortcutTabContainer.bottomAnchor),
-
-            shortcutTabDocument.widthAnchor.constraint(equalTo: shortcutTabScrollView.contentView.widthAnchor),
-
-            shortcutTabStack.leadingAnchor.constraint(equalTo: shortcutTabDocument.leadingAnchor, constant: 12),
-            shortcutTabStack.trailingAnchor.constraint(lessThanOrEqualTo: shortcutTabDocument.trailingAnchor, constant: -12),
-            shortcutTabStack.topAnchor.constraint(equalTo: shortcutTabDocument.topAnchor, constant: 12),
-            shortcutTabStack.bottomAnchor.constraint(equalTo: shortcutTabDocument.bottomAnchor, constant: -12)
+            stack.bottomAnchor.constraint(equalTo: settingsDocument.bottomAnchor, constant: -12)
         ])
         contentView.layoutSubtreeIfNeeded()
         let fitting = stack.fittingSize
