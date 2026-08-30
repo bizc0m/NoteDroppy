@@ -202,7 +202,7 @@ private func carbonModifiers(fromRawNSEventFlags raw: UInt) -> UInt32 {
     carbonModifiers(from: NSEvent.ModifierFlags(rawValue: raw))
 }
 
-private func normalizedCarbonModifiers(_ raw: UInt32) -> UInt32 {
+func normalizedCarbonModifiers(_ raw: UInt32) -> UInt32 {
     let allowedCarbon = UInt32(controlKey | optionKey | shiftKey | cmdKey)
     if raw != 0, raw & ~allowedCarbon == 0 {
         return raw
