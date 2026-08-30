@@ -217,6 +217,8 @@ private func normalizedCarbonModifiers(_ raw: UInt32) -> UInt32 {
 /// le `Settings` (prefixe "v4.") deja present dans NoteDroppyV4/main.swift.
 enum ShortcutSlotStore {
     static let taskTagKey = "taskTag"
+    static let notesRootPathKey = "notesRootPath"
+    static let notesRootBookmarkKey = "notesRootBookmark"
     static let shortcutLayoutVersionKey = "shortcutLayoutVersion"
     static let shortcutSlotCount = 20
     static let currentShortcutLayoutVersion = 3
@@ -225,6 +227,58 @@ enum ShortcutSlotStore {
         let value = UserDefaults.standard.string(forKey: taskTagKey) ?? "#capture"
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "#capture" : trimmed
+    }
+
+    /// Meme dossier NotePlan que Note Droopy — clef "notesRootPath" /
+    /// "notesRootBookmark" non prefixees, distinctes du "v4.notesRootPath"
+    /// deja utilise par MainWindowController pour son propre picker.
+    /// Les deux coexistent volontairement : ce store lit le reglage legacy,
+    /// il ne remplace pas le picker v4 existant.
+    static var notesRootPath: String {
+        let value = UserDefaults.standard.string(forKey: notesRootPathKey) ?? ""
+        return value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func selectedNotesRoot() -> URL? {
+        if let data = UserDefaults.standard.data(forKey: notesRootBookmarkKey) {
+            var stale = false
+            if let url = try? URL(
+                resolvingBookmarkData: data,
+                options: [.withSecurityScope],
+                relativeTo: nil,
+                bookmarkDataIsStale: &stale
+            ) {
+                if stale {
+                    setNotesRoot(url)
+                }
+                return normalizedNotesRoot(url)
+            }
+        }
+
+        let path = notesRootPath
+        return path.isEmpty ? nil : normalizedNotesRoot(URL(fileURLWithPath: path))
+    }
+
+    static func setNotesRoot(_ url: URL) {
+        let normalized = normalizedNotesRoot(url)
+        UserDefaults.standard.set(normalized.path, forKey: notesRootPathKey)
+        if let data = try? normalized.bookmarkData(options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil) {
+            UserDefaults.standard.set(data, forKey: notesRootBookmarkKey)
+        }
+        UserDefaults.standard.synchronize()
+    }
+
+    static func normalizedNotesRoot(_ url: URL) -> URL {
+        let standardized = url.standardizedFileURL
+        if standardized.lastPathComponent == "Notes" {
+            let parent = standardized.deletingLastPathComponent()
+            let hasCalendar = FileManager.default.fileExists(atPath: parent.appendingPathComponent("Calendar").path)
+            let hasNotes = FileManager.default.fileExists(atPath: parent.appendingPathComponent("Notes").path)
+            if hasCalendar && hasNotes {
+                return parent
+            }
+        }
+        return standardized
     }
 
     static func shortcutSlot(_ index: Int) -> ShortcutSlot {
