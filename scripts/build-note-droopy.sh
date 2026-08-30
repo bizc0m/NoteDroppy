@@ -121,6 +121,8 @@ cat > "$PLIST" <<'PLIST'
   </array>
   <key>NSSupportsOpeningDocumentsInPlace</key>
   <true/>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>Note Droopy a besoin d'envoyer des evenements Apple a NotePlan et a ton navigateur (Safari/Chrome) pour recuperer le lien de la page ou de la note source lors d'une capture.</string>
 </dict>
 </plist>
 PLIST
@@ -138,8 +140,20 @@ ditto --norsrc --noextattr "$ROOT_DIR/docs/capture-rules.md" "$APP/Contents/Reso
 ditto --norsrc --noextattr "$ROOT_DIR/prompts.json" "$APP/Contents/Resources/prompts.json" 2>/dev/null || true
 ditto --norsrc --noextattr "$ROOT_DIR/docs/prompts.md" "$APP/Contents/Resources/prompts.md" 2>/dev/null || true
 
+ENTITLEMENTS="$ROOT_DIR/scripts/NoteDroopy.entitlements"
+cat > "$ENTITLEMENTS" <<'ENTITLEMENTS'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.automation.apple-events</key>
+  <true/>
+</dict>
+</plist>
+ENTITLEMENTS
+
 xattr -cr "$APP" 2>/dev/null || true
-codesign --force --deep --options runtime -s "$SIGN_IDENTITY" "$APP"
+codesign --force --deep --options runtime --entitlements "$ENTITLEMENTS" -s "$SIGN_IDENTITY" "$APP"
 codesign --verify --deep --strict --verbose=2 "$APP"
 
 echo "Built: $APP"

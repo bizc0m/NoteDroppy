@@ -72,6 +72,8 @@ cat > "$PLIST" <<PLIST
   <false/>
   <key>NSPrincipalClass</key>
   <string>NSApplication</string>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>NoteDroppy V4 a besoin d'envoyer des evenements Apple a NotePlan et a ton navigateur (Safari/Chrome) pour recuperer le lien de la page ou de la note source lors d'une capture.</string>
 </dict>
 </plist>
 PLIST
@@ -83,8 +85,20 @@ if [ -f "$ROOT_DIR/work/NoteDroppy.icns" ]; then
   ditto --norsrc --noextattr "$ROOT_DIR/work/NoteDroppy.icns" "$APP/Contents/Resources/NoteDroppy.icns"
 fi
 
+ENTITLEMENTS="$ROOT_DIR/scripts/NoteDroppyV4.entitlements"
+cat > "$ENTITLEMENTS" <<'ENTITLEMENTS'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.automation.apple-events</key>
+  <true/>
+</dict>
+</plist>
+ENTITLEMENTS
+
 xattr -cr "$APP" 2>/dev/null || true
-codesign --force --deep -s "$SIGN_IDENTITY" "$APP"
+codesign --force --deep --options runtime --entitlements "$ENTITLEMENTS" -s "$SIGN_IDENTITY" "$APP"
 codesign --verify --deep --strict --verbose=2 "$APP"
 
 echo "--- Info.plist ---"
