@@ -81,20 +81,34 @@ private enum Settings {
                 if stale {
                     setNotesRoot(url)
                 }
-                return url
+                return normalizedNotesRoot(url)
             }
         }
 
         let path = notesRootPath
-        return path.isEmpty ? nil : URL(fileURLWithPath: path)
+        return path.isEmpty ? nil : normalizedNotesRoot(URL(fileURLWithPath: path))
     }
 
     static func setNotesRoot(_ url: URL) {
-        UserDefaults.standard.set(url.path, forKey: notesRootPathKey)
-        if let data = try? url.bookmarkData(options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil) {
+        let normalized = normalizedNotesRoot(url)
+        UserDefaults.standard.set(normalized.path, forKey: notesRootPathKey)
+        if let data = try? normalized.bookmarkData(options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil) {
             UserDefaults.standard.set(data, forKey: notesRootBookmarkKey)
         }
         UserDefaults.standard.synchronize()
+    }
+
+    static func normalizedNotesRoot(_ url: URL) -> URL {
+        let standardized = url.standardizedFileURL
+        if standardized.lastPathComponent == "Notes" {
+            let parent = standardized.deletingLastPathComponent()
+            let hasCalendar = FileManager.default.fileExists(atPath: parent.appendingPathComponent("Calendar").path)
+            let hasNotes = FileManager.default.fileExists(atPath: parent.appendingPathComponent("Notes").path)
+            if hasCalendar && hasNotes {
+                return parent
+            }
+        }
+        return standardized
     }
 
     static var shortcutEnabled: Bool {
@@ -447,6 +461,111 @@ private enum CaptureRulesStore {
     - URL seule : `- [ ] [Titre](url) #capture #LLM #GPT`
     - Texte sélectionné : `- [ ] texte #capture #LLM #GPT` puis `> Source : [Titre](url)`
     - Multi-ligne : première ligne en tâche, lignes suivantes en citation.
+    """
+}
+
+struct PromptLibraryFile: Codable {
+    var version: Int
+    var prompts: [PromptTemplate]
+}
+
+struct PromptTemplate: Codable {
+    var id: String
+    var enabled: Bool
+    var title: String
+    var apps: [String]?
+    var bundleIds: [String]?
+    var domains: [String]?
+    var tags: [String]?
+    var template: String
+}
+
+private enum PromptLibraryStore {
+    static let fileName = "prompts.json"
+    static let docName = "prompts.md"
+
+    static var supportDirectory: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/NoteDroopy", isDirectory: true)
+    }
+
+    static var promptsURL: URL { supportDirectory.appendingPathComponent(fileName) }
+    static var docURL: URL { supportDirectory.appendingPathComponent(docName) }
+
+    static func ensureFiles() {
+        try? FileManager.default.createDirectory(at: supportDirectory, withIntermediateDirectories: true)
+        if !FileManager.default.fileExists(atPath: promptsURL.path) {
+            let bundled = Bundle.main.url(forResource: "prompts", withExtension: "json")
+            let content = bundled.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? defaultPromptsJSON
+            try? content.write(to: promptsURL, atomically: true, encoding: .utf8)
+        }
+        if !FileManager.default.fileExists(atPath: docURL.path) {
+            let bundled = Bundle.main.url(forResource: "prompts", withExtension: "md")
+            let content = bundled.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? defaultPromptsDocumentation
+            try? content.write(to: docURL, atomically: true, encoding: .utf8)
+        }
+    }
+
+    static func activePrompts() -> [PromptTemplate] {
+        ensureFiles()
+        guard let data = try? Data(contentsOf: promptsURL),
+              let file = try? JSONDecoder().decode(PromptLibraryFile.self, from: data) else {
+            return defaultPrompts()
+        }
+        return file.prompts.filter { $0.enabled && !$0.template.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+
+    static func validate(data: Data) throws {
+        _ = try JSONDecoder().decode(PromptLibraryFile.self, from: data)
+    }
+
+    private static func defaultPrompts() -> [PromptTemplate] {
+        guard let data = defaultPromptsJSON.data(using: .utf8),
+              let file = try? JSONDecoder().decode(PromptLibraryFile.self, from: data) else {
+            return []
+        }
+        return file.prompts.filter { $0.enabled }
+    }
+
+    static let defaultPromptsJSON = """
+    {
+      "version": 1,
+      "prompts": [
+        {
+          "id": "llm-resume-source",
+          "enabled": true,
+          "title": "Resumer la source",
+          "apps": ["ChatGPT", "Claude", "Codex", "Perplexity"],
+          "domains": ["chatgpt.com", "claude.ai", "perplexity.ai"],
+          "tags": ["#LLM", "#prompt"],
+          "template": "Resumer cette source en 5 points.\\\\n\\\\nURL : $url\\\\nTitre : $title\\\\nApp : $app\\\\n\\\\nSelection :\\\\n$selection"
+        },
+        {
+          "id": "llm-action-noteplan",
+          "enabled": true,
+          "title": "Transformer en actions NotePlan",
+          "apps": ["ChatGPT", "Claude", "Codex", "Perplexity"],
+          "tags": ["#LLM", "#action"],
+          "template": "Transforme ce contenu en taches NotePlan courtes, sans commentaire.\\\\n\\\\nSource : $source\\\\nDate : $date $time\\\\n\\\\nContenu :\\\\n$selection"
+        }
+      ]
+    }
+    """
+
+    static let defaultPromptsDocumentation = """
+    # NoteDroopy prompts.json
+
+    JSON actif : `~/Library/Application Support/NoteDroopy/prompts.json`
+
+    Champs utiles :
+    - `id` : identifiant stable.
+    - `enabled` : active/desactive le prompt.
+    - `title` : nom affiche.
+    - `apps`, `bundleIds`, `domains` : contexte indicatif.
+    - `tags` : tags ajoutes a la ligne NotePlan.
+    - `template` : texte du prompt.
+
+    Variables : `$date`, `$day`, `$time`, `$datetime`, `$month`, `$year`, `$app`, `$bundleId`, `$url`, `$title`, `$source`, `$selection`.
     """
 }
 
@@ -1602,7 +1721,14 @@ private func pasteboardFilenames(from pasteboard: NSPasteboard) -> [String] {
     else {
         return []
     }
-    return strings(fromPropertyList: plist).filter { FileManager.default.fileExists(atPath: $0) }
+    var filenames = strings(fromPropertyList: plist)
+    // Ajout d'une validation supplémentaire pour éviter les chemins non valides
+    filenames = filenames.filter { filename in
+        !filename.isEmpty && 
+        !filename.hasPrefix("/.file/id=") &&
+        FileManager.default.fileExists(atPath: filename)
+    }
+    return filenames
 }
 
 private func existingFinderPath(from text: String) -> String? {
@@ -2636,6 +2762,9 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
     private let importButton = NSButton(title: "Importer JSON", target: nil, action: nil)
     private let captureRulesButton = NSButton(title: "Règles capture", target: nil, action: nil)
     private let captureRulesHelpButton = NSButton(title: "Doc formats", target: nil, action: nil)
+    private let promptsButton = NSButton(title: "Prompts JSON", target: nil, action: nil)
+    private let promptsHelpButton = NSButton(title: "Doc prompts", target: nil, action: nil)
+    private let reloadPromptsButton = NSButton(title: "Recharger prompts", target: nil, action: nil)
     private let sourceWebPopup = NSPopUpButton()
     private let sourceFilePopup = NSPopUpButton()
     private let addConfigButton = NSButton(title: "Ajouter tokens", target: nil, action: nil)
@@ -2835,6 +2964,18 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         captureRulesHelpButton.action = #selector(openCaptureRulesHelp)
         captureRulesHelpButton.bezelStyle = .rounded
 
+        promptsButton.target = self
+        promptsButton.action = #selector(openPromptsJSON)
+        promptsButton.bezelStyle = .rounded
+
+        promptsHelpButton.target = self
+        promptsHelpButton.action = #selector(openPromptsHelp)
+        promptsHelpButton.bezelStyle = .rounded
+
+        reloadPromptsButton.target = self
+        reloadPromptsButton.action = #selector(reloadPromptsJSON)
+        reloadPromptsButton.bezelStyle = .rounded
+
         exportButton.target = self
         exportButton.action = #selector(exportPreferencesJSON)
         exportButton.bezelStyle = .rounded
@@ -2848,6 +2989,9 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         buttons.addArrangedSubview(importButton)
         buttons.addArrangedSubview(captureRulesButton)
         buttons.addArrangedSubview(captureRulesHelpButton)
+        buttons.addArrangedSubview(promptsButton)
+        buttons.addArrangedSubview(promptsHelpButton)
+        buttons.addArrangedSubview(reloadPromptsButton)
         buttons.addArrangedSubview(helpButton)
         buttons.addArrangedSubview(accessibilityButton)
         buttons.addArrangedSubview(quitButton)
@@ -3042,6 +3186,18 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
 
     func openCaptureRulesHelpFromMenu() {
         openCaptureRulesHelp()
+    }
+
+    func openPromptsFromMenu() {
+        openPromptsJSON()
+    }
+
+    func openPromptsHelpFromMenu() {
+        openPromptsHelp()
+    }
+
+    func reloadPromptsFromMenu() {
+        reloadPromptsJSON()
     }
 
     func openAccessibilityFromMenu() {
@@ -4124,6 +4280,24 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         statusLabel.stringValue = "Doc formats : \(CaptureRulesStore.docURL.path)"
     }
 
+    @objc private func openPromptsJSON() {
+        PromptLibraryStore.ensureFiles()
+        NSWorkspace.shared.open(PromptLibraryStore.promptsURL)
+        statusLabel.stringValue = "Prompts : \(PromptLibraryStore.promptsURL.path)"
+    }
+
+    @objc private func openPromptsHelp() {
+        PromptLibraryStore.ensureFiles()
+        NSWorkspace.shared.open(PromptLibraryStore.docURL)
+        statusLabel.stringValue = "Doc prompts : \(PromptLibraryStore.docURL.path)"
+    }
+
+    @objc private func reloadPromptsJSON() {
+        PromptLibraryStore.ensureFiles()
+        let count = PromptLibraryStore.activePrompts().count
+        statusLabel.stringValue = "\(count) prompt(s) actif(s) charges."
+    }
+
     private func saveCurrentControlsToDefaults() {
         let serviceName = serviceNameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let tag = tagField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -4579,6 +4753,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         log("launch")
         Settings.migrateShortcutLayoutIfNeeded()
+        CaptureRulesStore.ensureFiles()
+        PromptLibraryStore.ensureFiles()
         if !isAccessibilityTrusted(prompt: false) {
             log("accessibility:not-granted")
         }
@@ -4644,6 +4820,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func openCaptureRulesHelpFromMenu(_ sender: Any?) {
         showSettingsWindow()
         settingsWindowController?.openCaptureRulesHelpFromMenu()
+    }
+
+    @objc func openPromptsFromMenu(_ sender: Any?) {
+        showSettingsWindow()
+        settingsWindowController?.openPromptsFromMenu()
+    }
+
+    @objc func openPromptsHelpFromMenu(_ sender: Any?) {
+        showSettingsWindow()
+        settingsWindowController?.openPromptsHelpFromMenu()
+    }
+
+    @objc func reloadPromptsFromMenu(_ sender: Any?) {
+        showSettingsWindow()
+        settingsWindowController?.reloadPromptsFromMenu()
     }
 
     @objc func openAccessibilityFromMenu(_ sender: Any?) {
@@ -6063,10 +6254,18 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
     var onCloseEmbeddedSort: (() -> Void)?
     private var functionsWindow: NSWindow?
     private var openAfterFunctionCheckbox: NSButton?
+    private var confirmFunctionWriteCheckbox: NSButton?
+    private var functionsStatusLabel: NSTextField?
     private var generatedShortcutURL: URL?
     private var editorMenu: NSMenu!
     private var embeddedContentView: NSView?
     private var didLoadInitialFile = false
+    private let selectedPromptTemplateKey = "functionsSelectedPromptTemplateID"
+    private let confirmFunctionWriteKey = "functionsConfirmBeforeNotePlanWrite"
+    private let shortcutMakerNotePathKey = "noteplanShortcutMaker.notePath"
+    private let shortcutMakerNoteURLKey = "noteplanShortcutMaker.noteURL"
+    private let shortcutMakerNoteDisplayKey = "noteplanShortcutMaker.noteDisplay"
+    private let shortcutMakerDestinationPathKey = "noteplanShortcutMaker.destinationPath"
 
     private var rootURL: URL
     private var currentFileURL: URL?
@@ -6170,7 +6369,9 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         let appMenu = NSMenu(title: "NoteDroppy")
         appMenu.addItem(NSMenuItem(title: "About NoteDroppy", action: #selector(showAbout), keyEquivalent: ""))
         appMenu.addItem(NSMenuItem(title: "Changelog", action: #selector(showChangelog), keyEquivalent: ""))
-        appMenu.addItem(NSMenuItem(title: "Fonctions NoteDroppy / NoteplanShorty", action: #selector(showFunctionsWindow), keyEquivalent: ""))
+        let functionsItem = NSMenuItem(title: "Fonctions NoteDroppy / NoteplanShorty", action: #selector(showFunctionsWindow), keyEquivalent: "")
+        functionsItem.target = self
+        appMenu.addItem(functionsItem)
         let settingsItem = NSMenuItem(title: "Réglages...", action: #selector(AppDelegate.showSettingsWindowFromMenu(_:)), keyEquivalent: ",")
         settingsItem.target = NSApp.delegate
         appMenu.addItem(settingsItem)
@@ -6867,7 +7068,7 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         }
 
         let infoWindow = NSWindow(
-            contentRect: NSRect(x: 220, y: 160, width: 820, height: 620),
+            contentRect: NSRect(x: 220, y: 120, width: 840, height: 760),
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
@@ -6878,7 +7079,7 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         let titleLabel = NSTextField(labelWithString: "Actions")
         titleLabel.font = .systemFont(ofSize: 18, weight: .bold)
 
-        let subtitleLabel = NSTextField(labelWithString: "Actions locales. Les écritures NotePlan demandent une validation avant modification.")
+        let subtitleLabel = NSTextField(labelWithString: "Actions locales. L’écriture NotePlan directe est active sauf si la confirmation est réactivée.")
         subtitleLabel.font = .systemFont(ofSize: 12, weight: .regular)
         subtitleLabel.textColor = .secondaryLabelColor
         subtitleLabel.lineBreakMode = .byWordWrapping
@@ -6887,10 +7088,28 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         openCheckbox.state = UserDefaults.standard.bool(forKey: "functionsOpenNotePlanAfterAction") ? .on : .off
         openAfterFunctionCheckbox = openCheckbox
 
+        let confirmCheckbox = NSButton(checkboxWithTitle: "Confirmer avant écriture NotePlan", target: self, action: #selector(toggleConfirmFunctionWrite))
+        confirmCheckbox.state = UserDefaults.standard.bool(forKey: confirmFunctionWriteKey) ? .on : .off
+        confirmFunctionWriteCheckbox = confirmCheckbox
+
+        let dropView = ShortcutMakerDropView()
+        dropView.translatesAutoresizingMaskIntoConstraints = false
+        dropView.onDropTarget = { [weak self] target in
+            self?.applyFunctionShortcutDrop(target) ?? false
+        }
+        dropView.widthAnchor.constraint(equalToConstant: 780).isActive = true
+
+        let functionStatus = NSTextField(labelWithString: "")
+        functionStatus.textColor = .secondaryLabelColor
+        functionStatus.lineBreakMode = .byWordWrapping
+        functionStatus.maximumNumberOfLines = 3
+        functionStatus.stringValue = "Prêt."
+        functionsStatusLabel = functionStatus
+
         let noteDroppyRows = [
-            functionRow(title: "Ajouter une tâche à aujourd’hui", detail: "Demande le texte, confirme, puis ajoute dans Calendar/\(todayStamp()).md.", action: #selector(addTaskToToday)),
+            functionRow(title: "Ajouter une tâche à aujourd’hui", detail: "Demande le texte, puis ajoute dans Calendar/\(todayStamp()).md.", action: #selector(addTaskToToday)),
             functionRow(title: "Ajouter une URL à aujourd’hui", detail: "Demande une URL et écrit le serveur avant le lien.", action: #selector(addURLToToday)),
-            functionRow(title: "Ajouter du texte sélectionné à aujourd’hui", detail: "Récupère le texte du presse-papiers courant, demande validation, puis ajoute.", action: #selector(addSelectedTextToToday)),
+            functionRow(title: "Ajouter du texte sélectionné à aujourd’hui", detail: "Récupère le texte du presse-papiers courant, puis ajoute.", action: #selector(addSelectedTextToToday)),
             functionRow(title: "Rechercher dans les notes", detail: "Cherche localement dans Calendar et Notes.", action: #selector(searchNotesFromFunctions))
         ]
 
@@ -6902,10 +7121,20 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
             functionRow(title: "Révéler le raccourci généré dans Finder", detail: "Sélectionne le dernier .app généré dans Finder.", action: #selector(revealGeneratedShortcut))
         ]
 
-        let noteDroppySection = section(title: "NOTE DROPPY", rows: noteDroppyRows + [openCheckbox])
-        let shortySection = section(title: "NOTEPLANSHORTY", rows: shortyRows)
+        let promptRows = [
+            functionRow(title: "Choisir un prompt", detail: "Charge les prompts actifs depuis prompts.json et mémorise le choix.", action: #selector(choosePromptTemplate)),
+            functionRow(title: "Appliquer le prompt à aujourd’hui", detail: "Remplit les variables locales, puis ajoute dans Calendar/\(todayStamp()).md.", action: #selector(applyPromptTemplateToToday)),
+            functionRow(title: "Importer prompts JSON", detail: "Valide un fichier prompts.json externe puis le charge localement.", action: #selector(importPromptLibraryJSON)),
+            functionRow(title: "Exporter prompts JSON", detail: "Copie la bibliothèque locale vers le dossier choisi.", action: #selector(exportPromptLibraryJSON)),
+            functionRow(title: "Ouvrir prompts.json", detail: "Ouvre le fichier local modifiable sans recompiler l’app.", action: #selector(openPromptLibraryJSON)),
+            functionRow(title: "Recharger prompts.json", detail: "Relit le JSON et affiche le nombre de prompts actifs.", action: #selector(reloadPromptLibrary))
+        ]
 
-        let stack = NSStackView(views: [titleLabel, subtitleLabel, noteDroppySection, shortySection])
+        let noteDroppySection = section(title: "NOTE DROPPY", rows: noteDroppyRows + [openCheckbox, confirmCheckbox])
+        let shortySection = section(title: "NOTEPLANSHORTY", rows: [dropView] + shortyRows)
+        let promptSection = section(title: "PROMPTS", rows: promptRows)
+
+        let stack = NSStackView(views: [titleLabel, subtitleLabel, functionStatus, noteDroppySection, shortySection, promptSection])
         stack.orientation = .vertical
         stack.spacing = 14
         stack.alignment = .leading
@@ -6914,14 +7143,32 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
 
         let content = NSView()
         content.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(stack)
+        let scrollView = NSScrollView()
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = false
+        scrollView.drawsBackground = false
+        scrollView.borderType = .noBorder
+        content.addSubview(scrollView)
+
+        let document = FlippedView()
+        document.translatesAutoresizingMaskIntoConstraints = false
+        document.addSubview(stack)
+        scrollView.documentView = document
         infoWindow.contentView = content
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: content.topAnchor),
-            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            stack.bottomAnchor.constraint(lessThanOrEqualTo: content.bottomAnchor),
-            subtitleLabel.widthAnchor.constraint(equalToConstant: 760)
+            scrollView.topAnchor.constraint(equalTo: content.topAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            document.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
+            document.heightAnchor.constraint(greaterThanOrEqualToConstant: 1060),
+            stack.topAnchor.constraint(equalTo: document.topAnchor),
+            stack.leadingAnchor.constraint(equalTo: document.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: document.trailingAnchor),
+            stack.bottomAnchor.constraint(equalTo: document.bottomAnchor),
+            subtitleLabel.widthAnchor.constraint(equalToConstant: 780)
         ])
 
         functionsWindow = infoWindow
@@ -6989,6 +7236,10 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         UserDefaults.standard.set(openAfterFunctionCheckbox?.state == .on, forKey: "functionsOpenNotePlanAfterAction")
     }
 
+    @objc private func toggleConfirmFunctionWrite() {
+        UserDefaults.standard.set(confirmFunctionWriteCheckbox?.state == .on, forKey: confirmFunctionWriteKey)
+    }
+
     @objc private func addTaskToToday() {
         guard let text = promptText(title: "Ajouter une tâche", message: "Texte de la tâche") else {
             status("Ajout annulé")
@@ -7036,15 +7287,135 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         }
     }
 
+    @objc private func choosePromptTemplate() {
+        let prompts = PromptLibraryStore.activePrompts()
+        guard !prompts.isEmpty else {
+            status("Aucun prompt actif dans prompts.json")
+            return
+        }
+        let popup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 420, height: 26), pullsDown: false)
+        popup.addItems(withTitles: prompts.map(\.title))
+        if let selectedID = UserDefaults.standard.string(forKey: selectedPromptTemplateKey),
+           let index = prompts.firstIndex(where: { $0.id == selectedID }) {
+            popup.selectItem(at: index)
+        }
+
+        let alert = NSAlert()
+        alert.messageText = "Choisir un prompt"
+        alert.informativeText = "Source : \(PromptLibraryStore.promptsURL.path)"
+        alert.accessoryView = popup
+        alert.addButton(withTitle: "Choisir")
+        alert.addButton(withTitle: "Annuler")
+        guard alert.runModal() == .alertFirstButtonReturn else {
+            status("Choix prompt annulé")
+            return
+        }
+        let prompt = prompts[max(0, popup.indexOfSelectedItem)]
+        UserDefaults.standard.set(prompt.id, forKey: selectedPromptTemplateKey)
+        status("Prompt choisi: \(prompt.title)")
+    }
+
+    @objc private func applyPromptTemplateToToday() {
+        let prompts = PromptLibraryStore.activePrompts()
+        guard !prompts.isEmpty else {
+            status("Aucun prompt actif dans prompts.json")
+            return
+        }
+        let prompt = selectedPrompt(from: prompts) ?? prompts[0]
+        let clipboardText = NSPasteboard.general.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let selection = clipboardText.isEmpty
+            ? (promptText(title: "Contenu du prompt", message: "Texte ou contexte à injecter") ?? "")
+            : clipboardText
+        let url = firstWebURLForPrompt(in: selection) ?? ""
+        let appName = NSWorkspace.shared.frontmostApplication?.localizedName ?? ""
+        let bundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? ""
+        let rendered = renderPrompt(
+            prompt.template,
+            promptTitle: prompt.title,
+            appName: appName,
+            bundleID: bundleID,
+            url: url,
+            selection: selection
+        )
+        let tags = promptTags(prompt.tags)
+        let quoted = rendered
+            .components(separatedBy: .newlines)
+            .map { "> \($0)" }
+            .joined(separator: "\n")
+        let line = "- [ ] Prompt: \(prompt.title)\(tags.isEmpty ? "" : " \(tags)")\n\(quoted)"
+        appendToTodayAfterConfirmation(line, actionName: "Ajouter ce prompt à aujourd’hui ?")
+    }
+
+    @objc private func openPromptLibraryJSON() {
+        PromptLibraryStore.ensureFiles()
+        NSWorkspace.shared.open(PromptLibraryStore.promptsURL)
+        status("Prompts: \(PromptLibraryStore.promptsURL.path)")
+    }
+
+    @objc private func importPromptLibraryJSON() {
+        let panel = NSOpenPanel()
+        panel.title = "Importer prompts.json"
+        panel.allowedContentTypes = [.json]
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else {
+            status("Import prompts annulé")
+            return
+        }
+        do {
+            let data = try Data(contentsOf: url)
+            try PromptLibraryStore.validate(data: data)
+            PromptLibraryStore.ensureFiles()
+            try data.write(to: PromptLibraryStore.promptsURL, options: .atomic)
+            status("Prompts importés: \(PromptLibraryStore.activePrompts().count) actif(s)")
+        } catch {
+            status("Import prompts impossible: \(error.localizedDescription)")
+        }
+    }
+
+    @objc private func exportPromptLibraryJSON() {
+        PromptLibraryStore.ensureFiles()
+        let panel = NSSavePanel()
+        panel.title = "Exporter prompts.json"
+        panel.nameFieldStringValue = "prompts.json"
+        panel.allowedContentTypes = [.json]
+        guard panel.runModal() == .OK, let url = panel.url else {
+            status("Export prompts annulé")
+            return
+        }
+        do {
+            try FileManager.default.copyItem(at: PromptLibraryStore.promptsURL, to: url)
+            status("Prompts exportés: \(url.path)")
+        } catch CocoaError.fileWriteFileExists {
+            do {
+                try FileManager.default.removeItem(at: url)
+                try FileManager.default.copyItem(at: PromptLibraryStore.promptsURL, to: url)
+                status("Prompts exportés: \(url.path)")
+            } catch {
+                status("Export prompts impossible: \(error.localizedDescription)")
+            }
+        } catch {
+            status("Export prompts impossible: \(error.localizedDescription)")
+        }
+    }
+
+    @objc private func reloadPromptLibrary() {
+        PromptLibraryStore.ensureFiles()
+        status("\(PromptLibraryStore.activePrompts().count) prompt(s) actif(s)")
+    }
+
     @objc private func chooseShortcutNote() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = [UTType(filenameExtension: "md")].compactMap { $0 }
-        panel.directoryURL = rootURL
+        panel.directoryURL = rootURL.appendingPathComponent("Notes")
         if panel.runModal() == .OK, let url = panel.url {
-            UserDefaults.standard.set(url.path, forKey: "noteplanShortyNotePath")
+            UserDefaults.standard.set(url.path, forKey: shortcutMakerNotePathKey)
+            UserDefaults.standard.removeObject(forKey: shortcutMakerNoteURLKey)
+            UserDefaults.standard.set(url.path, forKey: shortcutMakerNoteDisplayKey)
             status("Note choisie: \(url.lastPathComponent)")
         }
     }
@@ -7057,33 +7428,116 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         panel.allowsMultipleSelection = false
         panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications", isDirectory: true)
         if panel.runModal() == .OK, let url = panel.url {
-            UserDefaults.standard.set(url.path, forKey: "noteplanShortyDestinationPath")
+            UserDefaults.standard.set(url.path, forKey: shortcutMakerDestinationPathKey)
             status("Destination choisie: \(url.path)")
         }
     }
 
     @objc private func generateShortcutApp() {
-        let noteURL: URL
-        if let saved = UserDefaults.standard.string(forKey: "noteplanShortyNotePath"), FileManager.default.fileExists(atPath: saved) {
-            noteURL = URL(fileURLWithPath: saved)
-        } else {
+        let notePlanURL = UserDefaults.standard.string(forKey: shortcutMakerNoteURLKey)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let notePath = UserDefaults.standard.string(forKey: shortcutMakerNotePathKey)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if notePlanURL.isEmpty && !FileManager.default.fileExists(atPath: notePath) {
             chooseShortcutNote()
-            guard let saved = UserDefaults.standard.string(forKey: "noteplanShortyNotePath") else { return }
-            noteURL = URL(fileURLWithPath: saved)
+        }
+        let refreshedNotePlanURL = UserDefaults.standard.string(forKey: shortcutMakerNoteURLKey)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let refreshedNotePath = UserDefaults.standard.string(forKey: shortcutMakerNotePathKey)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !refreshedNotePlanURL.isEmpty || FileManager.default.fileExists(atPath: refreshedNotePath) else {
+            status("Aucune note choisie")
+            return
         }
 
         let destinationURL: URL
-        if let saved = UserDefaults.standard.string(forKey: "noteplanShortyDestinationPath") {
+        if let saved = UserDefaults.standard.string(forKey: shortcutMakerDestinationPathKey) {
             destinationURL = URL(fileURLWithPath: saved)
         } else {
             chooseShortcutDestination()
-            guard let saved = UserDefaults.standard.string(forKey: "noteplanShortyDestinationPath") else { return }
+            guard let saved = UserDefaults.standard.string(forKey: shortcutMakerDestinationPathKey) else { return }
             destinationURL = URL(fileURLWithPath: saved)
         }
 
         do {
+            let result: EditorShortcutResult
+            if !refreshedNotePlanURL.isEmpty {
+                result = try EditorNotePlanShortcutGenerator.generate(
+                    noteURLString: refreshedNotePlanURL,
+                    appName: shortcutMakerAppName(fromNotePlanURL: refreshedNotePlanURL),
+                    destinationURL: destinationURL,
+                    confirmReplace: confirmShortcutReplacement(appURL:)
+                )
+            } else {
+                result = try EditorNotePlanShortcutGenerator.generate(
+                    noteURL: URL(fileURLWithPath: refreshedNotePath),
+                    destinationURL: destinationURL,
+                    confirmReplace: confirmShortcutReplacement(appURL:)
+                )
+            }
+            generatedShortcutURL = result.appURL
+            status("Raccourci généré: \(result.appURL.path)")
+            askRevealShortcut(result.appURL)
+        } catch EditorNotePlanShortcutError.cancelled {
+            status("Génération annulée")
+        } catch {
+            status("Erreur raccourci: \(error.localizedDescription)")
+        }
+    }
+
+    private func applyFunctionShortcutDrop(_ target: ShortcutTarget) -> Bool {
+        if let url = target.url {
+            if url.scheme?.lowercased() == "noteplan" {
+                let urlString = url.absoluteString
+                UserDefaults.standard.set(urlString, forKey: shortcutMakerNoteURLKey)
+                UserDefaults.standard.removeObject(forKey: shortcutMakerNotePathKey)
+                UserDefaults.standard.set("NotePlan : \(shortcutMakerAppName(fromNotePlanURL: urlString))", forKey: shortcutMakerNoteDisplayKey)
+                UserDefaults.standard.synchronize()
+                status("NotePlan enregistré: \(shortcutMakerAppName(fromNotePlanURL: urlString))")
+                generateShortcutAppFromNotePlanURL(urlString)
+                return true
+            }
+            if url.isFileURL, url.pathExtension.lowercased() == "md" {
+                UserDefaults.standard.set(url.standardizedFileURL.path, forKey: shortcutMakerNotePathKey)
+                UserDefaults.standard.removeObject(forKey: shortcutMakerNoteURLKey)
+                UserDefaults.standard.set(url.standardizedFileURL.path, forKey: shortcutMakerNoteDisplayKey)
+                UserDefaults.standard.synchronize()
+                status("Note choisie: \(url.lastPathComponent)")
+                generateShortcutApp()
+                return true
+            }
+        }
+
+        if let text = target.rawText {
+            if let notePlanURL = notePlanURLCandidate(from: text) {
+                UserDefaults.standard.set(notePlanURL, forKey: shortcutMakerNoteURLKey)
+                UserDefaults.standard.removeObject(forKey: shortcutMakerNotePathKey)
+                UserDefaults.standard.set("NotePlan : \(shortcutMakerAppName(fromNotePlanURL: notePlanURL))", forKey: shortcutMakerNoteDisplayKey)
+                UserDefaults.standard.synchronize()
+                status("NotePlan enregistré: \(shortcutMakerAppName(fromNotePlanURL: notePlanURL))")
+                generateShortcutAppFromNotePlanURL(notePlanURL)
+                return true
+            }
+            if let path = existingFinderPath(from: text), path.lowercased().hasSuffix(".md") {
+                UserDefaults.standard.set(path, forKey: shortcutMakerNotePathKey)
+                UserDefaults.standard.removeObject(forKey: shortcutMakerNoteURLKey)
+                UserDefaults.standard.set(path, forKey: shortcutMakerNoteDisplayKey)
+                UserDefaults.standard.synchronize()
+                status("Note choisie: \(URL(fileURLWithPath: path).lastPathComponent)")
+                generateShortcutApp()
+                return true
+            }
+        }
+
+        status("Dépose une note .md ou un lien noteplan://")
+        NSSound.beep()
+        return false
+    }
+
+    private func generateShortcutAppFromNotePlanURL(_ notePlanURL: String) {
+        let destinationURL = UserDefaults.standard.string(forKey: shortcutMakerDestinationPathKey)
+            .map { URL(fileURLWithPath: $0) }
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications", isDirectory: true)
+        do {
             let result = try EditorNotePlanShortcutGenerator.generate(
-                noteURL: noteURL,
+                noteURLString: notePlanURL,
+                appName: shortcutMakerAppName(fromNotePlanURL: notePlanURL),
                 destinationURL: destinationURL,
                 confirmReplace: confirmShortcutReplacement(appURL:)
             )
@@ -7095,6 +7549,38 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         } catch {
             status("Erreur raccourci: \(error.localizedDescription)")
         }
+    }
+
+    private func notePlanURLCandidate(from text: String) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let url = URL(string: trimmed), url.scheme?.lowercased() == "noteplan" {
+            return trimmed
+        }
+        let pattern = #"noteplan://[^\s\)\]>"]+"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return nil
+        }
+        let range = NSRange(trimmed.startIndex..<trimmed.endIndex, in: trimmed)
+        guard let match = regex.firstMatch(in: trimmed, range: range),
+              let matchRange = Range(match.range, in: trimmed) else {
+            return nil
+        }
+        return String(trimmed[matchRange])
+    }
+
+    private func shortcutMakerAppName(fromNotePlanURL urlString: String) -> String {
+        guard let components = URLComponents(string: urlString) else {
+            return "NotePlan Shortcut"
+        }
+        let items = components.queryItems ?? []
+        for name in ["noteTitle", "notePath", "fileName"] {
+            if let value = items.first(where: { $0.name == name })?.value,
+               !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return URL(fileURLWithPath: value).deletingPathExtension().lastPathComponent
+            }
+        }
+        let fallback = components.host ?? components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return fallback.isEmpty ? "NotePlan Shortcut" : fallback
     }
 
     @objc private func revealGeneratedShortcut() {
@@ -7122,15 +7608,17 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
 
     private func appendToTodayAfterConfirmation(_ line: String, actionName: String) {
         let fileURL = rootURL.appendingPathComponent(todayPath())
-        let alert = NSAlert()
-        alert.messageText = actionName
-        alert.informativeText = "\(todayPath())\n\n\(line)"
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "Ajouter")
-        alert.addButton(withTitle: "Annuler")
-        guard alert.runModal() == .alertFirstButtonReturn else {
-            status("Écriture annulée")
-            return
+        if UserDefaults.standard.bool(forKey: confirmFunctionWriteKey) {
+            let alert = NSAlert()
+            alert.messageText = actionName
+            alert.informativeText = "\(todayPath())\n\n\(line)"
+            alert.alertStyle = .informational
+            alert.addButton(withTitle: "Ajouter")
+            alert.addButton(withTitle: "Annuler")
+            guard alert.runModal() == .alertFirstButtonReturn else {
+                status("Écriture annulée")
+                return
+            }
         }
 
         do {
@@ -7158,6 +7646,52 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
         } catch {
             status("Erreur ajout: \(error.localizedDescription)")
         }
+    }
+
+    private func selectedPrompt(from prompts: [PromptTemplate]) -> PromptTemplate? {
+        guard let selectedID = UserDefaults.standard.string(forKey: selectedPromptTemplateKey) else {
+            return nil
+        }
+        return prompts.first { $0.id == selectedID }
+    }
+
+    private func promptTags(_ values: [String]?) -> String {
+        (values ?? [])
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .map { $0.hasPrefix("#") || $0.hasPrefix("@") ? $0 : "#\($0)" }
+            .joined(separator: " ")
+    }
+
+    private func renderPrompt(_ template: String, promptTitle: String, appName: String, bundleID: String, url: String, selection: String) -> String {
+        let nowExpanded = expandedVariables(template)
+        let sourceTitle = promptSourceTitle(url: url, fallback: promptTitle)
+        let source = url.isEmpty ? appName : "\(sourceTitle) \(url)"
+        return nowExpanded
+            .replacingOccurrences(of: "$app", with: appName)
+            .replacingOccurrences(of: "$bundleId", with: bundleID)
+            .replacingOccurrences(of: "$url", with: url)
+            .replacingOccurrences(of: "$title", with: sourceTitle)
+            .replacingOccurrences(of: "$source", with: source)
+            .replacingOccurrences(of: "$selection", with: selection)
+    }
+
+    private func firstWebURLForPrompt(in text: String) -> String? {
+        if let normalized = EditorURLLineFormatter.normalizedWebURL(text) {
+            return normalized
+        }
+        let pattern = #"(?:https?://)?(?:www\.)?[A-Za-z0-9][A-Za-z0-9.-]+\.[A-Za-z]{2,}(?:/[^\s<>"']*)?"#
+        guard let range = text.range(of: pattern, options: .regularExpression) else {
+            return nil
+        }
+        return EditorURLLineFormatter.normalizedWebURL(String(text[range]))
+    }
+
+    private func promptSourceTitle(url: String, fallback: String) -> String {
+        guard let parsed = URL(string: url), let host = parsed.host else {
+            return fallback
+        }
+        return host.replacingOccurrences(of: #"^www\."#, with: "", options: .regularExpression)
     }
 
     private func confirmShortcutReplacement(appURL: URL) -> Bool {
@@ -7737,6 +8271,7 @@ final class NotePlanEditorWindowController: NSObject, NSWindowDelegate, NSTextVi
 
     private func status(_ text: String) {
         statusLabel.stringValue = text
+        functionsStatusLabel?.stringValue = text
     }
 
     private func calendarDates(from start: String, to end: String) throws -> [String] {
@@ -9080,6 +9615,15 @@ preferencesMenu.addItem(rulesPrefsItem)
 let formatsPrefsItem = NSMenuItem(title: "Doc formats", action: #selector(AppDelegate.openCaptureRulesHelpFromMenu(_:)), keyEquivalent: "")
 formatsPrefsItem.target = delegate
 preferencesMenu.addItem(formatsPrefsItem)
+let promptsPrefsItem = NSMenuItem(title: "Prompts JSON", action: #selector(AppDelegate.openPromptsFromMenu(_:)), keyEquivalent: "")
+promptsPrefsItem.target = delegate
+preferencesMenu.addItem(promptsPrefsItem)
+let promptsHelpPrefsItem = NSMenuItem(title: "Doc prompts", action: #selector(AppDelegate.openPromptsHelpFromMenu(_:)), keyEquivalent: "")
+promptsHelpPrefsItem.target = delegate
+preferencesMenu.addItem(promptsHelpPrefsItem)
+let reloadPromptsPrefsItem = NSMenuItem(title: "Recharger prompts", action: #selector(AppDelegate.reloadPromptsFromMenu(_:)), keyEquivalent: "")
+reloadPromptsPrefsItem.target = delegate
+preferencesMenu.addItem(reloadPromptsPrefsItem)
 let accessibilityPrefsItem = NSMenuItem(title: "Autoriser Accessibilité", action: #selector(AppDelegate.openAccessibilityFromMenu(_:)), keyEquivalent: "")
 accessibilityPrefsItem.target = delegate
 preferencesMenu.addItem(accessibilityPrefsItem)

@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.8
+
+- Porte `Note Droopy.app` et `NoteDroppy V3.app` en version 3.8 build 380.
+- Ajoute le gestionnaire local de prompts JSON.
+- Ajoute l'ecriture directe depuis la fenetre Fonctions avec option de confirmation.
+
 ## 3.0
 
 - Ajoute la piste separee `NoteDroppy V3.app`.

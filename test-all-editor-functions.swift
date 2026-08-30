@@ -3,12 +3,14 @@ import Foundation
 // Test automatisé des fonctions Editor*
 // Note: Ce script teste la logique, pas l'interface GUI
 
-print("🧪 NoteDroppy 3.0A — Test Suite Complet")
+print("NoteDroppy 3.7 - Test Suite Complet")
 print("Date: \(Date())")
 print(String(repeating: "=", count: 70))
 print()
 
 // MARK: - Helper
+
+let mainSwiftPath = FileManager.default.currentDirectoryPath + "/work/NotePlanURLDrop/main.swift"
 
 func assertEqual<T: Equatable>(_ actual: T, _ expected: T, file: String = #file, line: Int = #line) -> Bool {
     if actual == expected {
@@ -36,8 +38,7 @@ func testSortPriorities() {
 func testFunctionsExist() {
     print("Test 2: Vérification présence des fonctions dans le code")
     
-    let mainSwiftPath = "/Users/JOB/#DEV/02-apps/NoteDroppy/work/NotePlanURLDrop/main.swift"
-    guard let content = try? String(contentsOfFile: mainSwiftPath) else {
+    guard let content = try? String(contentsOfFile: mainSwiftPath, encoding: .utf8) else {
         print("  ❌ FAIL: Impossible de lire main.swift")
         return
     }
@@ -78,8 +79,7 @@ func testFunctionsExist() {
 func testEditorClassesExist() {
     print("Test 3: Vérification présence des classes Editor*")
     
-    let mainSwiftPath = "/Users/JOB/#DEV/02-apps/NoteDroppy/work/NotePlanURLDrop/main.swift"
-    guard let content = try? String(contentsOfFile: mainSwiftPath) else {
+    guard let content = try? String(contentsOfFile: mainSwiftPath, encoding: .utf8) else {
         print("  ❌ FAIL: Impossible de lire main.swift")
         return
     }
@@ -94,7 +94,7 @@ func testEditorClassesExist() {
     
     var allFound = true
     for className in requiredClasses {
-        if content.contains("enum \(className)") || content.contains("class \(className)") {
+        if content.contains("enum \(className)") || content.contains("class \(className)") || content.contains("struct \(className)") {
             print("  ✅ \(className) trouvée")
         } else {
             print("  ❌ \(className) MANQUANTE")
@@ -113,8 +113,7 @@ func testEditorClassesExist() {
 func testUIButtonsExist() {
     print("Test 4: Vérification présence des boutons dans l'UI")
     
-    let mainSwiftPath = "/Users/JOB/#DEV/02-apps/NoteDroppy/work/NotePlanURLDrop/main.swift"
-    guard let content = try? String(contentsOfFile: mainSwiftPath) else {
+    guard let content = try? String(contentsOfFile: mainSwiftPath, encoding: .utf8) else {
         print("  ❌ FAIL: Impossible de lire main.swift")
         return
     }
