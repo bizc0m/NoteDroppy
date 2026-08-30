@@ -566,7 +566,7 @@ private func markdownLinkForSourceURL(_ value: String, title: String?) -> String
     return "[\(escapedMarkdownLinkTitle(label))](\(URL(fileURLWithPath: fileURL.standardizedFileURL.path, isDirectory: isDirectory(fileURL)).absoluteString))"
 }
 
-private func cleanSourceTitle(_ value: String?) -> String? {
+func cleanSourceTitle(_ value: String?) -> String? {
     let cleaned = value?
         .trimmingCharacters(in: .whitespacesAndNewlines)
         .replacingOccurrences(of: #"(?i)\s+[-–—]\s+(TextEdit|Aperçu|Preview|Pages|Numbers|Keynote|Microsoft Word|Word|PDF Expert)$"#, with: "", options: .regularExpression)
@@ -618,7 +618,7 @@ private func comparableWebURLKey(_ value: String) -> String? {
     return "\(canonicalHost)\(port)\(path)\(query)"
 }
 
-private func normalizedWebURL(_ value: String) -> String? {
+func normalizedWebURL(_ value: String) -> String? {
     let trimmed = value
         .trimmingCharacters(in: .whitespacesAndNewlines)
         .trimmingCharacters(in: CharacterSet(charactersIn: "<>()[]{}\"'.,;"))
@@ -718,7 +718,7 @@ private func fileMarkdownLink(for fileURL: URL) -> String {
     return "[\(escapedLabel)](\(linkURL.absoluteString))"
 }
 
-private func standaloneFileURL(from value: String) -> URL? {
+func standaloneFileURL(from value: String) -> URL? {
     let trimmed = value
         .trimmingCharacters(in: .whitespacesAndNewlines)
         .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))

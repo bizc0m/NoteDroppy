@@ -38,6 +38,7 @@ swiftc -O \
   "$SRC_DIR/ShortcutSlotRow.swift" \
   "$SRC_DIR/GlobalShortcutMonitor.swift" \
   "$SRC_DIR/CaptureWriter.swift" \
+  "$SRC_DIR/CaptureTrigger.swift" \
   "$SRC_DIR/main.swift" \
   -o "$BIN"
 

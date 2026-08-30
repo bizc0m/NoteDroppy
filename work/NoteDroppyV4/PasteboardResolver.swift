@@ -93,7 +93,7 @@ private func existingFinderPath(from text: String) -> String? {
     return nil
 }
 
-private func pasteboardStrings(from pasteboard: NSPasteboard) -> [String] {
+func pasteboardStrings(from pasteboard: NSPasteboard) -> [String] {
     var values: [String] = []
     for type in pasteboard.types ?? [] {
         if let value = pasteboard.string(forType: type)?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
