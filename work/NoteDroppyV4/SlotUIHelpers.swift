@@ -229,4 +229,5 @@ func shortcutString(from combo: KeyCombo) -> String {
 extension Notification.Name {
     static let shortcutRecordingBegan = Notification.Name("NoteDroppyShortcutRecordingBegan")
     static let shortcutRecordingEnded = Notification.Name("NoteDroppyShortcutRecordingEnded")
+    static let settingsDidChange = Notification.Name("NoteDroppySettingsDidChange")
 }
