@@ -1,3 +1,5 @@
 backups/
 work/NotePlanURLDrop/NotePlanURLDrop
 .DS_Store
+outputs/NoteDroppy
+test_drag_drop/

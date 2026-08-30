@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "prompts": [
+    {
+      "id": "llm-resume-source",
+      "enabled": true,
+      "title": "Resumer la source",
+      "apps": ["ChatGPT", "Claude", "Codex", "Perplexity"],
+      "domains": ["chatgpt.com", "claude.ai", "perplexity.ai"],
+      "tags": ["#LLM", "#prompt"],
+      "template": "Resumer cette source en 5 points.\\n\\nURL : $url\\nTitre : $title\\nApp : $app\\n\\nSelection :\\n$selection"
+    },
+    {
+      "id": "llm-action-noteplan",
+      "enabled": true,
+      "title": "Transformer en actions NotePlan",
+      "apps": ["ChatGPT", "Claude", "Codex", "Perplexity"],
+      "tags": ["#LLM", "#action"],
+      "template": "Transforme ce contenu en taches NotePlan courtes, sans commentaire.\\n\\nSource : $source\\nDate : $date $time\\n\\nContenu :\\n$selection"
+    },
+    {
+      "id": "codex-context-block",
+      "enabled": true,
+      "title": "Bloc contexte Codex",
+      "apps": ["Codex", "ChatGPT"],
+      "tags": ["#capture", "#codex"],
+      "template": "- [ ] $selection\\n  - cwd: $cwd\\n  - git: $gitRoot\\n  - branch: $gitBranch\\n  - status: $gitStatus\\n  - le: $datetime #capture #codex"
+    }
+  ]
+}
