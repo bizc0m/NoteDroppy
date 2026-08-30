@@ -18,6 +18,7 @@
 // `ShortcutSlotStore` pour ne pas entrer en collision avec le `Settings`
 // existant de NoteDroppyV4 (qui gere d'autres cles, prefixees "v4.").
 
+import AppKit
 import Carbon
 import Foundation
 
