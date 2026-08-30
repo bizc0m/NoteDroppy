@@ -22,10 +22,14 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 # Le moteur (Engine.swift) est une copie verbatim du moteur V3 ; main.swift porte l'UI V4.
+# ShortcutSlotStore.swift : couche donnees du systeme a 20 slots de raccourcis
+# (etape 1 du plan de migration V5, port depuis NotePlanURLDrop/main.swift).
 swiftc -O \
   -parse-as-library \
   -framework AppKit \
+  -framework Carbon \
   "$SRC_DIR/Engine.swift" \
+  "$SRC_DIR/ShortcutSlotStore.swift" \
   "$SRC_DIR/main.swift" \
   -o "$BIN"
 
