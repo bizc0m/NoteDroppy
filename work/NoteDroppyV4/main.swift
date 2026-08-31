@@ -1742,6 +1742,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return false
         }
         let noteName = env["NOTE_DROOPY_V5_SELFTEST_CAPTURE_NOTE"] ?? "NoteDroopyV5-Capture-Selftest.md"
+        let sourceURL = env["NOTE_DROOPY_V5_SELFTEST_CAPTURE_URL"]
+        let sourceTitle = env["NOTE_DROOPY_V5_SELFTEST_CAPTURE_TITLE"]
+        let sourceApp = env["NOTE_DROOPY_V5_SELFTEST_CAPTURE_APP"]
+        let sourceBundle = env["NOTE_DROOPY_V5_SELFTEST_CAPTURE_BUNDLE"]
         let slot = ShortcutSlot(
             index: 20,
             enabled: true,
@@ -1753,7 +1757,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             tags: "#capture, !Text"
         )
         Log.write("v5-capture-selftest:start:note:/tmp/\(noteName)")
-        sendTodo(text, shortcutSlot: slot, sourceURL: nil, sourceTitle: nil)
+        sendTodo(
+            text,
+            shortcutSlot: slot,
+            sourceURL: sourceURL,
+            sourceTitle: sourceTitle,
+            sourceAppName: sourceApp,
+            sourceBundleId: sourceBundle
+        )
         Log.write("v5-capture-selftest:done:note:/tmp/\(noteName)")
         return true
     }

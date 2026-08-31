@@ -11,17 +11,10 @@
 // Settings/ShortcutSlot et ecrire des fichiers), Settings.X ->
 // ShortcutSlotStore.X, log(...)/writeDebugLog(...) -> Log.write(...).
 //
-// PORTEE REDUITE PAR RAPPORT A L'ORIGINAL, EXPLICITEMENT :
-// CaptureRulesStore.metadata(for:) (titres de lien auto-devines depuis
-// capture-rules.json) et llmTags(in:) (tags auto-inferes depuis les regles
-// de capture) sont omis ici. Ni CaptureRulesStore ni les tags LLM
-// n'etaient dans la liste des fonctions/variables a preserver — c'est un
-// systeme separat, pas encore audite pour V5. formattedTask/
-// markdownLinkForWebURL degradent proprement sans eux (titre de lien
-// devine depuis l'URL au lieu d'un titre appris ; tags = ceux ecrits dans
-// le champ Tag & Config, sans enrichissement automatique). Note pour la
-// suite : porter CaptureRulesStore comme etape separee si ces
-// fonctionnalites sont utilisees en pratique.
+// CaptureRulesStore est consulte avant le formatage standard pour restaurer
+// les formats specialises Codex/LLM de capture-rules.json. Si aucune regle ne
+// correspond au bundle ou domaine source, le writer retombe sur le format
+// historique pilote par le champ Tag & Config.
 
 import AppKit
 import Foundation
@@ -42,11 +35,25 @@ private enum CaptureLinePrefix {
 
 // MARK: - CaptureRouter (sendTodo)
 
-func sendTodo(_ todoText: String, shortcutSlot: ShortcutSlot? = nil, sourceURL: String? = nil, sourceTitle: String? = nil) {
+func sendTodo(
+    _ todoText: String,
+    shortcutSlot: ShortcutSlot? = nil,
+    sourceURL: String? = nil,
+    sourceTitle: String? = nil,
+    sourceAppName: String? = nil,
+    sourceBundleId: String? = nil
+) {
     let tagSource = shortcutSlot?.tags ?? ShortcutSlotStore.taskTag
     guard let content = normalizedTaskContent(expandedVariables(todoText), tags: tagSource, sourceURL: sourceURL, sourceTitle: sourceTitle) else { return }
     Log.write("sendTodo:\(content)")
-    let task = formattedTask(from: content, tags: tagSource, sourceURL: sourceURL, sourceTitle: sourceTitle)
+    let task = formattedTask(
+        from: content,
+        tags: tagSource,
+        sourceURL: sourceURL,
+        sourceTitle: sourceTitle,
+        sourceAppName: sourceAppName,
+        sourceBundleId: sourceBundleId
+    )
     Log.write("sendTodoTask:\(task)")
     if shortcutSlot?.engine == .obsidian {
         writeObsidianTask(task, shortcutSlot: shortcutSlot)
@@ -399,11 +406,25 @@ private func stripLeadingCheckbox(_ value: String) -> String {
     return content
 }
 
-private func formattedTask(from content: String, tags: String, sourceURL: String? = nil, sourceTitle: String? = nil) -> String {
+private func formattedTask(
+    from content: String,
+    tags: String,
+    sourceURL: String? = nil,
+    sourceTitle: String? = nil,
+    sourceAppName: String? = nil,
+    sourceBundleId: String? = nil
+) -> String {
     let expandedConfig = expandedVariables(tags)
-    // Note: pas d'enrichissement automatique par CaptureRulesStore/llmTags
-    // ici (cf. commentaire d'en-tete de fichier) — seuls les tags saisis
-    // dans Tag & Config sont utilises.
+    if let ruleBlock = captureRuleFormattedTask(
+        selection: content,
+        tags: expandedConfig,
+        sourceURL: sourceURL,
+        sourceTitle: sourceTitle,
+        sourceAppName: sourceAppName,
+        sourceBundleId: sourceBundleId
+    ) {
+        return ruleBlock
+    }
     let tag = normalizedTags(expandedConfig)
     let prefix = captureLinePrefix(from: expandedConfig)
     let priority = capturePriority(from: expandedConfig)
@@ -429,6 +450,47 @@ private func formattedTask(from content: String, tags: String, sourceURL: String
     }
     let suffix = tag.isEmpty ? "" : " \(tag)"
     return ([captureLine(prefix: prefix, content: firstLine, suffix: suffix, priority: priority, schedule: schedule)] + continuation).joined(separator: "\n")
+}
+
+private func captureRuleFormattedTask(
+    selection: String,
+    tags: String,
+    sourceURL: String?,
+    sourceTitle: String?,
+    sourceAppName: String?,
+    sourceBundleId: String?
+) -> String? {
+    let bundleId = sourceBundleId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let url = sourceURL?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    guard let rule = CaptureRuleStore.match(bundleId: bundleId, urlString: url) else {
+        if !bundleId.isEmpty || !url.isEmpty {
+            Log.write("capture-rule:no-match:bundle:\(bundleId.isEmpty ? "-" : bundleId):url:\(url.isEmpty ? "-" : url)")
+        }
+        return nil
+    }
+
+    let appName = sourceAppName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    var context = VariableContext.now(app: appName, bundleId: bundleId)
+    context.selection = selection
+    context.url = url
+    context.title = cleanSourceTitle(sourceTitle) ?? CaptureEngine.titleGuess(selection, fallback: context.app)
+    let template = (url.isEmpty ? rule.fallbackFormat : rule.outputFormat) ?? rule.outputFormat ?? rule.fallbackFormat
+    guard let template else { return nil }
+
+    var block = context.expand(template).trimmingCharacters(in: .whitespacesAndNewlines)
+    if block.isEmpty, let fallback = rule.fallbackFormat {
+        block = context.expand(fallback).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    guard !block.isEmpty else { return nil }
+
+    if let ruleTags = rule.tags, !ruleTags.isEmpty {
+        let missing = ruleTags.filter { !block.contains($0) }
+        if !missing.isEmpty {
+            block += " " + missing.joined(separator: " ")
+        }
+    }
+    Log.write("capture-rule:applied:\(rule.id):bundle:\(bundleId):url:\(url.isEmpty ? "-" : url)")
+    return block
 }
 
 private func captureLinePrefix(from config: String) -> CaptureLinePrefix {

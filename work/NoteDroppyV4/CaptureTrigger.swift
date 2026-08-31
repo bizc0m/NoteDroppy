@@ -72,7 +72,8 @@ enum CaptureTrigger {
             return
         }
         Log.write("shortcut:invoked:slot:\(slotIndex)")
-        if let frontmost = NSWorkspace.shared.frontmostApplication {
+        let frontmostApplication = NSWorkspace.shared.frontmostApplication
+        if let frontmost = frontmostApplication {
             Log.write("shortcut:frontmost:\(frontmost.localizedName ?? "?"):\(frontmost.bundleIdentifier ?? "?")")
         } else {
             Log.write("shortcut:frontmost:none")
@@ -87,8 +88,8 @@ enum CaptureTrigger {
             Log.write("shortcut:accessibility-not-trusted:clipboard-only")
             _ = isAccessibilityTrusted(prompt: true)
         }
-        let pageSource = sourceWebPage(for: NSWorkspace.shared.frontmostApplication)
-        let documentSource = accessibilityTrusted ? sourceDocumentFileURL(for: NSWorkspace.shared.frontmostApplication) : nil
+        let pageSource = sourceWebPage(for: frontmostApplication)
+        let documentSource = accessibilityTrusted ? sourceDocumentFileURL(for: frontmostApplication) : nil
 
         let pasteboard = NSPasteboard.general
         let snapshot = ClipboardSnapshot(pasteboard: pasteboard)
@@ -99,7 +100,7 @@ enum CaptureTrigger {
             return
         }
 
-        waitForCopiedText(pasteboard: pasteboard, previousChangeCount: previousChangeCount, attemptsRemaining: 12) { text, pastedSourceURL in
+        waitForCopiedText(pasteboard: pasteboard, previousChangeCount: previousChangeCount, attemptsRemaining: 30) { text, pastedSourceURL in
             defer { snapshot.restore(to: pasteboard) }
             let clipboardText = text.flatMap { normalizedTodoText($0) }
             let axText = accessibilityTrusted
@@ -108,7 +109,14 @@ enum CaptureTrigger {
             if let normalized = bestShortcutText(clipboardText: clipboardText, axText: axText) {
                 Log.write("shortcut:text:\(normalized)")
                 let source = pastedSourceURL.map { CaptureSource(url: $0, title: pageSource?.title) } ?? pageSource ?? documentSource
-                sendTodo(normalized, shortcutSlot: slot, sourceURL: source?.url, sourceTitle: source?.title)
+                sendTodo(
+                    normalized,
+                    shortcutSlot: slot,
+                    sourceURL: source?.url,
+                    sourceTitle: source?.title,
+                    sourceAppName: frontmostApplication?.localizedName,
+                    sourceBundleId: frontmostApplication?.bundleIdentifier
+                )
                 return
             }
             Log.write("shortcut:no-selected-text")
@@ -274,7 +282,7 @@ private func waitForCopiedText(
         completion(pasteboard.string(forType: .string), sourceWebURL(from: pasteboard))
         return
     }
-    if attemptsRemaining == 6, !attemptedAppleScriptFallback {
+    if attemptsRemaining == 15, !attemptedAppleScriptFallback {
         Log.write("shortcut:copy-applescript-fallback:start")
         if postCopyShortcutViaSystemEvents() {
             Log.write("shortcut:copy-applescript-fallback:posted")
@@ -293,8 +301,8 @@ private func waitForCopiedText(
         return
     }
     guard attemptsRemaining > 0 else {
-        Log.write("shortcut:clipboard-unchanged-fallback")
-        completion(pasteboard.string(forType: .string), sourceWebURL(from: pasteboard))
+        Log.write("shortcut:clipboard-unchanged:no-capture")
+        completion(nil, nil)
         return
     }
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
