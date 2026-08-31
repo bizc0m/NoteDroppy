@@ -144,7 +144,7 @@ final class ShortcutRecorderButton: NSButton {
         alert.runModal()
     }
 
-    fileprivate func setCombo(_ combo: KeyCombo) {
+    func setCombo(_ combo: KeyCombo) {
         self.combo = combo
         title = combo.display
     }

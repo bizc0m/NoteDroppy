@@ -17,11 +17,11 @@ import UniformTypeIdentifiers
 // MARK: - Identite
 
 enum V4 {
-    static let version = "4.0"
-    static let build = "400"
-    static let bundleIdentifier = "local.codex.notedroppy.v4"
-    static let displayName = "NoteDroppy V4"
-    static let supportDirectoryName = "NoteDroppy V4"
+    static let version = "5.0"
+    static let build = "500"
+    static let bundleIdentifier = "local.codex.notedroppy.v5"
+    static let displayName = "Note Droopy V5"
+    static let supportDirectoryName = "Note Droopy V5"
 }
 
 // MARK: - Reglages
@@ -62,7 +62,7 @@ enum Paths {
 
     static var promptsFile: URL { supportDirectory.appendingPathComponent("prompts.json") }
     static var captureRulesFile: URL { supportDirectory.appendingPathComponent("capture-rules.json") }
-    static var logFile: URL { supportDirectory.appendingPathComponent("notedroppy-v4.log") }
+    static var logFile: URL { supportDirectory.appendingPathComponent("notedroppy-v5.log") }
 
     /// Copie le fichier livre dans le bundle vers Application Support s'il n'existe pas encore.
     @discardableResult
@@ -1678,7 +1678,6 @@ extension FunctionsWindowController {
 // MARK: - Delegue d'application
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var mainController: MainWindowController?
     // V5 20-slot capture system (work/NoteDroppyV4/ShortcutSlotStore.swift
     // and friends) -- reference kept strong here or the hotkeys are
     // unregistered as soon as this property would otherwise deinit.
@@ -1691,27 +1690,73 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Paths.seedIfMissing(resource: "capture-rules", destination: Paths.captureRulesFile)
         PromptStore.reload()
         CaptureRuleStore.reload()
+        ShortcutSlotStore.migrateLegacyDefaultsIfNeeded()
         ShortcutSlotStore.migrateShortcutLayoutIfNeeded()
         shortcutMonitor = GlobalShortcutMonitor(handler: CaptureTrigger.run)
         Log.write("LAUNCH \(V4.displayName) \(V4.version) (\(V4.build))")
 
+        if runV5SelfTestIfRequested() {
+            NSApp.terminate(nil)
+            return
+        }
+        if runV5CaptureSelfTestIfRequested() {
+            NSApp.terminate(nil)
+            return
+        }
+
         buildMenu()
         Log.write("PHASE menu construit")
 
-        // Une seule fenetre au lancement. FONCTIONS et Preferences uniquement sur clic.
+        // V5 ouvre directement la blade Capture/Slots. Les autres outils restent
+        // disponibles par menu/boutons explicites, pas en fenetre automatique.
         let started = Date()
-        let controller = MainWindowController()
+        ShortcutSlotsWindowController.show()
         Log.write(String(format: "PHASE fenetre construite en %.1f s", Date().timeIntervalSince(started)))
-        mainController = controller
-        controller.showWindow()
         Log.write(String(format: "PHASE fenetre affichee a %.1f s", Date().timeIntervalSince(started)))
-        controller.loadToday()
 
         NSApp.activate(ignoringOtherApps: true)
         Log.write(String(format: "PHASE lancement complet en %.1f s", Date().timeIntervalSince(started)))
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+
+    private func runV5SelfTestIfRequested() -> Bool {
+        let env = ProcessInfo.processInfo.environment
+        guard let targetPath = env["NOTE_DROOPY_V5_SELFTEST_TARGET"], !targetPath.isEmpty else {
+            return false
+        }
+        let slotIndex = Int(env["NOTE_DROOPY_V5_SELFTEST_SLOT"] ?? "") ?? 20
+        let slot = ShortcutSlotStore.shortcutSlot(slotIndex)
+        let row = ShortcutSlotRow(slot: slot)
+        let router = ShortcutTargetRouter { message in
+            Log.write("v5-selftest:status:\(message)")
+        }
+        let ok = router.applyDroppedTarget(ShortcutTarget(url: URL(fileURLWithPath: targetPath)), to: row)
+        Log.write("v5-selftest:target:\(targetPath):slot:\(slotIndex):ok:\(ok)")
+        return true
+    }
+
+    private func runV5CaptureSelfTestIfRequested() -> Bool {
+        let env = ProcessInfo.processInfo.environment
+        guard let text = env["NOTE_DROOPY_V5_SELFTEST_CAPTURE_TEXT"], !text.isEmpty else {
+            return false
+        }
+        let noteName = env["NOTE_DROOPY_V5_SELFTEST_CAPTURE_NOTE"] ?? "NoteDroopyV5-Capture-Selftest.md"
+        let slot = ShortcutSlot(
+            index: 20,
+            enabled: true,
+            combo: ShortcutSlotStore.defaultShortcutCombo(20),
+            engine: .obsidian,
+            destination: .notePath,
+            noteReference: noteName,
+            folder: "/tmp",
+            tags: "#capture, !Text"
+        )
+        Log.write("v5-capture-selftest:start:note:/tmp/\(noteName)")
+        sendTodo(text, shortcutSlot: slot, sourceURL: nil, sourceTitle: nil)
+        Log.write("v5-capture-selftest:done:note:/tmp/\(noteName)")
+        return true
+    }
 
     private func buildMenu() {
         let mainMenu = NSMenu()

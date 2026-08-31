@@ -72,6 +72,11 @@ enum CaptureTrigger {
             return
         }
         Log.write("shortcut:invoked:slot:\(slotIndex)")
+        if let frontmost = NSWorkspace.shared.frontmostApplication {
+            Log.write("shortcut:frontmost:\(frontmost.localizedName ?? "?"):\(frontmost.bundleIdentifier ?? "?")")
+        } else {
+            Log.write("shortcut:frontmost:none")
+        }
         guard canCaptureFrontmostApplication() else {
             Log.write("shortcut:ignored-frontmost-app")
             NSSound.beep()
@@ -80,6 +85,7 @@ enum CaptureTrigger {
         let accessibilityTrusted = isAccessibilityTrusted(prompt: false)
         if !accessibilityTrusted {
             Log.write("shortcut:accessibility-not-trusted:clipboard-only")
+            _ = isAccessibilityTrusted(prompt: true)
         }
         let pageSource = sourceWebPage(for: NSWorkspace.shared.frontmostApplication)
         let documentSource = accessibilityTrusted ? sourceDocumentFileURL(for: NSWorkspace.shared.frontmostApplication) : nil
@@ -259,14 +265,34 @@ private func waitForCopiedText(
     pasteboard: NSPasteboard,
     previousChangeCount: Int,
     attemptsRemaining: Int,
+    attemptedAppleScriptFallback: Bool = false,
     completion: @escaping (String?, String?) -> Void
 ) {
     if pasteboard.changeCount != previousChangeCount {
         completion(pasteboard.string(forType: .string), sourceWebURL(from: pasteboard))
         return
     }
+    if attemptsRemaining == 6, !attemptedAppleScriptFallback {
+        Log.write("shortcut:copy-applescript-fallback:start")
+        if postCopyShortcutViaSystemEvents() {
+            Log.write("shortcut:copy-applescript-fallback:posted")
+        } else {
+            Log.write("shortcut:copy-applescript-fallback:failed")
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            waitForCopiedText(
+                pasteboard: pasteboard,
+                previousChangeCount: previousChangeCount,
+                attemptsRemaining: attemptsRemaining - 1,
+                attemptedAppleScriptFallback: true,
+                completion: completion
+            )
+        }
+        return
+    }
     guard attemptsRemaining > 0 else {
-        completion(nil, nil)
+        Log.write("shortcut:clipboard-unchanged-fallback")
+        completion(pasteboard.string(forType: .string), sourceWebURL(from: pasteboard))
         return
     }
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
@@ -274,6 +300,7 @@ private func waitForCopiedText(
             pasteboard: pasteboard,
             previousChangeCount: previousChangeCount,
             attemptsRemaining: attemptsRemaining - 1,
+            attemptedAppleScriptFallback: attemptedAppleScriptFallback,
             completion: completion
         )
     }
@@ -314,6 +341,22 @@ private func postCopyShortcut() -> Bool {
     keyUp.flags = .maskCommand
     keyDown.post(tap: .cghidEventTap)
     keyUp.post(tap: .cghidEventTap)
+    return true
+}
+
+private func postCopyShortcutViaSystemEvents() -> Bool {
+    let script = """
+    tell application "System Events"
+      keystroke "c" using command down
+    end tell
+    """
+    var error: NSDictionary?
+    guard let appleScript = NSAppleScript(source: script) else { return false }
+    appleScript.executeAndReturnError(&error)
+    if let error {
+        Log.write("shortcut:copy-applescript-fallback:error:\(error)")
+        return false
+    }
     return true
 }
 

@@ -78,8 +78,10 @@ final class GlobalShortcutMonitor {
             &eventHandlerRef
         )
         guard installStatus == noErr else {
+            Log.write("shortcut:event-handler:install-failed:\(installStatus)")
             return
         }
+        Log.write("shortcut:event-handler:installed")
 
         for slot in ShortcutSlotStore.allShortcutSlots() where slot.enabled {
             var ref: EventHotKeyRef?
@@ -95,6 +97,9 @@ final class GlobalShortcutMonitor {
             if registerStatus == noErr, let ref {
                 hotKeyRefs[UInt32(slot.index)] = ref
                 hotKeySlotIDs[UInt32(slot.index)] = slot.index
+                Log.write("shortcut:slot:\(slot.index):registered:key:\(slot.combo.keyCode):mods:\(slot.combo.carbonModifiers)")
+            } else {
+                Log.write("shortcut:slot:\(slot.index):register-failed:\(registerStatus):key:\(slot.combo.keyCode):mods:\(slot.combo.carbonModifiers)")
             }
         }
 
@@ -138,10 +143,15 @@ final class GlobalShortcutMonitor {
 
     fileprivate func fireIfMatching(signature: UInt32, id: UInt32) -> OSStatus {
         guard signature == hotKeySignature, hotKeyRefs[id] != nil, let slotIndex = hotKeySlotIDs[id] else {
+            Log.write("shortcut:fire-unmatched:signature:\(signature):id:\(id)")
             return OSStatus(eventNotHandledErr)
         }
-        guard Date().timeIntervalSince(lastFire) > 0.8 else { return noErr }
+        guard Date().timeIntervalSince(lastFire) > 0.8 else {
+            Log.write("shortcut:fire-debounced:id:\(id)")
+            return noErr
+        }
         lastFire = Date()
+        Log.write("shortcut:fire:slot:\(slotIndex):id:\(id)")
         DispatchQueue.main.async {
             self.handler(slotIndex)
         }

@@ -37,6 +37,7 @@ final class ShortcutTargetRouter {
     }
 
     func applyDroppedTarget(_ target: ShortcutTarget, to row: ShortcutSlotRow) -> Bool {
+        Log.write("shortcut-drop:apply-target:slot:\(row.index):url:\(target.url?.absoluteString ?? "-"):text:\(target.rawText ?? "-")")
         if obsidianURL(from: target) != nil {
             row.setEngine(.obsidian)
             return applyDroppedObsidianTarget(target, to: row)
@@ -211,6 +212,7 @@ final class ShortcutTargetRouter {
     }
 
     private func commitDroppedPath(relativePath: String, isDirectory: Bool, row: ShortcutSlotRow) -> Bool {
+        Log.write("shortcut-drop:commit-path:slot:\(row.index):path:\(relativePath):isDirectory:\(isDirectory)")
         row.applyDroppedPath(relativePath: relativePath, isDirectory: isDirectory)
         persist(row)
         status("Cible enregistrée : \(relativePath.isEmpty ? "Notes" : relativePath)")
@@ -222,6 +224,8 @@ final class ShortcutTargetRouter {
     /// commentaire d'en-tete de fichier.
     private func persist(_ row: ShortcutSlotRow) {
         ShortcutSlotStore.setShortcutSlot(row.slot)
+        let slot = row.slot
+        Log.write("shortcut-drop:saved:slot:\(slot.index):destination:\(slot.destination.rawValue):folder:\(slot.folder):note:\(slot.noteReference):engine:\(slot.engine.rawValue)")
         NotificationCenter.default.post(name: .settingsDidChange, object: nil)
     }
 

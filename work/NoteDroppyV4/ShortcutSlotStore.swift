@@ -217,6 +217,9 @@ func normalizedCarbonModifiers(_ raw: UInt32) -> UInt32 {
 /// volontairement PAS nomme `Settings` pour ne pas entrer en collision avec
 /// le `Settings` (prefixe "v4.") deja present dans NoteDroppyV4/main.swift.
 enum ShortcutSlotStore {
+    private static let defaults = UserDefaults.standard
+    private static let legacyDefaults = UserDefaults(suiteName: "local.codex.notedroppy") ?? .standard
+
     static let taskTagKey = "taskTag"
     static let notesRootPathKey = "notesRootPath"
     static let notesRootBookmarkKey = "notesRootBookmark"
@@ -229,38 +232,79 @@ enum ShortcutSlotStore {
     static let includeSourceKey = "includeSource"
     static let includeDocumentSourceKey = "includeDocumentSource"
 
+    static func migrateLegacyDefaultsIfNeeded() {
+        let baseKeys = [
+            taskTagKey,
+            notesRootPathKey,
+            notesRootBookmarkKey,
+            shortcutLayoutVersionKey,
+            openNoteKey,
+            autoSaveKey,
+            includeSourceKey,
+            includeDocumentSourceKey,
+            "serviceName",
+            "shortcutEnabled",
+            "shortcutKeyCode",
+            "shortcutModifiers"
+        ]
+        let slotKeys = (1...shortcutSlotCount).flatMap { index in
+            [
+                "shortcutSlot\(index).enabled",
+                "shortcutSlot\(index).keyCode",
+                "shortcutSlot\(index).modifiers",
+                "shortcutSlot\(index).destination",
+                "shortcutSlot\(index).engine",
+                "shortcutSlot\(index).note",
+                "shortcutSlot\(index).folder",
+                "shortcutSlot\(index).tags"
+            ]
+        }
+
+        var copied = 0
+        for key in baseKeys + slotKeys where defaults.object(forKey: key) == nil {
+            if let value = legacyDefaults.object(forKey: key) {
+                defaults.set(value, forKey: key)
+                copied += 1
+            }
+        }
+        if copied > 0 {
+            defaults.synchronize()
+            Log.write("shortcut-store:migrated-legacy-defaults:\(copied)")
+        }
+    }
+
     static var taskTag: String {
-        let value = UserDefaults.standard.string(forKey: taskTagKey) ?? "#capture"
+        let value = defaults.string(forKey: taskTagKey) ?? "#capture"
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "#capture" : trimmed
     }
 
     static var openNote: Bool {
-        if UserDefaults.standard.object(forKey: openNoteKey) == nil {
+        if defaults.object(forKey: openNoteKey) == nil {
             return true
         }
-        return UserDefaults.standard.bool(forKey: openNoteKey)
+        return defaults.bool(forKey: openNoteKey)
     }
 
     static var autoSave: Bool {
-        if UserDefaults.standard.object(forKey: autoSaveKey) == nil {
+        if defaults.object(forKey: autoSaveKey) == nil {
             return true
         }
-        return UserDefaults.standard.bool(forKey: autoSaveKey)
+        return defaults.bool(forKey: autoSaveKey)
     }
 
     static var includeSource: Bool {
-        if UserDefaults.standard.object(forKey: includeSourceKey) == nil {
+        if defaults.object(forKey: includeSourceKey) == nil {
             return true
         }
-        return UserDefaults.standard.bool(forKey: includeSourceKey)
+        return defaults.bool(forKey: includeSourceKey)
     }
 
     static var includeDocumentSource: Bool {
-        if UserDefaults.standard.object(forKey: includeDocumentSourceKey) == nil {
+        if defaults.object(forKey: includeDocumentSourceKey) == nil {
             return false
         }
-        return UserDefaults.standard.bool(forKey: includeDocumentSourceKey)
+        return defaults.bool(forKey: includeDocumentSourceKey)
     }
 
     /// Meme dossier NotePlan que Note Droopy — clef "notesRootPath" /
@@ -269,12 +313,12 @@ enum ShortcutSlotStore {
     /// Les deux coexistent volontairement : ce store lit le reglage legacy,
     /// il ne remplace pas le picker v4 existant.
     static var notesRootPath: String {
-        let value = UserDefaults.standard.string(forKey: notesRootPathKey) ?? ""
+        let value = defaults.string(forKey: notesRootPathKey) ?? ""
         return value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     static func selectedNotesRoot() -> URL? {
-        if let data = UserDefaults.standard.data(forKey: notesRootBookmarkKey) {
+        if let data = defaults.data(forKey: notesRootBookmarkKey) {
             var stale = false
             if let url = try? URL(
                 resolvingBookmarkData: data,
@@ -295,11 +339,11 @@ enum ShortcutSlotStore {
 
     static func setNotesRoot(_ url: URL) {
         let normalized = normalizedNotesRoot(url)
-        UserDefaults.standard.set(normalized.path, forKey: notesRootPathKey)
+        defaults.set(normalized.path, forKey: notesRootPathKey)
         if let data = try? normalized.bookmarkData(options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil) {
-            UserDefaults.standard.set(data, forKey: notesRootBookmarkKey)
+            defaults.set(data, forKey: notesRootBookmarkKey)
         }
-        UserDefaults.standard.synchronize()
+        defaults.synchronize()
     }
 
     static func normalizedNotesRoot(_ url: URL) -> URL {
@@ -327,25 +371,25 @@ enum ShortcutSlotStore {
 
         let defaultCombo = defaultShortcutCombo(index)
         let enabled: Bool
-        if UserDefaults.standard.object(forKey: enabledKey) == nil {
+        if defaults.object(forKey: enabledKey) == nil {
             enabled = index == 1
         } else {
-            enabled = UserDefaults.standard.bool(forKey: enabledKey)
+            enabled = defaults.bool(forKey: enabledKey)
         }
 
-        let keyCode = UserDefaults.standard.object(forKey: keyCodeKey) == nil
+        let keyCode = defaults.object(forKey: keyCodeKey) == nil
             ? defaultCombo.keyCode
-            : UInt32(UserDefaults.standard.integer(forKey: keyCodeKey))
-        let rawModifiers = UserDefaults.standard.object(forKey: modifiersKey) == nil
+            : UInt32(defaults.integer(forKey: keyCodeKey))
+        let rawModifiers = defaults.object(forKey: modifiersKey) == nil
             ? defaultCombo.carbonModifiers
-            : UInt32(UserDefaults.standard.integer(forKey: modifiersKey))
-        let note = UserDefaults.standard.string(forKey: noteKey) ?? ""
-        let folder = UserDefaults.standard.string(forKey: folderKey) ?? ""
-        let tags = UserDefaults.standard.string(forKey: tagsKey) ?? (index == 1 ? taskTag : "#capture")
-        let savedDestination = UserDefaults.standard.string(forKey: destinationKey)
+            : UInt32(defaults.integer(forKey: modifiersKey))
+        let note = defaults.string(forKey: noteKey) ?? ""
+        let folder = defaults.string(forKey: folderKey) ?? ""
+        let tags = defaults.string(forKey: tagsKey) ?? (index == 1 ? taskTag : "#capture")
+        let savedDestination = defaults.string(forKey: destinationKey)
             .flatMap { ShortcutDestination(rawValue: $0) }
         let destination = validDestination(savedDestination ?? (index == 1 ? .today : .standard), for: index)
-        let engine = UserDefaults.standard.string(forKey: engineKey)
+        let engine = defaults.string(forKey: engineKey)
             .flatMap { ShortcutEngine(rawValue: $0) } ?? .notePlan
 
         return ShortcutSlot(
@@ -361,19 +405,19 @@ enum ShortcutSlotStore {
     }
 
     static func setShortcutSlot(_ slot: ShortcutSlot) {
-        UserDefaults.standard.set(slot.enabled, forKey: "shortcutSlot\(slot.index).enabled")
-        UserDefaults.standard.set(Int(slot.combo.keyCode), forKey: "shortcutSlot\(slot.index).keyCode")
-        UserDefaults.standard.set(Int(slot.combo.carbonModifiers), forKey: "shortcutSlot\(slot.index).modifiers")
-        UserDefaults.standard.set(slot.engine.rawValue, forKey: "shortcutSlot\(slot.index).engine")
+        defaults.set(slot.enabled, forKey: "shortcutSlot\(slot.index).enabled")
+        defaults.set(Int(slot.combo.keyCode), forKey: "shortcutSlot\(slot.index).keyCode")
+        defaults.set(Int(slot.combo.carbonModifiers), forKey: "shortcutSlot\(slot.index).modifiers")
+        defaults.set(slot.engine.rawValue, forKey: "shortcutSlot\(slot.index).engine")
         let destination = validDestination(slot.destination, for: slot.index)
-        UserDefaults.standard.set(destination.rawValue, forKey: "shortcutSlot\(slot.index).destination")
-        UserDefaults.standard.set(slot.noteReference, forKey: "shortcutSlot\(slot.index).note")
-        UserDefaults.standard.set(slot.folder, forKey: "shortcutSlot\(slot.index).folder")
-        UserDefaults.standard.set(slot.tags, forKey: "shortcutSlot\(slot.index).tags")
+        defaults.set(destination.rawValue, forKey: "shortcutSlot\(slot.index).destination")
+        defaults.set(slot.noteReference, forKey: "shortcutSlot\(slot.index).note")
+        defaults.set(slot.folder, forKey: "shortcutSlot\(slot.index).folder")
+        defaults.set(slot.tags, forKey: "shortcutSlot\(slot.index).tags")
         if slot.index == 1 {
-            UserDefaults.standard.set(slot.tags.isEmpty ? "#capture" : slot.tags, forKey: taskTagKey)
+            defaults.set(slot.tags.isEmpty ? "#capture" : slot.tags, forKey: taskTagKey)
         }
-        UserDefaults.standard.synchronize()
+        defaults.synchronize()
     }
 
     static func allShortcutSlots() -> [ShortcutSlot] {
@@ -403,8 +447,8 @@ enum ShortcutSlotStore {
     /// dont les defaults viennent de Note Droopy n'aient pas leurs raccourcis
     /// silencieusement changes en passant par ce store.
     static func migrateShortcutLayoutIfNeeded() {
-        let defaults = UserDefaults.standard
-        guard defaults.integer(forKey: shortcutLayoutVersionKey) < currentShortcutLayoutVersion else { return }
+        let currentDefaults = Self.defaults
+        guard currentDefaults.integer(forKey: shortcutLayoutVersionKey) < currentShortcutLayoutVersion else { return }
 
         let legacyCodes: [UInt32] = [
             UInt32(kVK_ANSI_P), UInt32(kVK_ANSI_1), UInt32(kVK_ANSI_2), UInt32(kVK_ANSI_3), UInt32(kVK_ANSI_4),
@@ -419,16 +463,16 @@ enum ShortcutSlotStore {
         for index in 1...min(shortcutSlotCount, legacyCodes.count, newCodes.count) {
             let keyCodeKey = "shortcutSlot\(index).keyCode"
             let modifiersKey = "shortcutSlot\(index).modifiers"
-            let hasKey = defaults.object(forKey: keyCodeKey) != nil
-            let storedKey = hasKey ? UInt32(defaults.integer(forKey: keyCodeKey)) : legacyCodes[index - 1]
-            let storedModifiers = defaults.object(forKey: modifiersKey) == nil
+            let hasKey = currentDefaults.object(forKey: keyCodeKey) != nil
+            let storedKey = hasKey ? UInt32(currentDefaults.integer(forKey: keyCodeKey)) : legacyCodes[index - 1]
+            let storedModifiers = currentDefaults.object(forKey: modifiersKey) == nil
                 ? defaultModifiers
-                : UInt32(defaults.integer(forKey: modifiersKey))
+                : UInt32(currentDefaults.integer(forKey: modifiersKey))
             if storedKey == legacyCodes[index - 1], normalizedCarbonModifiers(storedModifiers) == defaultModifiers {
-                defaults.set(Int(newCodes[index - 1]), forKey: keyCodeKey)
-                defaults.set(Int(defaultModifiers), forKey: modifiersKey)
+                currentDefaults.set(Int(newCodes[index - 1]), forKey: keyCodeKey)
+                currentDefaults.set(Int(defaultModifiers), forKey: modifiersKey)
             }
         }
-        defaults.set(currentShortcutLayoutVersion, forKey: shortcutLayoutVersionKey)
+        currentDefaults.set(currentShortcutLayoutVersion, forKey: shortcutLayoutVersionKey)
     }
 }

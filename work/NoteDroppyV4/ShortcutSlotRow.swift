@@ -586,6 +586,7 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
 
     func applyDroppedPath(relativePath: String, isDirectory: Bool) {
         destinationPopup.selectItem(withTitle: ShortcutDestination.notePath.title)
+        outputPopup.selectItem(withTitle: outputTitle(engine: selectedEngine(), destination: .notePath))
         if isDirectory {
             folderField.stringValue = relativePath
             noteField.stringValue = ""

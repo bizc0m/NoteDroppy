@@ -31,7 +31,11 @@ final class ShortcutSlotsWindowController: NSWindowController {
     private let router = ShortcutTargetRouter()
     private var rows: [ShortcutSlotRow] = []
     private let statusLabel = NSTextField(labelWithString: "Pret.")
+    private let webSourcePopup = ShortcutTargetPopUpButton()
+    private let fileSourcePopup = ShortcutTargetPopUpButton()
     private weak var activeTagConfigRow: ShortcutSlotRow?
+    private let webSourceOptionKey = "v5.source.web"
+    private let fileSourceOptionKey = "v5.source.file"
 
     static func show() {
         if retained == nil {
@@ -42,7 +46,7 @@ final class ShortcutSlotsWindowController: NSWindowController {
     }
 
     private convenience init() {
-        let window = centeredWindow("Raccourcis — NoteDroppy V4", width: 1180, height: 760)
+        let window = centeredWindow("Note Droopy V5 — Capture", width: 1240, height: 820)
         self.init(window: window)
         router.onStatus = { [weak self] message in
             self?.statusLabel.stringValue = message
@@ -52,6 +56,16 @@ final class ShortcutSlotsWindowController: NSWindowController {
 
     private func buildContent() {
         guard let contentView = window?.contentView else { return }
+
+        contentView.wantsLayer = true
+        contentView.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+
+        let rootStack = NSStackView()
+        rootStack.orientation = .vertical
+        rootStack.alignment = .leading
+        rootStack.spacing = 12
+        rootStack.edgeInsets = NSEdgeInsets(top: 22, left: 24, bottom: 14, right: 24)
+        rootStack.translatesAutoresizingMaskIntoConstraints = false
 
         let scrollView = NSScrollView()
         scrollView.hasVerticalScroller = true
@@ -101,18 +115,29 @@ final class ShortcutSlotsWindowController: NSWindowController {
         statusLabel.lineBreakMode = .byTruncatingTail
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        contentView.addSubview(scrollView)
-        contentView.addSubview(statusLabel)
+        statusLabel.textColor = .secondaryLabelColor
+        statusLabel.font = .systemFont(ofSize: 14, weight: .semibold)
+        statusLabel.lineBreakMode = .byTruncatingTail
+        statusLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        rootStack.addArrangedSubview(makeHeroHeader())
+        rootStack.addArrangedSubview(makeVariablesRow())
+        rootStack.addArrangedSubview(makeOptionsRow())
+        rootStack.addArrangedSubview(makeColorsRow())
+        rootStack.addArrangedSubview(scrollView)
+        rootStack.addArrangedSubview(statusLabel)
+
+        contentView.addSubview(rootStack)
 
         NSLayoutConstraint.activate([
-            scrollView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
-            scrollView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
-            scrollView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
-            scrollView.bottomAnchor.constraint(equalTo: statusLabel.topAnchor, constant: -8),
+            rootStack.topAnchor.constraint(equalTo: contentView.topAnchor),
+            rootStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            rootStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            rootStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
 
-            statusLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
-            statusLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
-            statusLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -10),
+            scrollView.widthAnchor.constraint(equalTo: rootStack.widthAnchor, constant: -48),
+            scrollView.heightAnchor.constraint(greaterThanOrEqualToConstant: 500),
+            statusLabel.widthAnchor.constraint(equalTo: rootStack.widthAnchor, constant: -48),
 
             document.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor),
             document.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor),
@@ -123,6 +148,130 @@ final class ShortcutSlotsWindowController: NSWindowController {
             documentStack.topAnchor.constraint(equalTo: document.topAnchor, constant: 8),
             documentStack.bottomAnchor.constraint(equalTo: document.bottomAnchor, constant: -8)
         ])
+    }
+
+    private func makeHeroHeader() -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 18
+
+        let imageView = NSImageView()
+        imageView.image = NSImage(named: "NoteDroppy") ?? NSApp.applicationIconImage
+        imageView.imageScaling = .scaleProportionallyUpOrDown
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        imageView.widthAnchor.constraint(equalToConstant: 72).isActive = true
+        imageView.heightAnchor.constraint(equalToConstant: 72).isActive = true
+
+        let title = NSTextField(labelWithString: "Note Droopy")
+        title.font = .systemFont(ofSize: 30, weight: .bold)
+        title.textColor = .labelColor
+
+        let tagline = NSTextField(labelWithString: "Time is precious.\nSpend it with those you love")
+        tagline.font = .systemFont(ofSize: 17, weight: .semibold)
+        tagline.textColor = .secondaryLabelColor
+        tagline.maximumNumberOfLines = 2
+
+        row.addArrangedSubview(imageView)
+        row.addArrangedSubview(title)
+        row.addArrangedSubview(tagline)
+        return row
+    }
+
+    private func makeVariablesRow() -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 4
+
+        let label = NSTextField(labelWithString: "Variables :")
+        label.font = .systemFont(ofSize: 18, weight: .semibold)
+        label.textColor = .secondaryLabelColor
+        row.addArrangedSubview(label)
+
+        let variables = ["$date", "$day", "$time", "$datetime", "$month", "$year"]
+        for (index, variable) in variables.enumerated() {
+            let token = NSTextField(labelWithString: index == variables.count - 1 ? variable : "\(variable),")
+            token.font = .systemFont(ofSize: 18, weight: .bold)
+            token.textColor = .systemBlue
+            row.addArrangedSubview(token)
+        }
+        return row
+    }
+
+    private func makeOptionsRow() -> NSView {
+        [webSourcePopup, fileSourcePopup].forEach { popup in
+            popup.translatesAutoresizingMaskIntoConstraints = false
+            popup.removeAllItems()
+            popup.addItems(withTitles: ["Global", "Slot actif", "Désactivé"])
+            popup.acceptsDrop = false
+            popup.target = self
+            popup.action = #selector(sourceOptionChanged)
+            popup.widthAnchor.constraint(equalToConstant: 170).isActive = true
+        }
+        webSourcePopup.selectItem(withTitle: storedSourceOption(forKey: webSourceOptionKey))
+        fileSourcePopup.selectItem(withTitle: storedSourceOption(forKey: fileSourceOptionKey))
+
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 20
+        row.addArrangedSubview(sectionLabel("Options -> Tags"))
+        row.addArrangedSubview(sectionLabel("Source web"))
+        row.addArrangedSubview(webSourcePopup)
+        row.addArrangedSubview(sectionLabel("Source fichier"))
+        row.addArrangedSubview(fileSourcePopup)
+        row.addArrangedSubview(NSView())
+        return row
+    }
+
+    private func makeColorsRow() -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 18
+        row.addArrangedSubview(sectionLabel("Couleurs"))
+        row.addArrangedSubview(colorChip("#tag", color: .systemGreen))
+        row.addArrangedSubview(colorChip("$variable", color: .systemBlue))
+        row.addArrangedSubview(colorChip("!config", color: .systemIndigo))
+        row.addArrangedSubview(colorChip("@contexte", color: .systemOrange))
+        return row
+    }
+
+    private func sectionLabel(_ value: String) -> NSTextField {
+        let label = NSTextField(labelWithString: value)
+        label.font = .systemFont(ofSize: 18, weight: .bold)
+        label.textColor = .labelColor
+        return label
+    }
+
+    private func colorChip(_ value: String, color: NSColor) -> NSTextField {
+        let chip = NSTextField(labelWithString: value)
+        chip.font = .systemFont(ofSize: 18, weight: .bold)
+        chip.textColor = color
+        chip.alignment = .center
+        chip.wantsLayer = true
+        chip.layer?.cornerRadius = 6
+        chip.layer?.backgroundColor = color.withAlphaComponent(0.18).cgColor
+        chip.translatesAutoresizingMaskIntoConstraints = false
+        chip.widthAnchor.constraint(equalToConstant: 166).isActive = true
+        chip.heightAnchor.constraint(equalToConstant: 30).isActive = true
+        return chip
+    }
+
+    @objc private func sourceOptionChanged() {
+        let web = webSourcePopup.titleOfSelectedItem ?? "Global"
+        let file = fileSourcePopup.titleOfSelectedItem ?? "Global"
+        UserDefaults.standard.set(web, forKey: webSourceOptionKey)
+        UserDefaults.standard.set(file, forKey: fileSourceOptionKey)
+        UserDefaults.standard.synchronize()
+        Log.write("v5-source-options:saved:web:\(web):file:\(file)")
+        statusLabel.stringValue = "Options source enregistrées."
+    }
+
+    private func storedSourceOption(forKey key: String) -> String {
+        let value = UserDefaults.standard.string(forKey: key) ?? "Global"
+        return ["Global", "Slot actif", "Désactivé"].contains(value) ? value : "Global"
     }
 
     private func showNoteSearch(for row: ShortcutSlotRow) {
