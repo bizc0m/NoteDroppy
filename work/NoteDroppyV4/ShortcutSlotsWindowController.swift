@@ -123,6 +123,7 @@ final class ShortcutSlotsWindowController: NSWindowController {
         rootStack.addArrangedSubview(makeHeroHeader())
         rootStack.addArrangedSubview(makeVariablesRow())
         rootStack.addArrangedSubview(makeOptionsRow())
+        rootStack.addArrangedSubview(makeJsonToolsRow())
         rootStack.addArrangedSubview(makeColorsRow())
         rootStack.addArrangedSubview(scrollView)
         rootStack.addArrangedSubview(statusLabel)
@@ -238,6 +239,29 @@ final class ShortcutSlotsWindowController: NSWindowController {
         return row
     }
 
+    private func makeJsonToolsRow() -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 12
+        row.addArrangedSubview(sectionLabel("Comportements JSON"))
+        row.addArrangedSubview(jsonButton(title: "Règles", symbol: "doc.badge.gearshape", action: #selector(openCaptureRulesJSON)))
+        row.addArrangedSubview(jsonButton(title: "Prompts", symbol: "text.badge.plus", action: #selector(openPromptsJSON)))
+        row.addArrangedSubview(jsonButton(title: "Recharger", symbol: "arrow.clockwise", action: #selector(reloadBehaviorJSON)))
+        return row
+    }
+
+    private func jsonButton(title: String, symbol: String, action: Selector) -> NSButton {
+        let button = NSButton(title: title, target: self, action: action)
+        button.bezelStyle = .rounded
+        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
+        button.imagePosition = .imageLeading
+        button.toolTip = title
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.heightAnchor.constraint(equalToConstant: 30).isActive = true
+        return button
+    }
+
     private func sectionLabel(_ value: String) -> NSTextField {
         let label = NSTextField(labelWithString: value)
         label.font = .systemFont(ofSize: 18, weight: .bold)
@@ -272,6 +296,50 @@ final class ShortcutSlotsWindowController: NSWindowController {
     private func storedSourceOption(forKey key: String) -> String {
         let value = UserDefaults.standard.string(forKey: key) ?? "Global"
         return ["Global", "Slot actif", "Désactivé"].contains(value) ? value : "Global"
+    }
+
+    @objc private func openCaptureRulesJSON() {
+        Paths.seedIfMissing(resource: "capture-rules", destination: Paths.captureRulesFile)
+        guard FileManager.default.fileExists(atPath: Paths.captureRulesFile.path) else {
+            statusLabel.stringValue = "capture-rules.json absent."
+            Log.write("v5-json:open-capture-rules:missing:\(Paths.captureRulesFile.path)")
+            NSSound.beep()
+            return
+        }
+        NSWorkspace.shared.open(Paths.captureRulesFile)
+        statusLabel.stringValue = "Ouvert : capture-rules.json"
+        Log.write("v5-json:open-capture-rules:\(Paths.captureRulesFile.path)")
+    }
+
+    @objc private func openPromptsJSON() {
+        Paths.seedIfMissing(resource: "prompts", destination: Paths.promptsFile)
+        guard FileManager.default.fileExists(atPath: Paths.promptsFile.path) else {
+            statusLabel.stringValue = "prompts.json absent."
+            Log.write("v5-json:open-prompts:missing:\(Paths.promptsFile.path)")
+            NSSound.beep()
+            return
+        }
+        NSWorkspace.shared.open(Paths.promptsFile)
+        statusLabel.stringValue = "Ouvert : prompts.json"
+        Log.write("v5-json:open-prompts:\(Paths.promptsFile.path)")
+    }
+
+    @objc private func reloadBehaviorJSON() {
+        let promptResult = PromptStore.reload()
+        let captureResult = CaptureRuleStore.reload()
+        switch (promptResult, captureResult) {
+        case (.success(let promptCount), .success(let ruleCount)):
+            statusLabel.stringValue = "JSON rechargés : \(ruleCount) règle(s), \(promptCount) prompt(s)."
+            Log.write("v5-json:reload:ok:rules:\(ruleCount):prompts:\(promptCount)")
+        case (.failure(let error), _):
+            statusLabel.stringValue = "Erreur prompts.json : \(error.localizedDescription)"
+            Log.write("v5-json:reload-prompts:error:\(error.localizedDescription)")
+            NSSound.beep()
+        case (_, .failure(let error)):
+            statusLabel.stringValue = "Erreur capture-rules.json : \(error.localizedDescription)"
+            Log.write("v5-json:reload-capture-rules:error:\(error.localizedDescription)")
+            NSSound.beep()
+        }
     }
 
     private func showNoteSearch(for row: ShortcutSlotRow) {
