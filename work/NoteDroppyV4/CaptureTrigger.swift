@@ -129,7 +129,9 @@ private func bestShortcutText(clipboardText: String?, axText: String?) -> String
     if clipboardText == axText { return clipboardText }
     if clipboardText.hasSuffix(axText) { return axText }
     if axText.hasSuffix(clipboardText) { return clipboardText }
-    return clipboardText
+    if clipboardText.contains(axText) { return axText }
+    if axText.contains(clipboardText) { return clipboardText }
+    return axText
 }
 
 private func selectedTextFromAccessibility() -> String? {
