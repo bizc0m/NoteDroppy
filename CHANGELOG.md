@@ -1,5 +1,12 @@
 # Changelog
 
+## 4E.2
+
+- Tag & Config : autocomplétion des tokens (Échap) — natifs, variables perso, `#capture`/`@contexte`.
+- Fix autocomplétion : le sigil `# $ ! @` précédant le mot partiel n'est plus dupliqué (`$da` + `$date` donnait `$$date`).
+- Tag & Config : le caret reste en place pendant la frappe (plus de saut en fin de champ).
+- Coloration Tag & Config : regex compilées une seule fois au lieu de 4 par frappe (0,205 ms → 0,003 ms).
+
 ## 4E.0
 
 - Fenêtre Capture adaptative (épouse le contenu, suit les changements).

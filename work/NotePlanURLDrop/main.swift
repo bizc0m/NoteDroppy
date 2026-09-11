@@ -1062,7 +1062,24 @@ private func styleConfigField(_ field: NSTextField) {
     field.layer?.cornerRadius = 5
 }
 
+/// V4B : regles de coloration compilees une seule fois (applyTagsConfigColors
+/// est appelee a chaque frappe — recompiler 4 regex par caractere coutait cher).
+private let tagsConfigColorRules: [(NSRegularExpression, NSColor)] = {
+    let patterns: [(String, NSColor)] = [
+        (#"#[\p{L}\p{N}_/-]+"#, .systemGreen),
+        (#"\$[A-Za-z][A-Za-z0-9_:-]*(\([^)]*\))?"#, .systemBlue),
+        (#"!{1,5}|![A-Za-z][A-Za-z0-9_:-]*"#, .systemIndigo),
+        (#"@[\p{L}\p{N}_/-]+"#, .systemOrange)
+    ]
+    return patterns.compactMap { pattern, color in
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        return (regex, color)
+    }
+}()
+
 private func applyTagsConfigColors(to field: NSTextField) {
+    // V4B : préserve le caret pendant l'édition live (sinon saut en fin à chaque frappe).
+    let sel = field.currentEditor()?.selectedRange
     let text = field.stringValue
     let attributed = NSMutableAttributedString(
         string: text,
@@ -1073,20 +1090,18 @@ private func applyTagsConfigColors(to field: NSTextField) {
     )
     let nsText = text as NSString
     let fullRange = NSRange(location: 0, length: nsText.length)
-    let rules: [(String, NSColor)] = [
-        (#"#[\p{L}\p{N}_/-]+"#, .systemGreen),
-        (#"\$[A-Za-z][A-Za-z0-9_:-]*"#, .systemBlue),
-        (#"!{1,5}|![A-Za-z][A-Za-z0-9_:-]*"#, .systemIndigo),
-        (#"@[\p{L}\p{N}_/-]+"#, .systemOrange)
-    ]
-    for (pattern, color) in rules {
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
+    for (regex, color) in tagsConfigColorRules {
         regex.enumerateMatches(in: text, range: fullRange) { match, _, _ in
             guard let range = match?.range else { return }
             attributed.addAttribute(.foregroundColor, value: color, range: range)
         }
     }
     field.attributedStringValue = attributed
+    if let sel, let editor = field.currentEditor() {
+        let len = nsText.length
+        let loc = min(sel.location, len)
+        editor.selectedRange = NSRange(location: loc, length: min(sel.length, max(0, len - loc)))
+    }
 }
 
 struct KeyCombo {
@@ -2460,6 +2475,56 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         if field === targetField || field === tagsField || field === noteField || field === folderField {
             onFocus?(self)
         }
+    }
+
+    /// V4B : autocomplétion des tokens dans Tag & Config (Échap).
+    /// Couvre natifs + variables perso + #capture/@contexte.
+    static let completionTokens: [String] = [
+        "#capture", "@contexte",
+        "$date", "$day", "$time", "$datetime", "$month", "$year",
+        "$source", "$url", "$file", "$LLM",
+        "!Open", "!Web", "!NoWeb", "!File", "!NoFile",
+        "!Star", "!Plus", "!Text",
+        "!", "!!", "!!!", "!!!!", "!!!!!",
+        "!Demain", "!Weekend", "!SemainePro", "!MoisProchain", "!Dans6Mois",
+        "$section(", "!SectionTop", "!SectionBottom", "!BeforeSection", "!AfterSection",
+    ]
+
+    /// Calcule les suggestions pour un texte + une plage partielle donnee.
+    /// Extrait de la methode delegate pour etre testable sans AppKit runtime.
+    /// AppKit remplace uniquement `charRange` : le sigil qui precede reste en
+    /// place, donc les suggestions renvoyees doivent en etre amputees, sinon
+    /// "$da" + "$date" donne "$$date".
+    static func completionSuggestions(fullText: NSString, charRange: NSRange, customVariables: [String]) -> [String] {
+        var loc = charRange.location
+        var len = charRange.length
+        // Étend au sigil (# $ ! @) qui précède, sinon le mot partiel est nu.
+        if loc > 0 {
+            let prev = fullText.substring(with: NSRange(location: loc - 1, length: 1))
+            if ["#", "$", "!", "@"].contains(prev) {
+                loc -= 1
+                len += 1
+            }
+        }
+        let sigilOffset = charRange.location - loc
+        let partial = fullText.substring(with: NSRange(location: loc, length: len))
+        guard !partial.isEmpty else { return [] }
+        var candidates = completionTokens
+        candidates.append(contentsOf: customVariables.map { "$" + $0 })
+        return candidates
+            .filter { $0.hasPrefix(partial) && $0 != partial }
+            .map { String($0.dropFirst(sigilOffset)) }
+    }
+
+    func control(_ control: NSControl, textView: NSTextView, completions words: [String], forPartialWordRange charRange: NSRange, indexOfSelectedItem index: UnsafeMutablePointer<Int>) -> [String] {
+        guard control === tagsField else { return [] }
+        let matches = Self.completionSuggestions(
+            fullText: textView.string as NSString,
+            charRange: charRange,
+            customVariables: Settings.parseCustomVariables(Settings.customVariablesText).map { $0.name }
+        )
+        index.pointee = 0
+        return matches
     }
 
     func controlTextDidEndEditing(_ obj: Notification) {
