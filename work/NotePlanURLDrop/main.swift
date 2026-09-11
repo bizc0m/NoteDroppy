@@ -1078,18 +1078,36 @@ private let tagsConfigColorRules: [(NSRegularExpression, NSColor)] = {
 }()
 
 private func applyTagsConfigColors(to field: NSTextField) {
-    // V4B : préserve le caret pendant l'édition live (sinon saut en fin à chaque frappe).
-    let sel = field.currentEditor()?.selectedRange
     let text = field.stringValue
-    let attributed = NSMutableAttributedString(
-        string: text,
-        attributes: [
-            .foregroundColor: NSColor.labelColor,
-            .font: NSFont.systemFont(ofSize: 13, weight: .semibold)
-        ]
-    )
     let nsText = text as NSString
     let fullRange = NSRange(location: 0, length: nsText.length)
+    let baseAttributes: [NSAttributedString.Key: Any] = [
+        .foregroundColor: NSColor.labelColor,
+        .font: NSFont.systemFont(ofSize: 13, weight: .semibold)
+    ]
+
+    // V4B : pendant l'edition, `attributedStringValue` pousse le texte au field
+    // editor mais pas les attributs — le champ s'affichait donc en noir tant
+    // qu'on tapait. On ecrit directement dans son textStorage, et on restaure
+    // le caret (sinon il saute en fin de champ a chaque frappe).
+    if let editor = field.currentEditor() as? NSTextView, let storage = editor.textStorage {
+        let sel = editor.selectedRange
+        storage.beginEditing()
+        storage.setAttributes(baseAttributes, range: fullRange)
+        for (regex, color) in tagsConfigColorRules {
+            regex.enumerateMatches(in: text, range: fullRange) { match, _, _ in
+                guard let range = match?.range else { return }
+                storage.addAttribute(.foregroundColor, value: color, range: range)
+            }
+        }
+        storage.endEditing()
+        let loc = min(sel.location, nsText.length)
+        editor.selectedRange = NSRange(location: loc, length: min(sel.length, max(0, nsText.length - loc)))
+        return
+    }
+
+    // Hors edition : rendu statique du champ.
+    let attributed = NSMutableAttributedString(string: text, attributes: baseAttributes)
     for (regex, color) in tagsConfigColorRules {
         regex.enumerateMatches(in: text, range: fullRange) { match, _, _ in
             guard let range = match?.range else { return }
@@ -1097,11 +1115,6 @@ private func applyTagsConfigColors(to field: NSTextField) {
         }
     }
     field.attributedStringValue = attributed
-    if let sel, let editor = field.currentEditor() {
-        let len = nsText.length
-        let loc = min(sel.location, len)
-        editor.selectedRange = NSRange(location: loc, length: min(sel.length, max(0, len - loc)))
-    }
 }
 
 struct KeyCombo {

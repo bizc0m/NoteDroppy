@@ -1,5 +1,10 @@
 # Changelog
 
+## 4E.4
+
+- Tag & Config : la coloration des tokens s'affiche pendant la frappe (les
+  attributs sont ecrits dans le field editor, pas seulement dans le champ).
+
 ## 4E.2
 
 - Tag & Config : autocomplétion des tokens (Échap) — natifs, variables perso, `#capture`/`@contexte`.
