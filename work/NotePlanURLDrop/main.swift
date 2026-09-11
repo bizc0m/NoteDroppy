@@ -9,6 +9,8 @@ private enum Settings {
     static let codeSignIdentity = "NoteDroppy Local Code Signing"
     static let repositoryURL = "https://github.com/bizc0m/NoteDroppy"
     static let taskTagKey = "taskTag"
+    static let customVariablesKey = "customVariables"
+    static let mirrorNotesKey = "mirrorNotes"
     static let openNoteKey = "openNote"
     static let autoSaveKey = "autoSave"
     static let includeSourceKey = "includeSource"
@@ -28,6 +30,62 @@ private enum Settings {
         let value = UserDefaults.standard.string(forKey: taskTagKey) ?? "#capture"
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "#capture" : trimmed
+    }
+
+    /// V4B : variables perso `nom=valeur, …` définies par l'utilisateur.
+    /// Texte brut persisté ; parsé à chaque expansion (volume négligeable).
+    static var customVariablesText: String {
+        get { UserDefaults.standard.string(forKey: customVariablesKey) ?? "" }
+        set { UserDefaults.standard.set(newValue, forKey: customVariablesKey) }
+    }
+
+    /// V4B : notes miroirs — chaque capture y est aussi ajoutée (1 chemin .md par ligne).
+    static var mirrorNotesText: String {
+        get { UserDefaults.standard.string(forKey: mirrorNotesKey) ?? "" }
+        set { UserDefaults.standard.set(newValue, forKey: mirrorNotesKey) }
+    }
+
+    /// Chemins miroirs résolus (~/ étendu, .md imposé, non vides, dédupliqués).
+    static var mirrorNotes: [String] {
+        var seen = Set<String>()
+        var out: [String] = []
+        for chunk in mirrorNotesText.split(whereSeparator: { $0 == "\n" || $0 == "," }) {
+            var p = String(chunk).trimmingCharacters(in: .whitespacesAndNewlines)
+            if p.isEmpty { continue }
+            p = (p as NSString).expandingTildeInPath
+            if (p as NSString).pathExtension.isEmpty { p += ".md" }
+            guard !seen.contains(p) else { continue }
+            seen.insert(p)
+            out.append(p)
+        }
+        return out
+    }
+
+    /// Noms réservés (natifs ou à syntaxe spéciale) : non surchargeables.
+    static let reservedVariableNames: Set<String> = [
+        "date", "day", "time", "datetime", "month", "year",
+        "section", "llm", "source", "url", "file",
+    ]
+
+    /// Parse `nom=valeur, …` → paires valides (nom ^[A-Za-z][A-Za-z0-9_]*$, valeur non vide).
+    /// Les noms réservés sont ignorés (loggés par l'appelant si besoin).
+    static func parseCustomVariables(_ text: String) -> [(name: String, value: String)] {
+        var out: [(name: String, value: String)] = []
+        var seen = Set<String>()
+        for chunk in text.split(separator: ",") {
+            let pair = chunk.split(separator: "=", maxSplits: 1).map {
+                $0.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            guard pair.count == 2, !pair[0].isEmpty, !pair[1].isEmpty else { continue }
+            let name = pair[0]
+            guard name.range(of: "^[A-Za-z][A-Za-z0-9_]*$", options: .regularExpression) != nil else { continue }
+            let lower = name.lowercased()
+            guard !reservedVariableNames.contains(lower), !seen.contains(lower) else { continue }
+            seen.insert(lower)
+            out.append((name: name, value: pair[1]))
+        }
+        // Noms longs d'abord : évite que $client mange $clientName.
+        return out.sorted { $0.name.count > $1.name.count }
     }
 
     static var openNote: Bool {
@@ -738,6 +796,21 @@ private func expandedVariables(_ value: String, date: Date = Date()) -> String {
         .replacingOccurrences(of: "$time", with: format("HH:mm"))
         .replacingOccurrences(of: "$month", with: format("yyyy-MM"))
         .replacingOccurrences(of: "$year", with: format("yyyy"))
+        .replacingCustomVariables()
+}
+
+private extension String {
+    /// V4B : étend les variables perso `$nom` (hors `$nom(`, `$section(`, `$LLM`).
+    func replacingCustomVariables() -> String {
+        var result = self
+        for pair in Settings.parseCustomVariables(Settings.customVariablesText) {
+            let pattern = "\\$" + NSRegularExpression.escapedPattern(for: pair.name) + "(?![A-Za-z0-9_(\\[])"
+            guard let re = try? NSRegularExpression(pattern: pattern) else { continue }
+            let range = NSRange(result.startIndex..., in: result)
+            result = re.stringByReplacingMatches(in: result, range: range, withTemplate: NSRegularExpression.escapedTemplate(for: pair.value))
+        }
+        return result
+    }
 }
 
 private func shortcutString(from combo: KeyCombo) -> String {
@@ -2475,7 +2548,12 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
         let destination = selectedDestination()
         guard engine == .obsidian || destination.acceptsTarget else { return }
         var value = targetField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        if value == targetDisplay(for: destination, folder: "", note: "") {
+        let displayOnlyValues = [
+            targetDisplay(for: destination, folder: "", note: ""),
+            targetDisplay(for: .standard, folder: "", note: ""),
+            targetDisplay(for: .today, folder: "", note: "")
+        ]
+        if displayOnlyValues.contains(value) {
             value = ""
             targetField.stringValue = ""
         }
@@ -2506,6 +2584,7 @@ final class ShortcutSlotRow: NSObject, NSTextFieldDelegate {
 
     func applyDroppedPath(relativePath: String, isDirectory: Bool) {
         destinationPopup.selectItem(withTitle: ShortcutDestination.notePath.title)
+        outputPopup.selectItem(withTitle: outputTitle(engine: selectedEngine(), destination: .notePath))
         if isDirectory {
             folderField.stringValue = relativePath
             noteField.stringValue = ""
@@ -2797,6 +2876,8 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
     private var shortcutRows: [ShortcutSlotRow] = []
     private let shortcutHelpLabel = NSTextField(labelWithString: "Ligne 1 par défaut : NotePlan + Aujourd'hui (NotePlan). Sinon choisir Standard, déposer depuis Finder une note .md, ou coller un lien NotePlan.")
     private let variablesHelpLabel = NSTextField(labelWithString: "Variables : $date, $day, $time, $datetime, $month, $year")
+    private let customVarsField = NSTextField()
+    private let mirrorsField = NSTextField()
     private let helpButton = NSButton(title: "Aide", target: nil, action: nil)
     private let accessibilityButton = NSButton(title: "Autoriser Accessibilité", target: nil, action: nil)
     private let exportButton = NSButton(title: "Exporter JSON", target: nil, action: nil)
@@ -2819,6 +2900,7 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
     private let nc2Controller = NotePlanEditorWindowController()
     private var generatedShortcutURL: URL?
     private weak var activeTagConfigRow: ShortcutSlotRow?
+    private var settingsStack: NSStackView?
     private let shortcutMakerNotePathKey = "noteplanShortcutMaker.notePath"
     private let shortcutMakerNoteURLKey = "noteplanShortcutMaker.noteURL"
     private let shortcutMakerNoteDisplayKey = "noteplanShortcutMaker.noteDisplay"
@@ -2830,7 +2912,7 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
 
     convenience init() {
         let window = centeredWindow("Note Droopy — Capture", width: 1220, height: 860, style: [.titled, .closable, .miniaturizable, .resizable])
-        window.minSize = NSSize(width: 1220, height: 860)
+        window.minSize = NSSize(width: 980, height: 420)
         window.setContentSize(NSSize(width: 1220, height: 860))
         self.init(window: window)
         buildContent()
@@ -2851,12 +2933,18 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         let settingsDocument = CaptureBladeDropView()
         settingsDocument.translatesAutoresizingMaskIntoConstraints = false
         settingsDocument.onDropTarget = { [weak self] target in
-            guard let self, let row = self.focusedTargetRow() ?? self.selectedConfigRow() else { return false }
+            guard let self, let row = self.dropTargetRow() else {
+                writeDebugLog("capture-blade-drop:apply:no-row")
+                return false
+            }
+            writeDebugLog("capture-blade-drop:apply:slot:\(row.index)")
+            self.setActiveTagConfigRow(row)
             return self.applyDroppedTarget(target, to: row)
         }
         settingsScrollView.documentView = settingsDocument
 
         let stack = NSStackView()
+        settingsStack = stack
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 12
@@ -3088,6 +3176,34 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
 
         stack.addArrangedSubview(titleStack)
         stack.addArrangedSubview(variablesHelpLabel)
+        // V4B : variables perso `nom=valeur, …` (appliquées après les natives).
+        let customVarsRow = NSStackView()
+        customVarsRow.orientation = .horizontal
+        customVarsRow.alignment = .centerY
+        customVarsRow.spacing = 8
+        customVarsRow.translatesAutoresizingMaskIntoConstraints = false
+        customVarsRow.addArrangedSubview(formLabel("Variables perso", width: 128))
+        customVarsField.placeholderString = "client=Mirae, projet=JANUS"
+        customVarsField.stringValue = Settings.customVariablesText
+        customVarsField.target = self
+        customVarsField.action = #selector(customVarsChanged)
+        customVarsField.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        customVarsRow.addArrangedSubview(customVarsField)
+        stack.addArrangedSubview(customVarsRow)
+        // V4B : miroirs — la capture est aussi ajoutée à ces notes (combos multi-notes).
+        let mirrorsRow = NSStackView()
+        mirrorsRow.orientation = .horizontal
+        mirrorsRow.alignment = .centerY
+        mirrorsRow.spacing = 8
+        mirrorsRow.translatesAutoresizingMaskIntoConstraints = false
+        mirrorsRow.addArrangedSubview(formLabel("Miroirs", width: 128))
+        mirrorsField.placeholderString = "/chemin/journal.md (1 par ligne, vide = aucun)"
+        mirrorsField.stringValue = Settings.mirrorNotesText
+        mirrorsField.target = self
+        mirrorsField.action = #selector(mirrorsChanged)
+        mirrorsField.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        mirrorsRow.addArrangedSubview(mirrorsField)
+        stack.addArrangedSubview(mirrorsRow)
         stack.addArrangedSubview(optionsRow)
         stack.addArrangedSubview(colorsRow)
         stack.addArrangedSubview(shortcutsContainer)
@@ -3109,17 +3225,25 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         contentView.layoutSubtreeIfNeeded()
         let fitting = stack.fittingSize
         let screenFrame = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        let contentSize = NSSize(
+        window?.setContentSize(NSSize(
             width: max(1220, min(fitting.width + 72, screenFrame.width - 80)),
-            height: max(760, min(860, screenFrame.height - 80))
-        )
-        window?.setContentSize(contentSize)
-        window?.minSize = NSSize(width: 1100, height: 720)
+            height: 860
+        ))
+        window?.minSize = NSSize(width: 980, height: 420)
+        fitSettingsHeight(animated: false)
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(settingsDidChange),
             name: .settingsDidChange,
             object: nil
+        )
+        // V4B adaptatif : toute variation du contenu re-ajuste (débouncé).
+        stack.postsFrameChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(settingsContentFrameChanged),
+            name: NSView.frameDidChangeNotification,
+            object: stack
         )
         refreshAccessibilityStatus()
         markPendingChanges(false)
@@ -3142,6 +3266,7 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
             return
         }
         tabView.selectTabViewItem(item)
+        fitSettingsHeight(animated: false)
         NSApp.activate(ignoringOtherApps: true)
     }
 
@@ -3702,6 +3827,10 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         activeTagConfigRow ?? shortcutRows.first
     }
 
+    private func dropTargetRow() -> ShortcutSlotRow? {
+        focusedTargetRow() ?? activeTagConfigRow ?? shortcutRows.first
+    }
+
     private func configTokensFromControls() -> [String] {
         var tokens: [String] = []
         switch sourceWebPopup.titleOfSelectedItem ?? "Global" {
@@ -3806,6 +3935,7 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
     }
 
     private func applyDroppedTarget(_ target: ShortcutTarget, to row: ShortcutSlotRow) -> Bool {
+        writeDebugLog("shortcut-drop:apply-target:slot:\(row.index):url:\(target.url?.absoluteString ?? "-"):text:\(target.rawText ?? "-")")
         if obsidianURL(from: target) != nil {
             row.setEngine(.obsidian)
             return applyDroppedObsidianTarget(target, to: row)
@@ -3995,6 +4125,8 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
     private func commitDroppedPath(relativePath: String, isDirectory: Bool, row: ShortcutSlotRow) -> Bool {
         row.applyDroppedPath(relativePath: relativePath, isDirectory: isDirectory)
         autosaveSettings()
+        let saved = Settings.shortcutSlot(row.index)
+        writeDebugLog("shortcut-drop:saved:slot:\(row.index):destination:\(saved.destination.rawValue):folder:\(saved.folder):note:\(saved.noteReference)")
         statusLabel.stringValue = "Cible enregistrée : \(relativePath.isEmpty ? "Notes" : relativePath)"
         return true
     }
@@ -4307,8 +4439,71 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         autosaveSettings(message: "Réglages enregistrés.")
     }
 
+    /// V4B : ajuste la fenêtre au contenu réel (ni vide ni coupé).
+    /// Largeur et hauteur bornées [980×420, écran]. Ne fait rien si le contenu
+    /// n'est pas mesurable (garde la taille courante).
+    private func fitSettingsHeight(animated: Bool) {
+        guard let window, let stack = settingsStack else { return }
+        window.contentView?.layoutSubtreeIfNeeded()
+        let fitting = stack.fittingSize
+        guard fitting.height > 100, fitting.width > 100 else {
+            writeDebugLog("fit:skip:unmeasurable:\(fitting.width)x\(fitting.height)")
+            return
+        }
+        let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let wantW = min(max(fitting.width + 72, 980), screen.width - 80)
+        let wantH = min(max(fitting.height + 72, 420), screen.height - 80)
+        var frame = window.frame
+        let dW = wantW - frame.width
+        let dH = wantH - frame.height
+        guard abs(dW) > 4 || abs(dH) > 4 else {
+            writeDebugLog("fit:noop:frame:\(Int(frame.width))x\(Int(frame.height))")
+            return
+        }
+        frame.origin.x -= dW / 2
+        frame.origin.y -= dH
+        frame.size = NSSize(width: wantW, height: wantH)
+        writeDebugLog("fit:content:\(Int(fitting.width))x\(Int(fitting.height)):want:\(Int(wantW))x\(Int(wantH))")
+        window.setFrame(frame, display: true, animate: animated)
+    }
+
+    override func showWindow(_ sender: Any?) {
+        super.showWindow(sender)
+        fitSettingsHeight(animated: false)
+        // Re-mesure après layout différé (lignes construites en async).
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+            self?.fitSettingsHeight(animated: true)
+        }
+    }
+
+    @objc private func customVarsChanged() {
+        Settings.customVariablesText = customVarsField.stringValue
+        let n = Settings.parseCustomVariables(Settings.customVariablesText).count
+        writeDebugLog("custom-vars:saved:\(n)")
+    }
+
+    @objc private func mirrorsChanged() {
+        Settings.mirrorNotesText = mirrorsField.stringValue
+        writeDebugLog("mirrors:saved:\(Settings.mirrorNotes.count)")
+    }
+
     @objc private func settingsDidChange() {
         syncAutoSaveCheckboxes()
+        if window?.isVisible == true {
+            fitSettingsHeight(animated: false)
+        }
+    }
+
+    private var fitWorkItem: DispatchWorkItem?
+
+    @objc private func settingsContentFrameChanged() {
+        fitWorkItem?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            guard let self, self.window?.isVisible == true else { return }
+            self.fitSettingsHeight(animated: true)
+        }
+        fitWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: item)
     }
 
     private func syncAutoSaveCheckboxes() {
@@ -4569,12 +4764,6 @@ final class GlobalShortcutMonitor {
             self,
             selector: #selector(settingsDidChange),
             name: .settingsDidChange,
-            object: nil
-        )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(shortcutRecordingBegan),
-            name: .shortcutRecordingBegan,
             object: nil
         )
         NotificationCenter.default.addObserver(
@@ -5166,7 +5355,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !accessibilityTrusted {
             log("shortcut:accessibility-not-trusted:clipboard-only")
         }
-        let pageSource = sourceWebPage(for: NSWorkspace.shared.frontmostApplication)
+        var pageSource = sourceWebPage(for: NSWorkspace.shared.frontmostApplication)
+        // V4B : l'URL lue à l'instant T peut être une page neuve (ex Perplexity new_tab).
+        // Si stub détecté, on relit une fois après 1,5 s et on garde la meilleure.
+        if let first = pageSource, isStubURL(first.url) {
+            log("source-url:stub-retry:\(first.url)")
+            Thread.sleep(forTimeInterval: 1.5)
+            if let second = sourceWebPage(for: NSWorkspace.shared.frontmostApplication) {
+                if isStubURL(second.url) {
+                    // V4B : un faux lien vaut moins que rien → on omet la source.
+                    log("source-url:stub-dropped:\(second.url)")
+                    pageSource = nil
+                } else {
+                    pageSource = second
+                }
+            }
+        }
         let documentSource = accessibilityTrusted ? sourceDocumentFileURL(for: NSWorkspace.shared.frontmostApplication) : nil
 
         let pasteboard = NSPasteboard.general
@@ -5185,9 +5389,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 ? self.selectedTextFromAccessibility().flatMap { self.normalizedTodoText($0) }
                 : nil
             if let normalized = self.bestShortcutText(clipboardText: clipboardText, axText: axText) {
-                self.log("shortcut:text:\(normalized)")
+                // V4B : garde-fou — jamais une page complète en todo (2000 signes max).
+                var finalText = normalized
+                if finalText.count > 2000 {
+                    self.log("shortcut:truncated:\(finalText.count)")
+                    finalText = String(finalText.prefix(2000)) + "…"
+                }
+                self.log("shortcut:text:\(finalText.prefix(80))")
                 let source = pastedSourceURL.map { CaptureSource(url: $0, title: pageSource?.title) } ?? pageSource ?? documentSource
-                self.sendTodo(normalized, shortcutSlot: slot, sourceURL: source?.url, sourceTitle: source?.title)
+                self.sendTodo(finalText, shortcutSlot: slot, sourceURL: source?.url, sourceTitle: source?.title)
                 return
             }
             self.log("shortcut:no-selected-text")
@@ -5237,6 +5447,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         return selectedText
+    }
+
+    /// V4B : détecte les URL de page neuve/vides (navigation pas encore faite).
+    /// Pour les chats LLM, exige l'URL de discussion (avec ID), pas l'accueil.
+    private func isStubURL(_ url: String) -> Bool {
+        let l = url.lowercased()
+        if l.contains("newtab") || l.contains("new_tab") || l == "about:blank" { return true }
+        if l.hasPrefix("chrome://newtab") || l.hasPrefix("safari://") { return true }
+        if l.contains("perplexity.ai") {
+            return !(l.contains("/search/") || l.contains("/collections/") || l.contains("/page/"))
+        }
+        if l.contains("chatgpt.com") || l.contains("chat.openai.com") || l.contains("codex") {
+            return !(l.contains("/c/") || l.contains("/g/") || l.contains("/codex"))
+        }
+        if l.contains("claude.ai") {
+            return !(l.contains("/chat/") || l.contains("/project/"))
+        }
+        if l.contains("gemini.google.com") {
+            return !(l.contains("/app/") || l.contains("/share/"))
+        }
+        return false
     }
 
     private func sourceWebPage(for application: NSRunningApplication?) -> CaptureSource? {
@@ -5418,6 +5649,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let target = "noteplan://x-callback-url/addText?\(targetPrefix)text=\(encode(task))&mode=append&openNote=\(openNoteValue)"
         if let url = URL(string: target) {
             NSWorkspace.shared.open(url)
+            appendToMirrors(task)
+        }
+    }
+
+    /// V4B : ajoute la tâche à chaque note miroir (append, crée si absente).
+    /// Opération sûre (jamais d'écrasement) : pas de backup, juste un log par miroir.
+    private func appendToMirrors(_ task: String) {
+        for path in Settings.mirrorNotes {
+            let url = URL(fileURLWithPath: path)
+            do {
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                if FileManager.default.fileExists(atPath: url.path) {
+                    let handle = try FileHandle(forWritingTo: url)
+                    defer { try? handle.close() }
+                    if let data = try? Data(contentsOf: url), !data.isEmpty, data.last != 10 {
+                        try handle.seekToEnd()
+                        try handle.write(contentsOf: Data("\n".utf8))
+                    } else {
+                        try handle.seekToEnd()
+                    }
+                    try handle.write(contentsOf: Data((task + "\n").utf8))
+                } else {
+                    try Data((task + "\n").utf8).write(to: url, options: .atomic)
+                }
+                writeDebugLog("mirror:write:\(path)")
+            } catch {
+                writeDebugLog("mirror:error:\(path):\(error.localizedDescription)")
+            }
         }
     }
 
@@ -5458,6 +5717,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 try Data(payload.utf8).write(to: finalURL, options: .atomic)
             }
             log("obsidian:write:\(finalURL.path)")
+            appendToMirrors(task)
             if Settings.openNote {
                 NSWorkspace.shared.open(finalURL)
             }
@@ -5508,6 +5768,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let updated = markdownByInserting(task: task, in: existing, section: sectionTarget.name, position: sectionTarget.position)
             try updated.write(to: target.fileURL, atomically: true, encoding: .utf8)
             log("noteplan-section:write:\(target.relativePath):\(sectionTarget.name)")
+            appendToMirrors(task)
             if Settings.openNote {
                 openNotePlanFile(relativePath: target.relativePath)
             }
