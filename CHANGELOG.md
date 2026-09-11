@@ -1,5 +1,14 @@
 # Changelog
 
+## 4E.0
+
+- Fenêtre Capture adaptative (épouse le contenu, suit les changements).
+- Garde-fou capture : 2000 signes max, tronqué avec marqueur.
+- Deeplink : exige l'URL de discussion pour les chats LLM (retry + omission si stub).
+- Variables perso `nom=valeur` étendues comme les natives.
+- Miroirs : chaque capture aussi ajoutée aux notes listées.
+- Référence grammaire : `docs/GRAMMAIRE.md`.
+
 ## 3.8
 
 - Porte `Note Droopy.app` et `NoteDroppy V3.app` en version 3.8 build 380.
